@@ -111,7 +111,7 @@ func (sm *SiteManager) Delete(id string) error {
 
 // Scan walks all ScannedDirs and returns directories not yet registered.
 func (sm *SiteManager) Scan() ([]*Site, error) {
-	var discovered []*Site
+	discovered := []*Site{}
 
 	for _, dir := range sm.cfg.ScannedDirs {
 		entries, err := os.ReadDir(dir)

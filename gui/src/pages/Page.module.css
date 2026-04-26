@@ -56,5 +56,69 @@
 .section { margin-bottom: 40px; }
 .sectionTitle { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
 .hint { color: var(--text-muted); margin-bottom: 12px; font-size: 13px; }
-.list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.listItem { color: var(--text-muted); padding: 6px 0; border-bottom: 1px solid var(--border); }
+
+.pathList {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pathItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.pathLabel {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.btnRemovePath {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.btnRemovePath:hover { color: var(--danger); }
+
+.addRow { display: flex; gap: 8px; }
+.pathInput {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.pathInput:focus { border-color: var(--accent); }
+.pathInput::placeholder { color: var(--text-muted); }
+
+.btnAdd {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btnAdd:hover { background: var(--accent-hover); }

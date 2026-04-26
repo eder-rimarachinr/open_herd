@@ -7,12 +7,16 @@ export default function Sites() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [config, setConfig] = useState<any>(null);
+  const [newDir, setNewDir] = useState("");
 
   useEffect(() => {
     api.sites.list()
       .then(setSites)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+
+    api.config.get().then(setConfig).catch(() => {});
   }, []);
 
   async function scan() {
@@ -50,6 +54,32 @@ export default function Sites() {
     setSites((prev) => prev.filter((s) => s.id !== id));
   }
 
+  async function addScannedDir() {
+    const dir = newDir.trim();
+    if (!dir || !config) return;
+    try {
+      const updated = await api.config.update({
+        scanned_dirs: [...(config.scanned_dirs ?? []), dir],
+      });
+      setConfig(updated);
+      setNewDir("");
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
+  async function removeScannedDir(path: string) {
+    if (!config) return;
+    try {
+      const updated = await api.config.update({
+        scanned_dirs: config.scanned_dirs.filter((d: string) => d !== path),
+      });
+      setConfig(updated);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   if (loading) return <div className={styles.empty}>Loading…</div>;
 
   return (
@@ -65,7 +95,7 @@ export default function Sites() {
 
       {sites.length === 0 ? (
         <div className={styles.empty}>
-          No sites yet. Add a scanned directory in Settings and click "Scan for sites".
+          No sites yet. Add a scanned directory below and click "Scan for sites".
         </div>
       ) : (
         <table className={styles.table}>
@@ -109,6 +139,43 @@ export default function Sites() {
           </tbody>
         </table>
       )}
+
+      {/* Scanned Directories Management */}
+      <section className={styles.section} style={{ marginTop: "40px" }}>
+        <h2 className={styles.sectionTitle}>Scanned Directories</h2>
+        <p className={styles.hint}>
+          phpenv will scan these folders for projects (Laravel, WordPress, etc).
+        </p>
+
+        <div className={styles.pathList}>
+          {config?.scanned_dirs?.map((path: string) => (
+            <div key={path} className={styles.pathItem}>
+              <code className={styles.pathLabel}>{path}</code>
+              <button
+                className={styles.btnRemovePath}
+                onClick={() => removeScannedDir(path)}
+                title="Remove path"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.addRow}>
+          <input
+            className={styles.pathInput}
+            type="text"
+            placeholder="C:\Users\name\Projects"
+            value={newDir}
+            onChange={(e) => setNewDir(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addScannedDir()}
+          />
+          <button className={styles.btnAdd} onClick={addScannedDir}>
+            Add Directory
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
