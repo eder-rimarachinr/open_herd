@@ -17,9 +17,10 @@ type Config struct {
 	APIAddr     string   `json:"api_addr"`
 	HTTPPort    int      `json:"http_port"`
 	HTTPSPort   int      `json:"https_port"`
-	ScannedDirs []string `json:"scanned_dirs"`
-	DefaultPHP  string   `json:"default_php"`
-	OS          string   `json:"os"`
+	ScannedDirs    []string `json:"scanned_dirs"`
+	DefaultPHP     string   `json:"default_php"`
+	CustomPHPDirs  []string `json:"custom_php_dirs"`  // user-added PHP search paths
+	OS             string   `json:"os"`
 }
 
 func DefaultConfig() *Config {

@@ -28,6 +28,10 @@ func UpdateConfig(app *core.App) http.HandlerFunc {
 		if patch.DefaultPHP != "" {
 			app.Config.DefaultPHP = patch.DefaultPHP
 		}
+		// CustomPHPDirs can be set to an empty slice deliberately, so always apply.
+		if patch.CustomPHPDirs != nil {
+			app.Config.CustomPHPDirs = patch.CustomPHPDirs
+		}
 
 		if err := app.Config.Save(); err != nil {
 			InternalError(w, err)

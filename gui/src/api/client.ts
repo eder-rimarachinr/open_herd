@@ -65,6 +65,21 @@ export interface InstallProgress {
   error?: string;
 }
 
+export interface AppConfig {
+  base_dir: string;
+  nginx_dir: string;
+  php_dir: string;
+  certs_dir: string;
+  logs_dir: string;
+  api_addr: string;
+  http_port: number;
+  https_port: number;
+  scanned_dirs: string[];
+  default_php: string;
+  custom_php_dirs: string[];
+  os: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -86,12 +101,19 @@ export const api = {
   php: {
     versions: () => request<PHPVersion[]>("/php/versions"),
     catalog: () => request<CatalogEntry[]>("/php/catalog"),
+    detect: () => request<CatalogEntry[]>("/php/detect", { method: "POST" }),
     install: (major: string) =>
       request<unknown>("/php/install", { method: "POST", body: JSON.stringify({ major }) }),
     installProgress: (major: string) =>
       request<InstallProgress>(`/php/install/${major}/progress`),
     start: (v: string) => request<unknown>(`/php/versions/${v}/start`, { method: "POST" }),
     stop: (v: string) => request<unknown>(`/php/versions/${v}/stop`, { method: "POST" }),
+  },
+
+  config: {
+    get: () => request<AppConfig>("/config"),
+    update: (body: Partial<AppConfig>) =>
+      request<AppConfig>("/config", { method: "PUT", body: JSON.stringify(body) }),
   },
 
   nginx: {

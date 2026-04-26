@@ -14,6 +14,18 @@ func ListPHPVersions(app *core.App) http.HandlerFunc {
 	}
 }
 
+// DetectPHP re-runs PHP detection without restarting the daemon.
+// Useful after installing PHP outside of phpenv (XAMPP, manual install, etc.)
+func DetectPHP(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := app.PHP.Detect(); err != nil {
+			InternalError(w, err)
+			return
+		}
+		OK(w, app.PHP.GetCatalog())
+	}
+}
+
 func PHPCatalog(app *core.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		OK(w, app.PHP.GetCatalog())

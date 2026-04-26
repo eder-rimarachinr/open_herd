@@ -2,11 +2,79 @@
 
 .loading { color: var(--text-muted); padding: 48px 0; text-align: center; }
 
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+
 .title {
   font-size: 22px;
   font-weight: 700;
-  margin-bottom: 28px;
 }
+
+.btnRescan {
+  background: var(--border);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btnRescan:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+.btnRescan:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.hint code {
+  background: var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.addRow {
+  display: flex;
+  gap: 8px;
+}
+
+.pathInput {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.pathInput:focus { border-color: var(--accent); }
+.pathInput::placeholder { color: var(--text-muted); }
+
+.btnAdd {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btnAdd:hover { background: var(--accent-hover); }
 
 .section { margin-bottom: 40px; }
 
@@ -39,17 +107,48 @@
 }
 
 .row {
+  position: relative;        /* anchor for the progress overlay */
   display: grid;
-  grid-template-columns: 1fr 80px 260px;
+  grid-template-columns: 1fr 80px 160px;
   gap: 12px;
   align-items: center;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
   transition: background 0.1s;
 }
 .row:last-child { border-bottom: none; }
-.row:hover { background: rgba(255,255,255,0.02); }
+.row:hover:not(.rowInstalling) { background: rgba(255,255,255,0.02); }
 .eol { opacity: 0.55; }
+.rowInstalling { cursor: default; }
+
+/* ── Progress overlay (fills the entire row from the left) ────────────────── */
+
+.progressOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.progressFill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: var(--danger);      /* red, like Herd */
+  opacity: 0.25;
+  transition: width 0.4s ease;
+}
+
+.progressLabel {
+  position: relative;             /* above the fill */
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ── Cells ─────────────────────────────────────────────────────────────────── */
 
@@ -57,6 +156,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .major {
@@ -79,22 +179,12 @@
 .statusCell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  position: relative;
 }
 
 .checkmark {
-  color: var(--success);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.dotRunning {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 5px var(--success);
-  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 .actionCell {
@@ -102,15 +192,14 @@
   align-items: center;
   gap: 8px;
   justify-content: flex-end;
+  position: relative;
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 
 .btnInstall,
-.btnUpdate,
-.btnStart,
-.btnStop {
-  padding: 5px 14px;
+.btnUpdate {
+  padding: 5px 16px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -119,47 +208,13 @@
   transition: filter 0.15s;
   white-space: nowrap;
 }
-.btnInstall:hover,
-.btnUpdate:hover,
-.btnStart:hover,
-.btnStop:hover { filter: brightness(1.15); }
+.btnInstall:hover { filter: brightness(1.1); }
+.btnUpdate:hover  { filter: brightness(1.1); }
 
 .btnInstall { background: var(--border); color: var(--text); }
 .btnUpdate  { background: var(--danger); color: #fff; }
-.btnStart   { background: #14532d; color: var(--success); }
-.btnStop    { background: #450a0a; color: var(--danger); }
 
-/* ── Install progress ──────────────────────────────────────────────────────── */
-
-.progressWrap {
-  position: relative;
-  flex: 1;
-  height: 22px;
-  background: var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.progressBar {
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  background: var(--accent);
-  transition: width 0.4s ease;
-}
-
-.progressMsg {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  font-size: 11px;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* placeholder to keep unused block from breaking the parse */
 .errorText {
   font-size: 12px;
   color: var(--danger);

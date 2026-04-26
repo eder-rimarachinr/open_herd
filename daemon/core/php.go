@@ -37,7 +37,8 @@ func NewPHPManager(cfg *Config) *PHPManager {
 	}
 }
 
-// Detect scans well-known paths and the managed PHP directory for PHP binaries.
+// Detect scans well-known paths, common installers (XAMPP, WAMP, Laragon),
+// the system PATH, and user-configured custom dirs for PHP binaries.
 func (p *PHPManager) Detect() error {
 	for _, dir := range p.searchPaths() {
 		entries, err := os.ReadDir(dir)
@@ -45,7 +46,7 @@ func (p *PHPManager) Detect() error {
 			continue
 		}
 		for _, entry := range entries {
-			// On managed dir, each sub-directory is a PHP version (e.g. "8.3/").
+			// Sub-directories may be versioned installs (WAMP, Laragon, managed).
 			if entry.IsDir() {
 				p.detectInDir(filepath.Join(dir, entry.Name()))
 				continue
@@ -55,6 +56,14 @@ func (p *PHPManager) Detect() error {
 			}
 		}
 	}
+
+	// Also detect whatever `php` / `php.exe` resolves to in PATH.
+	for _, name := range []string{"php", "php.exe"} {
+		if resolved, err := exec.LookPath(name); err == nil {
+			p.detectBinary(resolved)
+		}
+	}
+
 	return nil
 }
 
@@ -122,12 +131,36 @@ func majorToPort(major string) int {
 }
 
 func (p *PHPManager) searchPaths() []string {
-	// Always include the managed directory (installs go here).
 	managed := p.cfg.PHPDir
+	var paths []string
+	paths = append(paths, managed)
+
 	if runtime.GOOS == "windows" {
-		return []string{managed, `C:\php`}
+		// Common Windows PHP installer locations.
+		// Each entry can either contain php.exe directly (XAMPP)
+		// or version sub-directories (WAMP, Laragon).
+		candidates := []string{
+			`C:\xampp\php`,
+			`C:\xampp64\php`,
+			`C:\wamp\bin\php`,
+			`C:\wamp64\bin\php`,
+			`C:\laragon\bin\php`,
+			`C:\php`,
+			`C:\php8`,
+			`C:\tools\php`,
+		}
+		for _, c := range candidates {
+			if fileExists(c) {
+				paths = append(paths, c)
+			}
+		}
+	} else {
+		paths = append(paths, "/usr/bin", "/usr/local/bin", "/usr/sbin")
 	}
-	return []string{managed, "/usr/bin", "/usr/local/bin", "/usr/sbin"}
+
+	// User-configured extra dirs (editable from GUI Settings).
+	paths = append(paths, p.cfg.CustomPHPDirs...)
+	return paths
 }
 
 func (p *PHPManager) findFPMBinary(dir, major string) string {

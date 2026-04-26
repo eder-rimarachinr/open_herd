@@ -46,6 +46,7 @@ func (s *Server) Start() error {
 		r.Route("/php", func(r chi.Router) {
 			r.Get("/versions", handlers.ListPHPVersions(s.app))
 			r.Get("/catalog", handlers.PHPCatalog(s.app))
+			r.Post("/detect", handlers.DetectPHP(s.app))
 			r.Post("/install", handlers.InstallPHP(s.app))
 			r.Get("/install/{major}/progress", handlers.InstallPHPProgress(s.app))
 			r.Post("/versions/{version}/start", handlers.StartPHPFPM(s.app))

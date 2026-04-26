@@ -5,7 +5,9 @@ import styles from "./PHP.module.css";
 export default function PHP() {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rescanning, setRescanning] = useState(false);
   const [installs, setInstalls] = useState<Record<string, InstallProgress>>({});
+  const [customDir, setCustomDir] = useState("");
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchCatalog = useCallback(async () => {
@@ -25,6 +27,28 @@ export default function PHP() {
       Object.values(pollRefs.current).forEach(clearInterval);
     };
   }, [fetchCatalog]);
+
+  async function handleRescan() {
+    setRescanning(true);
+    try {
+      const data = await api.php.detect();
+      setCatalog(data);
+    } finally {
+      setRescanning(false);
+    }
+  }
+
+  async function handleAddCustomDir() {
+    const dir = customDir.trim();
+    if (!dir) return;
+    const cfg = await api.config.get();
+    const updated = await api.config.update({
+      custom_php_dirs: [...(cfg.custom_php_dirs ?? []), dir],
+    });
+    console.log("Config updated", updated);
+    setCustomDir("");
+    handleRescan();
+  }
 
   function startPollingInstall(major: string) {
     if (pollRefs.current[major]) return;
@@ -60,24 +84,16 @@ export default function PHP() {
     }
   }
 
-  async function handleToggleFPM(entry: CatalogEntry) {
-    try {
-      if (entry.running) {
-        await api.php.stop(entry.major);
-      } else {
-        await api.php.start(entry.major);
-      }
-      fetchCatalog();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  }
-
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.title}>PHP</h1>
+      <div className={styles.header}>
+        <h1 className={styles.title}>PHP</h1>
+        <button className={styles.btnRescan} onClick={handleRescan} disabled={rescanning}>
+          {rescanning ? "Scanning…" : "↺ Rescan"}
+        </button>
+      </div>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Versions</h2>
@@ -99,8 +115,20 @@ export default function PHP() {
                 className={[
                   styles.row,
                   entry.end_of_life ? styles.eol : "",
+                  installing ? styles.rowInstalling : "",
                 ].join(" ")}
               >
+                {/* Progress bar overlay during install */}
+                {installing && prog && (
+                  <div className={styles.progressOverlay}>
+                    <div
+                      className={styles.progressFill}
+                      style={{ width: `${prog.percent}%` }}
+                    />
+                    <span className={styles.progressLabel}>{prog.message}</span>
+                  </div>
+                )}
+
                 {/* Version label */}
                 <div className={styles.versionCell}>
                   <span className={styles.major}>
@@ -115,67 +143,54 @@ export default function PHP() {
                   )}
                 </div>
 
-                {/* Install status column */}
+                {/* Installed checkmark */}
                 <div className={styles.statusCell}>
                   {entry.installed && (
-                    <span className={styles.checkmark} title="Installed">✓</span>
-                  )}
-                  {entry.installed && entry.running && (
-                    <span className={styles.dotRunning} title="FPM running" />
+                    <span className={styles.checkmark}>✓</span>
                   )}
                 </div>
 
-                {/* Action column */}
+                {/* Action buttons — only Install / Update */}
                 <div className={styles.actionCell}>
-                  {/* Install progress bar */}
-                  {installing && prog && (
-                    <div className={styles.progressWrap}>
-                      <div
-                        className={styles.progressBar}
-                        style={{ width: `${prog.percent}%` }}
-                      />
-                      <span className={styles.progressMsg}>{prog.message}</span>
-                    </div>
-                  )}
-
-                  {/* Error */}
                   {prog?.state === "error" && (
-                    <span className={styles.errorText}>{prog.error}</span>
+                    <span className={styles.errorText} title={prog.error}>Error</span>
                   )}
-
-                  {/* Buttons */}
-                  {!installing && (
-                    <>
-                      {!entry.installed && (
-                        <button
-                          className={styles.btnInstall}
-                          onClick={() => handleInstall(entry.major)}
-                        >
-                          Install
-                        </button>
-                      )}
-                      {entry.installed && entry.has_update && (
-                        <button
-                          className={styles.btnUpdate}
-                          onClick={() => handleInstall(entry.major)}
-                        >
-                          Update
-                        </button>
-                      )}
-                      {entry.installed && (
-                        <button
-                          className={entry.running ? styles.btnStop : styles.btnStart}
-                          onClick={() => handleToggleFPM(entry)}
-                        >
-                          {entry.running ? "Stop FPM" : "Start FPM"}
-                        </button>
-                      )}
-                    </>
+                  {!installing && !entry.installed && (
+                    <button className={styles.btnInstall} onClick={() => handleInstall(entry.major)}>
+                      Install
+                    </button>
+                  )}
+                  {!installing && entry.installed && entry.has_update && (
+                    <button className={styles.btnUpdate} onClick={() => handleInstall(entry.major)}>
+                      Update
+                    </button>
                   )}
                 </div>
               </div>
             );
           })}
+        </div>
+      </section>
+
+      {/* Custom PHP paths */}
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Custom PHP paths</h2>
+        <p className={styles.hint}>
+          phpenv auto-detects XAMPP, WAMP and Laragon. Add a directory here if your PHP is
+          installed elsewhere (e.g. <code>C:\my-tools\php83</code>).
+        </p>
+        <div className={styles.addRow}>
+          <input
+            className={styles.pathInput}
+            type="text"
+            placeholder="C:\path\to\php-dir"
+            value={customDir}
+            onChange={(e) => setCustomDir(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddCustomDir()}
+          />
+          <button className={styles.btnAdd} onClick={handleAddCustomDir}>
+            Add &amp; Rescan
+          </button>
         </div>
       </section>
     </div>
