@@ -33,6 +33,7 @@ func (s *Server) Start() error {
 		r.Route("/sites", func(r chi.Router) {
 			r.Get("/", handlers.ListSites(s.app))
 			r.Post("/", handlers.CreateSite(s.app))
+			r.Post("/bulk", handlers.BulkAddSites(s.app))
 			r.Post("/scan", handlers.ScanSites(s.app))
 			r.Route("/{siteID}", func(r chi.Router) {
 				r.Get("/", handlers.GetSite(s.app))

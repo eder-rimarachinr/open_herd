@@ -172,6 +172,32 @@ func DisableSSL(app *core.App) http.HandlerFunc {
 	}
 }
 
+func BulkAddSites(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var sites []*core.Site
+		if err := json.NewDecoder(r.Body).Decode(&sites); err != nil {
+			BadRequest(w, "invalid JSON")
+			return
+		}
+
+		if err := app.Sites.AddMultiple(sites); err != nil {
+			InternalError(w, err)
+			return
+		}
+
+		// Register DNS and Nginx for all new sites.
+		for _, s := range sites {
+			_ = app.DNS.AddSite(s.Domain)
+			if phpVer, ok := app.PHP.GetVersion(s.PHPVersion); ok {
+				_ = app.Nginx.GenerateSiteConfig(s, phpVer.FastCGIAddr)
+			}
+		}
+		_ = app.Nginx.Reload()
+
+		OK(w, sites)
+	}
+}
+
 // siteError maps domain errors to HTTP responses.
 func siteError(w http.ResponseWriter, err error) {
 	if errors.Is(err, core.ErrNotFound) {

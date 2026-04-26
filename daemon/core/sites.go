@@ -128,6 +128,15 @@ func (sm *SiteManager) Delete(id string) error {
 func (sm *SiteManager) Scan() ([]*Site, error) {
 	discovered := []*Site{}
 
+	sm.mu.Lock()
+	// 1. First, check if any registered sites no longer exist on disk.
+	for id, s := range sm.sites {
+		if _, err := os.Stat(s.Path); os.IsNotExist(err) {
+			delete(sm.sites, id)
+		}
+	}
+	sm.mu.Unlock()
+
 	for _, dir := range sm.cfg.ScannedDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -155,6 +164,23 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 	}
 
 	return discovered, nil
+}
+
+func (sm *SiteManager) AddMultiple(sites []*Site) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	
+	now := time.Now()
+	for _, s := range sites {
+		if s.ID == "" {
+			s.ID = uuid.New().String()
+		}
+		s.CreatedAt = now
+		s.UpdatedAt = now
+		sm.sites[s.ID] = s
+	}
+	
+	return sm.save()
 }
 
 func (sm *SiteManager) findByPath(path string) *Site {

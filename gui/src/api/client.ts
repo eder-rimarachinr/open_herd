@@ -88,6 +88,8 @@ export const api = {
   sites: {
     list: () => request<Site[]>("/sites"),
     scan: () => request<Site[]>("/sites/scan", { method: "POST" }),
+    bulk: (sites: Partial<Site>[]) =>
+      request<Site[]>("/sites/bulk", { method: "POST", body: JSON.stringify(sites) }),
     get: (id: string) => request<Site>(`/sites/${id}`),
     create: (body: Partial<Site>) =>
       request<Site>("/sites", { method: "POST", body: JSON.stringify(body) }),

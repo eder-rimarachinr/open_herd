@@ -23,13 +23,16 @@ export default function Sites() {
     setScanning(true);
     try {
       const found = await api.sites.scan();
-      if (found.length === 0) {
-        alert("No new sites found.");
-        return;
+      if (found.length > 0) {
+        // Bulk add only the differences.
+        await api.sites.bulk(found);
       }
-      // Auto-add discovered sites.
-      const added = await Promise.all(found.map((s) => api.sites.create(s)));
-      setSites((prev) => [...prev, ...added]);
+      // Re-fetch list to get the cleanup and new sites.
+      const updated = await api.sites.list();
+      setSites(updated);
+      if (found.length === 0) {
+        alert("No new sites found, but we updated the existing ones.");
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {

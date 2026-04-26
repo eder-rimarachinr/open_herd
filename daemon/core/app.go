@@ -52,6 +52,9 @@ func (a *App) Initialize() error {
 	if err := a.PHP.Detect(); err != nil {
 		log.Printf("PHP detection error: %v", err)
 	}
+	if err := a.EnsureTools(); err != nil {
+		log.Printf("Tool bootstrap error: %v", err)
+	}
 	if err := a.Nginx.GenerateMainConfig(); err != nil {
 		log.Printf("nginx config generation error: %v", err)
 	}
