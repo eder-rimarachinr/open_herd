@@ -184,6 +184,16 @@ func (p *PHPManager) GetVersions() []*PHPVersion {
 }
 
 func (p *PHPManager) GetVersion(major string) (*PHPVersion, bool) {
+	if major == "" {
+		major = p.cfg.DefaultPHP
+	}
+	// If still empty, pick the first available version
+	if major == "" {
+		for k := range p.versions {
+			major = k
+			break
+		}
+	}
 	v, ok := p.versions[major]
 	return v, ok
 }

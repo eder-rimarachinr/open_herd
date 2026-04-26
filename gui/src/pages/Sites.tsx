@@ -9,6 +9,7 @@ export default function Sites() {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [newDir, setNewDir] = useState("");
+  const [sslLoading, setSslLoading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     api.sites.list()
@@ -16,7 +17,7 @@ export default function Sites() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
 
-    api.config.get().then(setConfig).catch(() => {});
+    api.config.get().then(setConfig).catch(() => { });
   }, []);
 
   async function scan() {
@@ -41,6 +42,7 @@ export default function Sites() {
   }
 
   async function toggleSSL(site: Site) {
+    setSslLoading((prev) => ({ ...prev, [site.id]: true }));
     try {
       const updated = site.ssl_enabled
         ? await api.sites.disableSSL(site.id)
@@ -48,6 +50,8 @@ export default function Sites() {
       setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setSslLoading((prev) => ({ ...prev, [site.id]: false }));
     }
   }
 
@@ -108,7 +112,7 @@ export default function Sites() {
               <th>Domain</th>
               <th>PHP</th>
               <th>Type</th>
-              <th>SSL</th>
+              <th>HTTPS</th>
               <th></th>
             </tr>
           </thead>
@@ -128,8 +132,13 @@ export default function Sites() {
                   <span className="badge badge-gray">{site.project_type}</span>
                 </td>
                 <td>
-                  <button className="btn-ghost" onClick={() => toggleSSL(site)}>
-                    {site.ssl_enabled ? "Disable SSL" : "Enable SSL"}
+                  <button 
+                    className={site.ssl_enabled ? "btn-primary" : "btn-ghost"} 
+                    onClick={() => toggleSSL(site)}
+                    disabled={sslLoading[site.id]}
+                    title={site.ssl_enabled ? "Site is secure (HTTPS)" : "Site is HTTP only"}
+                  >
+                    {sslLoading[site.id] ? "Processing…" : (site.ssl_enabled ? "Disable HTTPS" : "Enable HTTPS")}
                   </button>
                 </td>
                 <td>
