@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Compiler variants to try, in order of preference.
@@ -107,38 +108,50 @@ func (p *PHPManager) runInstall(major, version string, prog *InstallProgress) er
 }
 
 // resolveDownloadURL tries each compiler variant (HEAD request) until one returns 200.
+// It checks both the main releases folder and the archives folder.
 func resolveDownloadURL(major, version string) (string, error) {
 	compilers, ok := compilerOrder[major]
 	if !ok {
 		compilers = []string{"vs16", "vs17", "vc15"}
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	var tried []string
 
 	for _, vs := range compilers {
-		url := fmt.Sprintf(
-			"https://windows.php.net/downloads/releases/php-%s-nts-Win32-%s-x64.zip",
-			version, vs,
-		)
+		fileName := fmt.Sprintf("php-%s-nts-Win32-%s-x64.zip", version, vs)
+		
+		// 1. Try main releases folder
+		url := "https://windows.php.net/downloads/releases/" + fileName
 		tried = append(tried, url)
-
-		req, _ := http.NewRequest(http.MethodHead, url, nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
+		if urlExists(client, url) {
 			return url, nil
+		}
+
+		// 2. Try archives folder (where older patches go)
+		archiveURL := "https://windows.php.net/downloads/releases/archives/" + fileName
+		tried = append(tried, archiveURL)
+		if urlExists(client, archiveURL) {
+			return archiveURL, nil
 		}
 	}
 
 	return "", fmt.Errorf(
-		"PHP %s not found on windows.php.net.\n\nURLs tried:\n  %s\n\nThe version number in the catalog may be outdated — try installing a different version.",
+		"PHP %s not found on windows.php.net.\n\nURLs tried:\n  %s\n\nTip: check that version %s is published at windows.php.net/download",
 		version,
 		strings.Join(tried, "\n  "),
+		version,
 	)
+}
+
+func urlExists(client *http.Client, url string) bool {
+	req, _ := http.NewRequest(http.MethodHead, url, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func configureINI(destDir string) error {

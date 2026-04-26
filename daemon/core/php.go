@@ -40,6 +40,7 @@ func NewPHPManager(cfg *Config) *PHPManager {
 // Detect scans well-known paths, common installers (XAMPP, WAMP, Laragon),
 // the system PATH, and user-configured custom dirs for PHP binaries.
 func (p *PHPManager) Detect() error {
+	p.versions = make(map[string]*PHPVersion)
 	for _, dir := range p.searchPaths() {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
