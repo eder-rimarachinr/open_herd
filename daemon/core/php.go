@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,9 +42,12 @@ func NewPHPManager(cfg *Config) *PHPManager {
 // the system PATH, and user-configured custom dirs for PHP binaries.
 func (p *PHPManager) Detect() error {
 	p.versions = make(map[string]*PHPVersion)
+	
 	for _, dir := range p.searchPaths() {
+		log.Printf("PHP Detect: Scanning dir %s", dir)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
+			log.Printf("PHP Detect: Error reading dir %s: %v", dir, err)
 			continue
 		}
 		for _, entry := range entries {
@@ -53,6 +57,7 @@ func (p *PHPManager) Detect() error {
 				continue
 			}
 			if isPHPBinary(entry.Name()) {
+				log.Printf("PHP Detect: Found binary %s in %s", entry.Name(), dir)
 				p.detectBinary(filepath.Join(dir, entry.Name()))
 			}
 		}
@@ -79,9 +84,12 @@ func (p *PHPManager) detectBinary(binaryPath string) {
 	}
 	out, err := exec.Command(binaryPath, "-r", "echo PHP_VERSION;").Output()
 	if err != nil {
+		log.Printf("PHP Detect: Execution failed %s: %v", binaryPath, err)
 		return
 	}
 	full := strings.TrimSpace(string(out))
+	log.Printf("PHP Detect: Detected version %s at %s", full, binaryPath)
+
 	parts := strings.SplitN(full, ".", 3)
 	if len(parts) < 2 {
 		return
