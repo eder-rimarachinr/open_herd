@@ -182,6 +182,12 @@
   position: relative;
 }
 
+.activeCell {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
 .checkmark {
   color: var(--text-muted);
   font-size: 14px;

@@ -147,13 +147,15 @@ func (a *App) ServiceStatus() ServiceStatus {
 	allRunning := a.Nginx.IsRunning()
 
 	for _, v := range versions {
-		phpStatus = append(phpStatus, PHPRunningStatus{
-			Major:   v.Major,
-			Version: v.Version,
-			Running: v.Running,
-		})
-		if !v.Running {
-			allRunning = false
+		if v.Major == a.Config.DefaultPHP || a.Config.DefaultPHP == "" {
+			phpStatus = append(phpStatus, PHPRunningStatus{
+				Major:   v.Major,
+				Version: v.Version,
+				Running: v.Running,
+			})
+			if !v.Running {
+				allRunning = false
+			}
 		}
 	}
 

@@ -107,7 +107,7 @@ export default function PHP() {
     try {
       const updated = await api.config.update({ default_php: major });
       setConfig(updated);
-      await api.services.startAll(); // restart services to apply
+      await api.services.start(); // restart services to apply new default
     } catch (e) {
       console.error("Failed to set active PHP", e);
     }

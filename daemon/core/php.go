@@ -28,6 +28,8 @@ type PHPManager struct {
 	versions map[string]*PHPVersion
 	// installs tracks in-progress or completed installs.
 	installs map[string]*InstallProgress
+	// procs tracks running php-cgi processes on Windows (no PID file).
+	procs map[string]*os.Process
 }
 
 func NewPHPManager(cfg *Config) *PHPManager {
@@ -35,6 +37,7 @@ func NewPHPManager(cfg *Config) *PHPManager {
 		cfg:      cfg,
 		versions: make(map[string]*PHPVersion),
 		installs: make(map[string]*InstallProgress),
+		procs:    make(map[string]*os.Process),
 	}
 }
 
@@ -211,18 +214,23 @@ func (p *PHPManager) StartFPM(major string) error {
 		return nil
 	}
 
-	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		port := majorToPort(major)
-		cmd = exec.Command(v.FPMBinary, fmt.Sprintf("-b 127.0.0.1:%d", port))
-	} else {
-		cfgPath := filepath.Join(p.cfg.PHPDir, major, "php-fpm.conf")
-		if err := p.generateFPMConfig(v, cfgPath); err != nil {
+		// -b and the address must be separate arguments; a combined string won't split.
+		cmd := exec.Command(v.FPMBinary, "-b", fmt.Sprintf("127.0.0.1:%d", port))
+		if err := cmd.Start(); err != nil {
 			return err
 		}
-		cmd = exec.Command(v.FPMBinary, "--fpm-config", cfgPath, "--daemonize")
+		p.procs[major] = cmd.Process
+		v.Running = true
+		return nil
 	}
 
+	cfgPath := filepath.Join(p.cfg.PHPDir, major, "php-fpm.conf")
+	if err := p.generateFPMConfig(v, cfgPath); err != nil {
+		return err
+	}
+	cmd := exec.Command(v.FPMBinary, "--fpm-config", cfgPath, "--daemonize")
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -235,6 +243,19 @@ func (p *PHPManager) StopFPM(major string) error {
 	v, ok := p.versions[major]
 	if !ok {
 		return fmt.Errorf("PHP %s not found", major)
+	}
+
+	// On Windows, php-cgi doesn't write a PID file — use the tracked process.
+	if runtime.GOOS == "windows" {
+		proc, running := p.procs[major]
+		if !running {
+			v.Running = false
+			return ErrNotRunning
+		}
+		_ = proc.Kill()
+		delete(p.procs, major)
+		v.Running = false
+		return nil
 	}
 
 	data, err := os.ReadFile(v.FPMPidFile)
