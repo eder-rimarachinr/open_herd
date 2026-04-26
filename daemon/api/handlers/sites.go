@@ -17,12 +17,25 @@ func ListSites(app *core.App) http.HandlerFunc {
 
 func ScanSites(app *core.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		found, err := app.Sites.Scan()
+		all, err := app.Sites.Scan()
 		if err != nil {
 			InternalError(w, err)
 			return
 		}
-		OK(w, found)
+		// Register DNS and nginx configs for every active site.
+		for _, s := range all {
+			if !s.Active {
+				continue
+			}
+			_ = app.DNS.AddSite(s.Domain)
+			if phpVer, ok := app.PHP.GetVersion(s.PHPVersion); ok {
+				_ = app.Nginx.GenerateSiteConfig(s, phpVer.FastCGIAddr)
+			}
+		}
+		if app.Nginx.IsRunning() {
+			_ = app.Nginx.Reload()
+		}
+		OK(w, all)
 	}
 }
 

@@ -15,6 +15,7 @@ const POLL_INTERVAL = 4000;
 export default function Layout() {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchStatus = useCallback(async () => {
@@ -34,9 +35,13 @@ export default function Layout() {
 
   async function handleStart() {
     setBusy(true);
+    setStartError(null);
     try {
+      // Start may take longer on first run (nginx download ~15 MB).
       const s = await api.services.start();
       setStatus(s);
+    } catch (e: any) {
+      setStartError(e.message);
     } finally {
       setBusy(false);
     }
@@ -44,9 +49,12 @@ export default function Layout() {
 
   async function handleStop() {
     setBusy(true);
+    setStartError(null);
     try {
       const s = await api.services.stop();
       setStatus(s);
+    } catch {
+      // ignore stop errors
     } finally {
       setBusy(false);
     }
@@ -113,6 +121,12 @@ export default function Layout() {
             </ul>
           )}
 
+          {startError && (
+            <div className={styles.startError} title={startError}>
+              ✕ {startError}
+            </div>
+          )}
+
           <div className={styles.controls}>
             {allRunning ? (
               <button
@@ -128,7 +142,7 @@ export default function Layout() {
                 onClick={handleStart}
                 disabled={busy || !daemonUp}
               >
-                {busy ? "…" : "Start all"}
+                {busy ? "Setting up…" : "Start all"}
               </button>
             )}
             <button

@@ -79,7 +79,7 @@ func (s *Server) Start() error {
 		Addr:         s.cfg.APIAddr,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 120 * time.Second, // allow time for nginx download on first start
 		IdleTimeout:  60 * time.Second,
 	}
 

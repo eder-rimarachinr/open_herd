@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, CatalogEntry, InstallProgress } from "../api/client";
+import { api, AppConfig, CatalogEntry, InstallProgress } from "../api/client";
 import styles from "./PHP.module.css";
 
 export default function PHP() {
@@ -8,7 +8,7 @@ export default function PHP() {
   const [rescanning, setRescanning] = useState(false);
   const [installs, setInstalls] = useState<Record<string, InstallProgress>>({});
   const [customDir, setCustomDir] = useState("");
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchCatalog = useCallback(async () => {
@@ -235,7 +235,7 @@ export default function PHP() {
 
         {/* List of existing custom paths */}
         <div className={styles.pathList}>
-          {config?.custom_php_dirs?.map((path) => (
+          {config?.custom_php_dirs?.map((path: string) => (
             <div key={path} className={styles.pathItem}>
               <code className={styles.pathLabel}>{path}</code>
               <button

@@ -70,6 +70,22 @@
   padding: 0 4px;
 }
 
+.startError {
+  font-size: 11px;
+  color: var(--danger);
+  padding: 4px 6px;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 5px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  cursor: help;
+}
+
 .serviceList {
   list-style: none;
   display: flex;

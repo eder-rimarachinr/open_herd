@@ -124,18 +124,20 @@ func (sm *SiteManager) Delete(id string) error {
 	return sm.save()
 }
 
-// Scan walks all ScannedDirs and returns directories not yet registered.
+// Scan walks all ScannedDirs, persists any newly found sites, prunes deleted
+// ones, and returns the full updated site list.
 func (sm *SiteManager) Scan() ([]*Site, error) {
-	discovered := []*Site{}
-
 	sm.mu.Lock()
-	// 1. First, check if any registered sites no longer exist on disk.
+	// Prune registered sites that no longer exist on disk.
 	for id, s := range sm.sites {
 		if _, err := os.Stat(s.Path); os.IsNotExist(err) {
 			delete(sm.sites, id)
 		}
 	}
 	sm.mu.Unlock()
+
+	now := time.Now()
+	var added []*Site
 
 	for _, dir := range sm.cfg.ScannedDirs {
 		entries, err := os.ReadDir(dir)
@@ -151,7 +153,7 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 				continue
 			}
 			name := entry.Name()
-			discovered = append(discovered, &Site{
+			s := &Site{
 				ID:          uuid.New().String(),
 				Name:        name,
 				Domain:      strings.ToLower(name) + ".test",
@@ -159,11 +161,22 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 				PHPVersion:  sm.cfg.DefaultPHP,
 				ProjectType: detectProjectType(path),
 				Active:      true,
-			})
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			sm.mu.Lock()
+			sm.sites[s.ID] = s
+			sm.mu.Unlock()
+			added = append(added, s)
 		}
 	}
 
-	return discovered, nil
+	if err := sm.save(); err != nil {
+		return nil, err
+	}
+
+	_ = added // caller can use List() for the full set
+	return sm.List(), nil
 }
 
 func (sm *SiteManager) AddMultiple(sites []*Site) error {

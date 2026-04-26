@@ -1,10 +1,14 @@
 const BASE = "http://127.0.0.1:7878/api/v1";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const { timeoutMs, ...fetchInit } = init ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs ?? 15_000);
   const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+    signal: controller.signal,
+    ...fetchInit,
+  }).finally(() => clearTimeout(timer));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error ?? res.statusText);
@@ -127,7 +131,8 @@ export const api = {
 
   services: {
     status: () => request<ServiceStatus>("/services/status"),
-    start: () => request<ServiceStatus>("/services/start", { method: "POST" }),
+    // Allow 120s — first start may download nginx (~15 MB).
+    start: () => request<ServiceStatus>("/services/start", { method: "POST", timeoutMs: 120_000 }),
     stop: () => request<ServiceStatus>("/services/stop", { method: "POST" }),
   },
 

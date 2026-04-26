@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,6 +158,13 @@ func (n *NginxManager) nginxBin() string {
 }
 
 func (n *NginxManager) Start() error {
+	// Download nginx on first run (Windows only).
+	if runtime.GOOS == "windows" && !fileExists(n.nginxBin()) {
+		log.Printf("nginx binary not found, downloading...")
+		if err := ensureNginxWindows(n.cfg.NginxDir); err != nil {
+			return fmt.Errorf("nginx not installed and download failed: %w", err)
+		}
+	}
 	cmd := exec.Command(n.nginxBin(), "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
 	cmd.Dir = n.cfg.NginxDir
 	return cmd.Start()

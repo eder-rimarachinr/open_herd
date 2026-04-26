@@ -26,7 +26,7 @@ func (a *App) EnsureTools() error {
 
 	// 2. nginx (Windows only — Linux uses system nginx)
 	if runtime.GOOS == "windows" {
-		if err := a.ensureNginxWindows(); err != nil {
+		if err := ensureNginxWindows(a.Config.NginxDir); err != nil {
 			log.Printf("Warning: could not setup nginx: %v", err)
 		}
 	}
@@ -70,8 +70,8 @@ func (a *App) ensureMkcert(binDir string) error {
 
 const nginxVersion = "1.26.3"
 
-func (a *App) ensureNginxWindows() error {
-	nginxBin := filepath.Join(a.Config.NginxDir, "nginx.exe")
+func ensureNginxWindows(nginxDir string) error {
+	nginxBin := filepath.Join(nginxDir, "nginx.exe")
 	if fileExists(nginxBin) {
 		return nil
 	}
@@ -100,7 +100,7 @@ func (a *App) ensureNginxWindows() error {
 	tmp.Close()
 
 	prefix := fmt.Sprintf("nginx-%s/", nginxVersion)
-	return extractNginxZip(tmp.Name(), a.Config.NginxDir, prefix)
+	return extractNginxZip(tmp.Name(), nginxDir, prefix)
 }
 
 // extractNginxZip extracts nginx.exe and conf/mime.types from the nginx zip into destDir.
