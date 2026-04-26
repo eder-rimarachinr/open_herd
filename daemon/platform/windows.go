@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 const hostsMarker = "# phpenv"
@@ -25,13 +26,56 @@ func (w *WindowsPlatform) AddHostEntry(domain, ip string) error {
 	if hostEntryExists(domain) {
 		return nil
 	}
-	f, err := os.OpenFile(hostsFile, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("open %s: %w (try running as Administrator)", hostsFile, err)
+	// Try direct write first (works when running as Administrator).
+	if f, err := os.OpenFile(hostsFile, os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		_, writeErr := fmt.Fprintf(f, "\r\n%s %s %s\r\n", ip, domain, hostsMarker)
+		f.Close()
+		if writeErr == nil {
+			return nil
+		}
 	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s %s %s\r\n", ip, domain, hostsMarker)
-	return err
+	// Fall back: write a temp script and run it elevated (triggers UAC).
+	return w.appendHostsEntryElevated(fmt.Sprintf("%s %s %s", ip, domain, hostsMarker))
+}
+
+func (w *WindowsPlatform) appendHostsEntryElevated(entry string) error {
+	tmp, err := os.CreateTemp("", "phpenv-hosts-*.ps1")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	script := fmt.Sprintf("Add-Content -Path '%s' -Value \"`r`n%s\"", hostsFile, entry)
+	tmp.WriteString(script)
+	tmp.Close()
+
+	return exec.Command("powershell", "-NonInteractive", "-Command",
+		fmt.Sprintf(`Start-Process powershell -Verb RunAs -Wait -ArgumentList '-ExecutionPolicy Bypass -File "%s"'`, tmp.Name()),
+	).Run()
+}
+
+// ElevatedRun spawns program with its args via PowerShell Start-Process -Verb RunAs,
+// which triggers a UAC consent dialog. Blocks until the elevated process exits.
+func (w *WindowsPlatform) ElevatedRun(program string, args ...string) error {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = fmt.Sprintf("'%s'", psEscape(a))
+	}
+	var argList string
+	if len(quoted) > 0 {
+		argList = fmt.Sprintf(" -ArgumentList %s", strings.Join(quoted, ","))
+	}
+	psCmd := fmt.Sprintf(`Start-Process '%s'%s -Verb RunAs -Wait`, psEscape(program), argList)
+	return exec.Command("powershell", "-NonInteractive", "-Command", psCmd).Run()
+}
+
+// psEscape escapes single quotes for use inside PowerShell single-quoted strings.
+func psEscape(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\'' {
+			return unicode.ReplacementChar // replace with safe char; rare in paths
+		}
+		return r
+	}, s)
 }
 
 func (w *WindowsPlatform) RemoveHostEntry(domain string) error {

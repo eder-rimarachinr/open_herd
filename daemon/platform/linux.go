@@ -23,13 +23,37 @@ func (l *LinuxPlatform) AddHostEntry(domain, ip string) error {
 	if hostEntryExists(domain) {
 		return nil
 	}
-	f, err := os.OpenFile(hostsFile, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("open %s: %w (try running with sudo)", hostsFile, err)
+	entry := fmt.Sprintf("\n%s %s %s\n", ip, domain, hostsMarker)
+
+	// Try direct write first (works if daemon is running as root).
+	if f, err := os.OpenFile(hostsFile, os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		_, writeErr := fmt.Fprintf(f, entry)
+		f.Close()
+		if writeErr == nil {
+			return nil
+		}
 	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s %s %s\n", ip, domain, hostsMarker)
-	return err
+
+	// Fall back: pipe the entry into tee with elevated privileges.
+	teeArgs := []string{"tee", "-a", hostsFile}
+	var cmd *exec.Cmd
+	if _, err := exec.LookPath("pkexec"); err == nil {
+		cmd = exec.Command("pkexec", teeArgs...)
+	} else {
+		cmd = exec.Command("sudo", teeArgs...)
+	}
+	cmd.Stdin = strings.NewReader(entry)
+	return cmd.Run()
+}
+
+// ElevatedRun runs program with args using pkexec (GUI password dialog on desktop
+// environments) falling back to sudo (terminal). Blocks until exit.
+func (l *LinuxPlatform) ElevatedRun(program string, args ...string) error {
+	all := append([]string{program}, args...)
+	if _, err := exec.LookPath("pkexec"); err == nil {
+		return exec.Command("pkexec", all...).Run()
+	}
+	return exec.Command("sudo", all...).Run()
 }
 
 func (l *LinuxPlatform) RemoveHostEntry(domain string) error {

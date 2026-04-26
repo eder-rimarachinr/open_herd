@@ -15,4 +15,8 @@ type Platform interface {
 
 	// Shell helpers
 	OpenBrowser(url string) error
+
+	// ElevatedRun runs program with elevated privileges (UAC on Windows,
+	// pkexec/sudo on Linux). It blocks until the child exits.
+	ElevatedRun(program string, args ...string) error
 }

@@ -1,11 +1,11 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"context"
 	"time"
 
 	"github.com/open-herd/phpenv/daemon/platform"
@@ -21,8 +21,9 @@ func NewSSLManager(cfg *Config, plat platform.Platform) *SSLManager {
 }
 
 // Install runs `mkcert -install` to add the local CA to the system trust store.
+// On Windows this triggers a certificate-trust dialog; on Linux it uses pkexec/sudo.
 func (s *SSLManager) Install() error {
-	return exec.Command(s.plat.MkcertBinary(), "-install").Run()
+	return s.plat.ElevatedRun(s.plat.MkcertBinary(), "-install")
 }
 
 
