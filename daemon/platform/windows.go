@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"unicode"
 )
 
 const hostsMarker = "# phpenv"
@@ -70,12 +69,7 @@ func (w *WindowsPlatform) ElevatedRun(program string, args ...string) error {
 
 // psEscape escapes single quotes for use inside PowerShell single-quoted strings.
 func psEscape(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\'' {
-			return unicode.ReplacementChar // replace with safe char; rare in paths
-		}
-		return r
-	}, s)
+	return strings.ReplaceAll(s, "'", "`'")
 }
 
 func (w *WindowsPlatform) RemoveHostEntry(domain string) error {

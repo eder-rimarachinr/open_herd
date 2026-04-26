@@ -33,7 +33,7 @@ func (s *SSLManager) IssueCert(domain string) error {
 	certFile := filepath.Join(s.cfg.CertsDir, domain+".pem")
 	keyFile := filepath.Join(s.cfg.CertsDir, domain+"-key.pem")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, s.plat.MkcertBinary(),
@@ -53,7 +53,7 @@ func (s *SSLManager) IssueCert(domain string) error {
 	err := cmd.Run()
 	
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("mkcert timed out (el generador se quedo bloqueado 15s)")
+		return fmt.Errorf("mkcert timed out after 60s — check %s for details", logPath)
 	}
 	if err != nil {
 		return fmt.Errorf("mkcert failed, check log: %s", logPath)
