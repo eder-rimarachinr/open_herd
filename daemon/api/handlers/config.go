@@ -1,0 +1,38 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/open-herd/phpenv/daemon/core"
+)
+
+func GetConfig(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		OK(w, app.Config)
+	}
+}
+
+func UpdateConfig(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var patch core.Config
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			BadRequest(w, "invalid JSON")
+			return
+		}
+
+		// Only allow updating user-facing fields.
+		if len(patch.ScannedDirs) > 0 {
+			app.Config.ScannedDirs = patch.ScannedDirs
+		}
+		if patch.DefaultPHP != "" {
+			app.Config.DefaultPHP = patch.DefaultPHP
+		}
+
+		if err := app.Config.Save(); err != nil {
+			InternalError(w, err)
+			return
+		}
+		OK(w, app.Config)
+	}
+}
