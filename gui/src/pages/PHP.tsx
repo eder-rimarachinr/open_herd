@@ -102,6 +102,17 @@ export default function PHP() {
     }
   }
 
+  async function handleSetActive(major: string) {
+    if (!config || config.default_php === major) return;
+    try {
+      const updated = await api.config.update({ default_php: major });
+      setConfig(updated);
+      await api.services.startAll(); // restart services to apply
+    } catch (e) {
+      console.error("Failed to set active PHP", e);
+    }
+  }
+
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
   return (
@@ -120,6 +131,7 @@ export default function PHP() {
           <div className={styles.thead}>
             <span>Version</span>
             <span>Installed</span>
+            <span>Active</span>
             <span></span>
           </div>
 
@@ -165,6 +177,19 @@ export default function PHP() {
                 <div className={styles.statusCell}>
                   {entry.installed && (
                     <span className={styles.checkmark}>✓</span>
+                  )}
+                </div>
+
+                {/* Active Radio Button */}
+                <div className={styles.activeCell}>
+                  {entry.installed && (
+                    <input
+                      type="radio"
+                      name="active_php"
+                      checked={config?.default_php === entry.major}
+                      onChange={() => handleSetActive(entry.major)}
+                      style={{ cursor: "pointer" }}
+                    />
                   )}
                 </div>
 

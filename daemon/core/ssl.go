@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"context"
+	"time"
 
 	"github.com/open-herd/phpenv/daemon/platform"
 )
@@ -23,19 +25,37 @@ func (s *SSLManager) Install() error {
 	return exec.Command(s.plat.MkcertBinary(), "-install").Run()
 }
 
+
+
 // IssueCert generates a cert+key pair for the given domain under CertsDir.
 func (s *SSLManager) IssueCert(domain string) error {
 	certFile := filepath.Join(s.cfg.CertsDir, domain+".pem")
 	keyFile := filepath.Join(s.cfg.CertsDir, domain+"-key.pem")
 
-	cmd := exec.Command(s.plat.MkcertBinary(),
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, s.plat.MkcertBinary(),
 		"-cert-file", certFile,
 		"-key-file", keyFile,
 		domain,
 	)
-	out, err := cmd.CombinedOutput()
+	
+	logPath := filepath.Join(s.cfg.CertsDir, domain+"-mkcert.log")
+	logFile, _ := os.Create(logPath)
+	if logFile != nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		defer logFile.Close()
+	}
+
+	err := cmd.Run()
+	
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("mkcert timed out (el generador se quedo bloqueado 15s)")
+	}
 	if err != nil {
-		return fmt.Errorf("mkcert failed: %s", out)
+		return fmt.Errorf("mkcert failed, check log: %s", logPath)
 	}
 	return nil
 }

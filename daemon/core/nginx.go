@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"text/template"
 )
 
@@ -148,20 +149,35 @@ func (n *NginxManager) RemoveSiteConfig(domain string) error {
 	return os.Remove(filepath.Join(n.cfg.SitesDir, domain+".conf"))
 }
 
+func (n *NginxManager) nginxBin() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(n.cfg.NginxDir, "nginx.exe")
+	}
+	return "nginx"
+}
+
 func (n *NginxManager) Start() error {
-	return exec.Command("nginx", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf")).Start()
+	cmd := exec.Command(n.nginxBin(), "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	cmd.Dir = n.cfg.NginxDir
+	return cmd.Start()
 }
 
 func (n *NginxManager) Stop() error {
-	return exec.Command("nginx", "-s", "stop").Run()
+	cmd := exec.Command(n.nginxBin(), "-s", "stop", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	cmd.Dir = n.cfg.NginxDir
+	return cmd.Run()
 }
 
 func (n *NginxManager) Reload() error {
-	return exec.Command("nginx", "-s", "reload").Run()
+	cmd := exec.Command(n.nginxBin(), "-s", "reload", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	cmd.Dir = n.cfg.NginxDir
+	return cmd.Run()
 }
 
 func (n *NginxManager) Test() error {
-	out, err := exec.Command("nginx", "-t", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf")).CombinedOutput()
+	cmd := exec.Command(n.nginxBin(), "-t", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	cmd.Dir = n.cfg.NginxDir
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nginx config test failed: %s", out)
 	}

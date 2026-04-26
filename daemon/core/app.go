@@ -64,11 +64,28 @@ func (a *App) Initialize() error {
 // StartServices starts PHP-FPM for all detected versions, generates nginx
 // site configs, then starts nginx. DNS entries are registered for active sites.
 func (a *App) StartServices() error {
-	// 1. Start PHP-FPM for every detected version.
+	activeMajor := a.Config.DefaultPHP
+	
+	// If no default is set or it's invalid, pick the first installed version
+	if activeMajor == "" {
+		for _, v := range a.PHP.GetVersions() {
+			activeMajor = v.Major
+			a.Config.DefaultPHP = activeMajor // Update in memory
+			break
+		}
+	}
+
+	// 1. Start ONLY the active PHP-FPM version, and stop the others.
 	for _, v := range a.PHP.GetVersions() {
-		if !v.Running {
-			if err := a.PHP.StartFPM(v.Major); err != nil {
-				log.Printf("php-fpm %s: %v", v.Major, err)
+		if v.Major == activeMajor {
+			if !v.Running {
+				if err := a.PHP.StartFPM(v.Major); err != nil {
+					log.Printf("php-fpm %s: %v", v.Major, err)
+				}
+			}
+		} else {
+			if v.Running {
+				_ = a.PHP.StopFPM(v.Major)
 			}
 		}
 	}
