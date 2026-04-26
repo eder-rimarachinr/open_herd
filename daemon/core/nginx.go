@@ -121,7 +121,7 @@ func (n *NginxManager) GenerateSiteConfig(site *Site, fastCGIAddr string) error 
 	tmpl := template.Must(template.New("site").Parse(nginxSiteTemplate))
 
 	docRoot := site.Path
-	if site.ProjectType == ProjectTypeLaravel {
+	if site.ProjectType == ProjectTypeLaravel || site.ProjectType == ProjectTypeCI4 {
 		docRoot = filepath.Join(site.Path, "public")
 	}
 

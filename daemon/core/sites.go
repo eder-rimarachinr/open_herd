@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,9 @@ type ProjectType string
 const (
 	ProjectTypeLaravel   ProjectType = "laravel"
 	ProjectTypeWordPress ProjectType = "wordpress"
+	ProjectTypeCI4       ProjectType = "codeigniter4"
+	ProjectTypeCI3       ProjectType = "codeigniter3"
+	ProjectTypeStatic    ProjectType = "static"
 	ProjectTypeGeneric   ProjectType = "generic"
 )
 
@@ -33,6 +37,7 @@ type Site struct {
 
 type SiteManager struct {
 	cfg   *Config
+	mu    sync.Mutex
 	sites map[string]*Site
 }
 
@@ -69,6 +74,8 @@ func (sm *SiteManager) save() error {
 }
 
 func (sm *SiteManager) List() []*Site {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	result := make([]*Site, 0, len(sm.sites))
 	for _, s := range sm.sites {
 		result = append(result, s)
@@ -77,11 +84,15 @@ func (sm *SiteManager) List() []*Site {
 }
 
 func (sm *SiteManager) Get(id string) (*Site, bool) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	s, ok := sm.sites[id]
 	return s, ok
 }
 
 func (sm *SiteManager) Add(site *Site) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if site.ID == "" {
 		site.ID = uuid.New().String()
 	}
@@ -93,6 +104,8 @@ func (sm *SiteManager) Add(site *Site) error {
 }
 
 func (sm *SiteManager) Update(site *Site) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if _, ok := sm.sites[site.ID]; !ok {
 		return ErrNotFound
 	}
@@ -102,6 +115,8 @@ func (sm *SiteManager) Update(site *Site) error {
 }
 
 func (sm *SiteManager) Delete(id string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if _, ok := sm.sites[id]; !ok {
 		return ErrNotFound
 	}
@@ -143,6 +158,8 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 }
 
 func (sm *SiteManager) findByPath(path string) *Site {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	for _, s := range sm.sites {
 		if s.Path == path {
 			return s
@@ -155,8 +172,17 @@ func detectProjectType(path string) ProjectType {
 	if fileExists(filepath.Join(path, "artisan")) {
 		return ProjectTypeLaravel
 	}
+	if fileExists(filepath.Join(path, "spark")) {
+		return ProjectTypeCI4
+	}
+	if fileExists(filepath.Join(path, "application")) && fileExists(filepath.Join(path, "system")) && fileExists(filepath.Join(path, "index.php")) {
+		return ProjectTypeCI3
+	}
 	if fileExists(filepath.Join(path, "wp-config.php")) || fileExists(filepath.Join(path, "wp-login.php")) {
 		return ProjectTypeWordPress
+	}
+	if fileExists(filepath.Join(path, "index.html")) || fileExists(filepath.Join(path, "index.htm")) {
+		return ProjectTypeStatic
 	}
 	return ProjectTypeGeneric
 }
