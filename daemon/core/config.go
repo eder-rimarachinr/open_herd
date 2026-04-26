@@ -27,7 +27,7 @@ func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	base := filepath.Join(home, ".phpenv")
 
-	return &Config{
+	cfg := &Config{
 		BaseDir:     base,
 		NginxDir:    filepath.Join(base, "nginx"),
 		PHPDir:      filepath.Join(base, "php"),
@@ -41,6 +41,38 @@ func DefaultConfig() *Config {
 		DefaultPHP:  "",
 		OS:          runtime.GOOS,
 	}
+
+	// Initialize with existing default paths so the user can see/manage them.
+	cfg.CustomPHPDirs = cfg.GetDefaultPHPDirs()
+	return cfg
+}
+
+func (c *Config) GetDefaultPHPDirs() []string {
+	var paths []string
+	if runtime.GOOS == "windows" {
+		candidates := []string{
+			`C:\xampp\php`,
+			`C:\xampp64\php`,
+			`C:\wamp\bin\php`,
+			`C:\wamp64\bin\php`,
+			`C:\laragon\bin\php`,
+			`C:\php`,
+			`C:\tools\php`,
+		}
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				paths = append(paths, p)
+			}
+		}
+	} else {
+		candidates := []string{"/usr/bin", "/usr/local/bin", "/usr/sbin"}
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				paths = append(paths, p)
+			}
+		}
+	}
+	return paths
 }
 
 func LoadConfig() (*Config, error) {
