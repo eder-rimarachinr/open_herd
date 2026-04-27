@@ -31,8 +31,9 @@
     "icon": [
       "icons/icon.ico"
     ],
-    "resources": [
-      "phpenv-daemon.exe"
-    ]
+    "externalBin": [
+      "bin/phpenv-daemon"
+    ],
+    "resources": []
   }
 }

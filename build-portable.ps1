@@ -19,13 +19,17 @@ if (-not (Test-Path $iconPath)) {
     [IO.File]::WriteAllBytes($iconPath, [Convert]::FromBase64String($base64))
 }
 
-# 2. Compilar el daemon de Go
+# 2. Compilar el daemon de Go como Sidecar de Tauri
 Write-Host "`n[2/4] Compilando el motor de Go (phpenv-daemon)..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "daemon")
-# Usamos -ldflags="-H windowsgui" para que el motor no abra una ventana negra de consola al ejecutarse
-go build -ldflags="-H windowsgui" -o (Join-Path $root "gui\src-tauri\phpenv-daemon.exe") .
+# Tauri exige que los sidecars tengan el triple del sistema en el nombre
+$targetTriple = "x86_64-pc-windows-msvc"
+$sidecarName = "phpenv-daemon-$targetTriple.exe"
+$binDir = Join-Path $root "gui\src-tauri\bin"
+if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
+go build -ldflags="-H windowsgui" -o (Join-Path $binDir $sidecarName) .
 
-if (-not (Test-Path (Join-Path $root "gui\src-tauri\phpenv-daemon.exe"))) {
+if (-not (Test-Path (Join-Path $root "gui\src-tauri\bin\$sidecarName"))) {
     Write-Host "ERROR: No se pudo compilar el ejecutable de Go." -ForegroundColor Red
     exit 1
 }
