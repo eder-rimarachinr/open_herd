@@ -2,11 +2,11 @@ package core
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"text/template"
 )
 
@@ -157,13 +157,13 @@ func (n *NginxManager) nginxBin() string {
 	return "nginx"
 }
 
+func (n *NginxManager) IsInstalled() bool {
+	return fileExists(n.nginxBin())
+}
+
 func (n *NginxManager) Start() error {
-	// Download nginx on first run (Windows only).
-	if runtime.GOOS == "windows" && !fileExists(n.nginxBin()) {
-		log.Printf("nginx binary not found, downloading...")
-		if err := ensureNginxWindows(n.cfg.NginxDir); err != nil {
-			return fmt.Errorf("nginx not installed and download failed: %w", err)
-		}
+	if !n.IsInstalled() {
+		return fmt.Errorf("nginx is not installed — go to the Nginx tab to download it")
 	}
 	cmd := exec.Command(n.nginxBin(), "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
 	cmd.Dir = n.cfg.NginxDir
@@ -190,6 +190,42 @@ func (n *NginxManager) Test() error {
 		return fmt.Errorf("nginx config test failed: %s", out)
 	}
 	return nil
+}
+
+// Version returns the nginx version string (e.g. "nginx/1.26.2"), or empty if not installed.
+func (n *NginxManager) Version() string {
+	if !n.IsInstalled() {
+		return ""
+	}
+	out, _ := exec.Command(n.nginxBin(), "-v").CombinedOutput()
+	// nginx writes version to stderr: "nginx version: nginx/1.26.2"
+	line := strings.TrimSpace(string(out))
+	if idx := strings.Index(line, "nginx/"); idx >= 0 {
+		return line[idx:]
+	}
+	return line
+}
+
+// ErrorLogTail returns the last n lines of the nginx error log.
+func (n *NginxManager) ErrorLogTail(lines int) string {
+	logPath := filepath.Join(n.cfg.LogsDir, "nginx-error.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	all := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	return strings.Join(all, "\n")
+}
+
+// Download installs the nginx binary (Windows only). Safe to call when already installed.
+func (n *NginxManager) Download() error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("nginx must be installed via your package manager on Linux")
+	}
+	return ensureNginxWindows(n.cfg.NginxDir)
 }
 
 func (n *NginxManager) IsRunning() bool {

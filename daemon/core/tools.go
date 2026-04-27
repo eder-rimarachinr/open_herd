@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // EnsureTools checks for necessary binaries (mkcert, nginx) and downloads them if missing.
@@ -68,7 +69,9 @@ func (a *App) ensureMkcert(binDir string) error {
 	return a.SSL.Install()
 }
 
-const nginxVersion = "1.26.3"
+// nginxVersions lists candidates in preference order; the first one that
+// returns HTTP 200 from nginx.org is used.
+var nginxVersions = []string{"1.26.2", "1.26.1", "1.24.0"}
 
 func ensureNginxWindows(nginxDir string) error {
 	nginxBin := filepath.Join(nginxDir, "nginx.exe")
@@ -76,31 +79,52 @@ func ensureNginxWindows(nginxDir string) error {
 		return nil
 	}
 
-	log.Printf("nginx not found, downloading nginx %s...", nginxVersion)
+	client := &http.Client{Timeout: 120 * time.Second}
 
-	url := fmt.Sprintf("https://nginx.org/download/nginx-%s.zip", nginxVersion)
-	tmp, err := os.CreateTemp("", "nginx-*.zip")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
+	for _, version := range nginxVersions {
+		url := fmt.Sprintf("https://nginx.org/download/nginx-%s.zip", version)
+		log.Printf("nginx: trying %s", url)
 
-	resp, err := http.Get(url) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("download nginx: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download nginx: HTTP %d", resp.StatusCode)
-	}
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp, err := os.CreateTemp("", "nginx-*.zip")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+
+		resp, err := client.Get(url) //nolint:gosec
+		if err != nil {
+			tmp.Close()
+			os.Remove(tmpName)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			tmp.Close()
+			os.Remove(tmpName)
+			log.Printf("nginx: %s returned HTTP %d, trying next version", url, resp.StatusCode)
+			continue
+		}
+
+		log.Printf("nginx: downloading %s (~1.5 MB)…", url)
+		_, copyErr := io.Copy(tmp, resp.Body)
+		resp.Body.Close()
 		tmp.Close()
-		return err
-	}
-	tmp.Close()
+		if copyErr != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("download nginx: %w", copyErr)
+		}
 
-	prefix := fmt.Sprintf("nginx-%s/", nginxVersion)
-	return extractNginxZip(tmp.Name(), nginxDir, prefix)
+		prefix := fmt.Sprintf("nginx-%s/", version)
+		if err := extractNginxZip(tmpName, nginxDir, prefix); err != nil {
+			os.Remove(tmpName)
+			return err
+		}
+		os.Remove(tmpName)
+		log.Printf("nginx %s installed to %s", version, nginxDir)
+		return nil
+	}
+
+	return fmt.Errorf("could not download nginx: all versions failed")
 }
 
 // extractNginxZip extracts nginx.exe and conf/mime.types from the nginx zip into destDir.
