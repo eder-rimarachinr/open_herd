@@ -108,9 +108,10 @@ func (c *Config) Save() error {
 func (c *Config) EnsureDirs() error {
 	dirs := []string{
 		c.BaseDir, c.NginxDir, c.PHPDir, c.CertsDir, c.LogsDir, c.SitesDir,
-		// nginx looks for logs/error.log relative to its prefix (NginxDir) at startup,
-		// before reading our config. Creating the dir silences the alert.
+		// nginx looks for logs/error.log relative to its prefix (NginxDir) at startup.
 		filepath.Join(c.NginxDir, "logs"),
+		// nginx creates client_body_temp and friends inside $prefix/temp on Windows.
+		filepath.Join(c.NginxDir, "temp"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
