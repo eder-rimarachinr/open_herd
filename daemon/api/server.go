@@ -56,6 +56,8 @@ func (s *Server) Start() error {
 
 		r.Route("/nginx", func(r chi.Router) {
 			r.Get("/status", handlers.NginxStatus(s.app))
+			r.Get("/info", handlers.NginxInfo(s.app))
+			r.Post("/download", handlers.DownloadNginx(s.app))
 			r.Post("/start", handlers.StartNginx(s.app))
 			r.Post("/stop", handlers.StopNginx(s.app))
 			r.Post("/reload", handlers.ReloadNginx(s.app))
@@ -79,7 +81,7 @@ func (s *Server) Start() error {
 		Addr:         s.cfg.APIAddr,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second, // allow time for nginx download on first start
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

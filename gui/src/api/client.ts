@@ -74,6 +74,16 @@ export interface InstallProgress {
   error?: string;
 }
 
+export interface NginxInfo {
+  installed: boolean;
+  running: boolean;
+  version: string;
+  binary_path: string;
+  config_valid: boolean | null;
+  config_error: string;
+  error_log: string;
+}
+
 export interface AppConfig {
   base_dir: string;
   nginx_dir: string;
@@ -130,6 +140,9 @@ export const api = {
 
   nginx: {
     status: () => request<{ running: boolean }>("/nginx/status"),
+    info: () => request<NginxInfo>("/nginx/info"),
+    // Allow 120s — download is ~1.5 MB but nginx.org can be slow.
+    download: () => request<unknown>("/nginx/download", { method: "POST", timeoutMs: 120_000 }),
     start: () => request<unknown>("/nginx/start", { method: "POST" }),
     stop: () => request<unknown>("/nginx/stop", { method: "POST" }),
     reload: () => request<unknown>("/nginx/reload", { method: "POST" }),

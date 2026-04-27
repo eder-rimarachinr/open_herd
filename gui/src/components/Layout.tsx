@@ -6,6 +6,7 @@ import styles from "./Layout.module.css";
 const nav = [
   { to: "/", label: "Sites", icon: "🌐" },
   { to: "/php", label: "PHP", icon: "🐘" },
+  { to: "/nginx", label: "Nginx", icon: "⚙️" },
   { to: "/database", label: "Database", icon: "🗄️" },
   { to: "/ssl", label: "SSL", icon: "🔒" },
 ];
