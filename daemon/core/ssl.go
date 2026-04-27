@@ -77,13 +77,30 @@ func (s *SSLManager) IssueCert(domain string) error {
 		domain,
 	)
 
-	out, err := cmd.CombinedOutput()
+	// To prevent Windows from hanging indefinitely due to inherited pipes
+	// when a UAC prompt is spawned (e.g. certutil), we write directly to a file.
+	logPath := filepath.Join(s.cfg.CertsDir, domain+"-mkcert.log")
+	logFile, _ := os.Create(logPath)
+	if logFile != nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
+
+	err := cmd.Run()
+	if logFile != nil {
+		logFile.Close()
+	}
+
+	// Read the output to show it in the frontend
+	outBytes, _ := os.ReadFile(logPath)
+	outStr := strings.TrimSpace(string(outBytes))
+	_ = os.Remove(logPath) // Clean up the temp log file
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("mkcert timed out after 60 s — output:\n%s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("mkcert timed out after 60 s (UAC prompt hidden?) — output:\n%s", outStr)
 	}
 	if err != nil {
-		return fmt.Errorf("mkcert failed:\n%s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("mkcert failed:\n%s", outStr)
 	}
 	return nil
 }
