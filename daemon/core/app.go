@@ -36,7 +36,7 @@ func NewApp(cfg *Config, plat platform.Platform) *App {
 		Plat:   plat,
 		Sites:  NewSiteManager(cfg),
 		PHP:    NewPHPManager(cfg),
-		Nginx:  NewNginxManager(cfg),
+		Nginx:  NewNginxManager(cfg, plat),
 		DNS:    NewDNSManager(cfg, plat),
 		SSL:    NewSSLManager(cfg, plat),
 	}

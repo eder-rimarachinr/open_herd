@@ -13,13 +13,14 @@ func NginxStatus(app *core.App) http.HandlerFunc {
 }
 
 type nginxInfoResponse struct {
-	Installed   bool   `json:"installed"`
-	Running     bool   `json:"running"`
-	Version     string `json:"version"`
-	BinaryPath  string `json:"binary_path"`
-	ConfigValid *bool  `json:"config_valid"`
-	ConfigError string `json:"config_error"`
-	ErrorLog    string `json:"error_log"`
+	Installed    bool   `json:"installed"`
+	Running      bool   `json:"running"`
+	Version      string `json:"version"`
+	BinaryPath   string `json:"binary_path"`
+	ConfigValid  *bool  `json:"config_valid"`
+	ConfigError  string `json:"config_error"`
+	ErrorLog     string `json:"error_log"`
+	Downloadable bool   `json:"downloadable"` // false on Linux — must use package manager
 }
 
 func NginxInfo(app *core.App) http.HandlerFunc {
@@ -28,10 +29,11 @@ func NginxInfo(app *core.App) http.HandlerFunc {
 		running := app.Nginx.IsRunning()
 
 		info := nginxInfoResponse{
-			Installed:  installed,
-			Running:    running,
-			Version:    app.Nginx.Version(),
-			ErrorLog:   app.Nginx.ErrorLogTail(40),
+			Installed:    installed,
+			Running:      running,
+			Version:      app.Nginx.Version(),
+			ErrorLog:     app.Nginx.ErrorLogTail(40),
+			Downloadable: app.Nginx.Downloadable(),
 		}
 
 		if installed {

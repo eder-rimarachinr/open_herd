@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"text/template"
+
+	"github.com/open-herd/phpenv/daemon/platform"
 )
 
 const nginxSiteTemplate = `server {
@@ -71,7 +73,7 @@ events {
 }
 
 http {
-    include       mime.types;
+    include       {{ .MimeTypes }};
     default_type  application/octet-stream;
     sendfile      on;
     keepalive_timeout 65;
@@ -83,7 +85,7 @@ http {
 type nginxSiteData struct {
 	Domain       string
 	DocumentRoot string
-	FastCGIAddr  string // "unix:/path" on Linux, "127.0.0.1:PORT" on Windows
+	FastCGIAddr  string
 	HTTPPort     int
 	HTTPSPort    int
 	SSLEnabled   bool
@@ -92,30 +94,59 @@ type nginxSiteData struct {
 }
 
 type nginxMainData struct {
-	PidFile  string
-	LogsDir  string
-	SitesDir string
+	PidFile   string
+	LogsDir   string
+	SitesDir  string
+	MimeTypes string
 }
 
 type NginxManager struct {
-	cfg *Config
+	cfg  *Config
+	plat platform.Platform
 }
 
-func NewNginxManager(cfg *Config) *NginxManager {
-	return &NginxManager{cfg: cfg}
+func NewNginxManager(cfg *Config, plat platform.Platform) *NginxManager {
+	return &NginxManager{cfg: cfg, plat: plat}
+}
+
+// nginxPath converts backslashes to forward slashes for use inside nginx.conf.
+// nginx's config parser treats backslash as an escape character on all platforms.
+func nginxPath(p string) string {
+	return strings.ReplaceAll(p, `\`, `/`)
+}
+
+// nginxConf returns the absolute path to our managed nginx.conf.
+func (n *NginxManager) nginxConf() string {
+	return filepath.Join(n.cfg.NginxDir, "nginx.conf")
+}
+
+// mimeTypesPath returns the correct mime.types path for the current OS.
+// On Windows it is relative (extracted next to nginx.exe).
+// On Linux it uses the system path from the nginx package.
+func (n *NginxManager) mimeTypesPath() string {
+	if runtime.GOOS == "windows" {
+		return "mime.types"
+	}
+	for _, p := range []string{"/etc/nginx/mime.types", "/usr/local/etc/nginx/mime.types"} {
+		if fileExists(p) {
+			return p
+		}
+	}
+	return "/etc/nginx/mime.types"
 }
 
 func (n *NginxManager) GenerateMainConfig() error {
 	tmpl := template.Must(template.New("main").Parse(nginxMainTemplate))
-	f, err := os.Create(filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	f, err := os.Create(n.nginxConf())
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	return tmpl.Execute(f, nginxMainData{
-		PidFile:  filepath.Join(n.cfg.BaseDir, "nginx.pid"),
-		LogsDir:  n.cfg.LogsDir,
-		SitesDir: n.cfg.SitesDir,
+		PidFile:   nginxPath(filepath.Join(n.cfg.BaseDir, "nginx.pid")),
+		LogsDir:   nginxPath(n.cfg.LogsDir),
+		SitesDir:  nginxPath(n.cfg.SitesDir),
+		MimeTypes: n.mimeTypesPath(),
 	})
 }
 
@@ -136,13 +167,13 @@ func (n *NginxManager) GenerateSiteConfig(site *Site, fastCGIAddr string) error 
 
 	return tmpl.Execute(f, nginxSiteData{
 		Domain:       site.Domain,
-		DocumentRoot: docRoot,
+		DocumentRoot: nginxPath(docRoot),
 		FastCGIAddr:  fastCGIAddr,
 		HTTPPort:     n.cfg.HTTPPort,
 		HTTPSPort:    n.cfg.HTTPSPort,
 		SSLEnabled:   site.SSLEnabled,
-		CertsDir:     n.cfg.CertsDir,
-		LogsDir:      n.cfg.LogsDir,
+		CertsDir:     nginxPath(n.cfg.CertsDir),
+		LogsDir:      nginxPath(n.cfg.LogsDir),
 	})
 }
 
@@ -157,33 +188,66 @@ func (n *NginxManager) nginxBin() string {
 	return "nginx"
 }
 
+// IsInstalled reports whether nginx is available.
+// On Windows: checks that nginx.exe exists in our managed directory.
+// On Linux: checks that nginx is on PATH (installed via package manager).
 func (n *NginxManager) IsInstalled() bool {
-	return fileExists(n.nginxBin())
+	if runtime.GOOS == "windows" {
+		return fileExists(n.nginxBin())
+	}
+	_, err := exec.LookPath("nginx")
+	return err == nil
 }
 
+// Downloadable reports whether the daemon can download nginx automatically.
+// Only true on Windows — Linux users must install via their package manager.
+func (n *NginxManager) Downloadable() bool {
+	return runtime.GOOS == "windows"
+}
+
+// Start starts nginx using our managed config.
+// On Linux nginx needs root to bind port 80, so it runs via pkexec/sudo.
 func (n *NginxManager) Start() error {
 	if !n.IsInstalled() {
-		return fmt.Errorf("nginx is not installed — go to the Nginx tab to download it")
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("nginx is not installed — go to the Nginx tab to download it")
+		}
+		return fmt.Errorf("nginx not found in PATH — install it via your package manager (e.g. apt install nginx)")
 	}
-	cmd := exec.Command(n.nginxBin(), "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	if runtime.GOOS == "linux" {
+		return n.plat.ElevatedRun(n.nginxBin(), "-c", n.nginxConf())
+	}
+	cmd := exec.Command(n.nginxBin(), "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
 	return cmd.Start()
 }
 
+// Stop sends the stop signal to the nginx master process.
+// On Linux, elevation is required because the master runs as root.
 func (n *NginxManager) Stop() error {
-	cmd := exec.Command(n.nginxBin(), "-s", "stop", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	if runtime.GOOS == "linux" {
+		return n.plat.ElevatedRun(n.nginxBin(), "-s", "stop", "-c", n.nginxConf())
+	}
+	cmd := exec.Command(n.nginxBin(), "-s", "stop", "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
 	return cmd.Run()
 }
 
+// Reload sends SIGHUP to the nginx master (graceful config reload).
+// On Linux, elevation is required because the master runs as root.
 func (n *NginxManager) Reload() error {
-	cmd := exec.Command(n.nginxBin(), "-s", "reload", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	if runtime.GOOS == "linux" {
+		return n.plat.ElevatedRun(n.nginxBin(), "-s", "reload", "-c", n.nginxConf())
+	}
+	cmd := exec.Command(n.nginxBin(), "-s", "reload", "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
 	return cmd.Run()
 }
 
+// Test validates the nginx config without restarting.
+// Does not require elevation — it only reads files.
 func (n *NginxManager) Test() error {
-	cmd := exec.Command(n.nginxBin(), "-t", "-c", filepath.Join(n.cfg.NginxDir, "nginx.conf"))
+	cmd := exec.Command(n.nginxBin(), "-t", "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -198,7 +262,6 @@ func (n *NginxManager) Version() string {
 		return ""
 	}
 	out, _ := exec.Command(n.nginxBin(), "-v").CombinedOutput()
-	// nginx writes version to stderr: "nginx version: nginx/1.26.2"
 	line := strings.TrimSpace(string(out))
 	if idx := strings.Index(line, "nginx/"); idx >= 0 {
 		return line[idx:]
@@ -220,10 +283,10 @@ func (n *NginxManager) ErrorLogTail(lines int) string {
 	return strings.Join(all, "\n")
 }
 
-// Download installs the nginx binary (Windows only). Safe to call when already installed.
+// Download installs the nginx binary. Only supported on Windows.
 func (n *NginxManager) Download() error {
 	if runtime.GOOS != "windows" {
-		return fmt.Errorf("nginx must be installed via your package manager on Linux")
+		return fmt.Errorf("nginx must be installed via your package manager on Linux (e.g. apt install nginx)")
 	}
 	return ensureNginxWindows(n.cfg.NginxDir)
 }

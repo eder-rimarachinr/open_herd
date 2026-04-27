@@ -79,7 +79,7 @@ export default function Nginx() {
 
         {/* ── Action buttons ── */}
         <div className={styles.actions}>
-          {!installed && (
+          {!installed && info?.downloadable && (
             <button
               className={styles.btnDownload}
               disabled={busy !== null}
@@ -87,6 +87,13 @@ export default function Nginx() {
             >
               {busy === "download" ? "Downloading…" : "⬇ Download nginx"}
             </button>
+          )}
+
+          {!installed && !info?.downloadable && (
+            <span className={styles.installHint}>
+              Install nginx via your package manager, e.g.&nbsp;
+              <code>apt install nginx</code>
+            </span>
           )}
 
           {installed && !running && (
