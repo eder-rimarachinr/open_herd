@@ -83,6 +83,7 @@ export interface NginxInfo {
   config_error: string;
   error_log: string;
   downloadable: boolean; // false on Linux — must use system package manager
+  os: string;
 }
 
 export interface AppConfig {

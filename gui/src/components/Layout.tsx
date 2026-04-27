@@ -16,6 +16,7 @@ const POLL_INTERVAL = 4000;
 export default function Layout() {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -25,6 +26,8 @@ export default function Layout() {
       setStatus(s);
     } catch {
       setStatus(null);
+    } finally {
+      setInitialized(true);
     }
   }, []);
 
@@ -106,7 +109,9 @@ export default function Layout() {
           <div className={styles.serviceTitle}>Services</div>
 
           {!daemonUp ? (
-            <div className={styles.daemonDown}>Daemon offline</div>
+            <div className={styles.daemonDown}>
+              {!initialized ? "Connecting…" : "Daemon offline"}
+            </div>
           ) : (
             <ul className={styles.serviceList}>
               <li className={styles.serviceItem}>

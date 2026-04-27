@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"runtime"
 
 	"github.com/open-herd/phpenv/daemon/core"
 )
@@ -21,6 +22,7 @@ type nginxInfoResponse struct {
 	ConfigError  string `json:"config_error"`
 	ErrorLog     string `json:"error_log"`
 	Downloadable bool   `json:"downloadable"` // false on Linux — must use package manager
+	OS           string `json:"os"`
 }
 
 func NginxInfo(app *core.App) http.HandlerFunc {
@@ -34,6 +36,7 @@ func NginxInfo(app *core.App) http.HandlerFunc {
 			Version:      app.Nginx.Version(),
 			ErrorLog:     app.Nginx.ErrorLogTail(40),
 			Downloadable: app.Nginx.Downloadable(),
+			OS:           runtime.GOOS,
 		}
 
 		if installed {

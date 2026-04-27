@@ -79,21 +79,27 @@ export default function Nginx() {
 
         {/* ── Action buttons ── */}
         <div className={styles.actions}>
-          {!installed && info?.downloadable && (
-            <button
-              className={styles.btnDownload}
-              disabled={busy !== null}
-              onClick={() => act("download", () => api.nginx.download())}
-            >
-              {busy === "download" ? "Downloading…" : "⬇ Download nginx"}
-            </button>
-          )}
-
-          {!installed && !info?.downloadable && (
-            <span className={styles.installHint}>
-              Install nginx via your package manager, e.g.&nbsp;
-              <code>apt install nginx</code>
-            </span>
+          {!installed && (
+            <div className={styles.installActions}>
+              {info?.os === "windows" || info?.downloadable ? (
+                <div className={styles.downloadSection}>
+                  <p className={styles.installDesc}>
+                    Nginx will be downloaded and installed automatically into the application folder.
+                  </p>
+                  <button
+                    className={styles.btnDownload}
+                    disabled={busy !== null}
+                    onClick={() => act("download", () => api.nginx.download())}
+                  >
+                    {busy === "download" ? "Downloading…" : "⬇ Download and Setup Nginx"}
+                  </button>
+                </div>
+              ) : (
+                <span className={styles.installHint}>
+                  Nginx not found. Please install it via your package manager (e.g. <code>apt install nginx</code>).
+                </span>
+              )}
+            </div>
           )}
 
           {installed && !running && (

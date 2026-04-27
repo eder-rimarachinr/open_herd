@@ -309,7 +309,22 @@ func (n *NginxManager) Stop() error {
 	}
 	cmd := exec.Command(n.nginxBin(), "-s", "stop", "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
-	return cmd.Run()
+	err := cmd.Run()
+
+	// If official stop fails on Windows (e.g. OpenEvent failed), try manual kill.
+	if err != nil && runtime.GOOS == "windows" {
+		pidFile := filepath.Join(n.cfg.BaseDir, "nginx.pid")
+		if data, readErr := os.ReadFile(pidFile); readErr == nil {
+			var pid int
+			fmt.Sscanf(string(data), "%d", &pid)
+			if proc, findErr := os.FindProcess(pid); findErr == nil {
+				_ = proc.Kill()
+				_ = os.Remove(pidFile)
+				return nil
+			}
+		}
+	}
+	return err
 }
 
 // Reload sends SIGHUP to the nginx master (graceful config reload).
@@ -320,7 +335,14 @@ func (n *NginxManager) Reload() error {
 	}
 	cmd := exec.Command(n.nginxBin(), "-s", "reload", "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
-	return cmd.Run()
+	err := cmd.Run()
+
+	// If official reload fails on Windows (e.g. OpenEvent failed), try a full restart.
+	if err != nil && runtime.GOOS == "windows" {
+		_ = n.Stop()
+		return n.Start()
+	}
+	return err
 }
 
 // Test validates the nginx config without restarting.
