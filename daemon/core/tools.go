@@ -74,8 +74,16 @@ func (a *App) ensureMkcert(binDir string) error {
 var nginxVersions = []string{"1.26.2", "1.26.1", "1.24.0"}
 
 func ensureNginxWindows(nginxDir string) error {
-	nginxBin := filepath.Join(nginxDir, "nginx.exe")
-	if fileExists(nginxBin) {
+	// All three files must be present; re-extract if any is missing.
+	required := []string{"nginx.exe", "mime.types", "fastcgi_params"}
+	allPresent := true
+	for _, f := range required {
+		if !fileExists(filepath.Join(nginxDir, f)) {
+			allPresent = false
+			break
+		}
+	}
+	if allPresent {
 		return nil
 	}
 
@@ -127,7 +135,7 @@ func ensureNginxWindows(nginxDir string) error {
 	return fmt.Errorf("could not download nginx: all versions failed")
 }
 
-// extractNginxZip extracts nginx.exe and conf/mime.types from the nginx zip into destDir.
+// extractNginxZip extracts the files required to run nginx from the zip into destDir.
 func extractNginxZip(zipPath, destDir, prefix string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -136,8 +144,9 @@ func extractNginxZip(zipPath, destDir, prefix string) error {
 	defer r.Close()
 
 	needed := map[string]string{
-		prefix + "nginx.exe":      "nginx.exe",
-		prefix + "conf/mime.types": "mime.types",
+		prefix + "nginx.exe":           "nginx.exe",
+		prefix + "conf/mime.types":     "mime.types",
+		prefix + "conf/fastcgi_params": "fastcgi_params",
 	}
 
 	for _, f := range r.File {
