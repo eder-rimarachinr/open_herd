@@ -55,15 +55,5 @@
     ],
     "resources": []
   },
-  "plugins": {
-    "shell": {
-      "sidecar": [
-        {
-          "name": "phpenv-daemon",
-          "command": "phpenv-daemon",
-          "args": true
-        }
-      ]
-    }
-  }
+  "plugins": {}
 }
