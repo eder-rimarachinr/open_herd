@@ -114,8 +114,12 @@ func (a *App) StartServices() error {
 		_ = a.DNS.AddSite(site.Domain)
 	}
 
-	// 3. Start nginx.
-	if !a.Nginx.IsRunning() {
+	// 3. Start or reload nginx.
+	if a.Nginx.IsRunning() {
+		if err := a.Nginx.Reload(); err != nil {
+			log.Printf("nginx reload: %v", err)
+		}
+	} else {
 		if err := a.Nginx.Start(); err != nil {
 			return err
 		}
