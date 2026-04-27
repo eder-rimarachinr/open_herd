@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/open-herd/phpenv/daemon/platform"
 )
@@ -219,7 +220,18 @@ func (n *NginxManager) Start() error {
 	}
 	cmd := exec.Command(n.nginxBin(), "-c", n.nginxConf())
 	cmd.Dir = n.cfg.NginxDir
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Wait briefly so nginx can write its pid file and we can detect early failures.
+	time.Sleep(400 * time.Millisecond)
+	if !n.IsRunning() {
+		if tail := n.ErrorLogTail(5); tail != "" {
+			return fmt.Errorf("nginx failed to start: %s", tail)
+		}
+		return fmt.Errorf("nginx failed to start (check the error log)")
+	}
+	return nil
 }
 
 // Stop sends the stop signal to the nginx master process.
