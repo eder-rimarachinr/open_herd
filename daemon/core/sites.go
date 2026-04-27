@@ -65,8 +65,12 @@ func (sm *SiteManager) Load() error {
 	return nil
 }
 
-func (sm *SiteManager) save() error {
-	data, err := json.MarshalIndent(sm.List(), "", "  ")
+func (sm *SiteManager) saveLocked() error {
+	result := make([]*Site, 0, len(sm.sites))
+	for _, s := range sm.sites {
+		result = append(result, s)
+	}
+	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -100,7 +104,7 @@ func (sm *SiteManager) Add(site *Site) error {
 	site.CreatedAt = now
 	site.UpdatedAt = now
 	sm.sites[site.ID] = site
-	return sm.save()
+	return sm.saveLocked()
 }
 
 func (sm *SiteManager) Update(site *Site) error {
@@ -111,7 +115,7 @@ func (sm *SiteManager) Update(site *Site) error {
 	}
 	site.UpdatedAt = time.Now()
 	sm.sites[site.ID] = site
-	return sm.save()
+	return sm.saveLocked()
 }
 
 func (sm *SiteManager) Delete(id string) error {
@@ -121,7 +125,7 @@ func (sm *SiteManager) Delete(id string) error {
 		return ErrNotFound
 	}
 	delete(sm.sites, id)
-	return sm.save()
+	return sm.saveLocked()
 }
 
 // Scan walks all ScannedDirs, persists any newly found sites, prunes deleted
@@ -149,7 +153,15 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 				continue
 			}
 			path := filepath.Join(dir, entry.Name())
-			if sm.findByPath(path) != nil {
+			existing := sm.findByPath(path)
+			if existing != nil {
+				// Re-evaluate project type in case it changed or was detected wrong
+				newType := detectProjectType(path)
+				if existing.ProjectType != newType {
+					sm.mu.Lock()
+					existing.ProjectType = newType
+					sm.mu.Unlock()
+				}
 				continue
 			}
 			name := entry.Name()
@@ -171,7 +183,11 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 		}
 	}
 
-	if err := sm.save(); err != nil {
+	sm.mu.Lock()
+	err := sm.saveLocked()
+	sm.mu.Unlock()
+	
+	if err != nil {
 		return nil, err
 	}
 
@@ -193,7 +209,7 @@ func (sm *SiteManager) AddMultiple(sites []*Site) error {
 		sm.sites[s.ID] = s
 	}
 	
-	return sm.save()
+	return sm.saveLocked()
 }
 
 func (sm *SiteManager) findByPath(path string) *Site {
