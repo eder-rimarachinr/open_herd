@@ -2,13 +2,13 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 struct DaemonState {
-    child: Mutex<Option<std::process::Child>>,
+    child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
 }
 
 impl Drop for DaemonState {
     fn drop(&mut self) {
         if let Ok(mut lock) = self.child.lock() {
-            if let Some(mut child) = lock.take() {
+            if let Some(child) = lock.take() {
                 let _ = child.kill();
             }
         }
@@ -26,7 +26,8 @@ pub fn run() {
             app.get_webview_window("main").unwrap().open_devtools();
 
             // Spawn daemon using the official sidecar API
-            let sidecar = app.shell().sidecar("phpenv-daemon").unwrap();
+            // The name must match the path in tauri.conf.json (without the triple suffix)
+            let sidecar = app.shell().sidecar("bin/phpenv-daemon").unwrap();
             let (mut _rx, child) = sidecar.spawn().unwrap();
 
             app.manage(DaemonState {

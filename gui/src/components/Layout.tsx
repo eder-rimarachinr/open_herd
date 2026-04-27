@@ -80,8 +80,8 @@ export default function Layout() {
       <aside className={styles.sidebar}>
         {/* Logo */}
         <div className={styles.logo}>
-          <span className={styles.logoIcon}>⚡</span>
-          <span className={styles.logoText}>phpenv</span>
+          <span className={styles.logoIcon}>🐃</span>
+          <span className={styles.logoText}>Open Herd</span>
         </div>
 
         {/* Navigation */}

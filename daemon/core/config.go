@@ -24,8 +24,27 @@ type Config struct {
 }
 
 func DefaultConfig() *Config {
-	home, _ := os.UserHomeDir()
-	base := filepath.Join(home, ".phpenv")
+	// Try to be portable: use a "data" folder next to the executable if possible.
+	base := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		// Check if we can write to a "data" folder here.
+		dataDir := filepath.Join(exeDir, "data")
+		if err := os.MkdirAll(dataDir, 0755); err == nil {
+			// Test write permission
+			testFile := filepath.Join(dataDir, ".test")
+			if err := os.WriteFile(testFile, []byte("1"), 0644); err == nil {
+				os.Remove(testFile)
+				base = dataDir
+			}
+		}
+	}
+
+	// Fallback to ~/.phpenv if not portable or not writable.
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".phpenv")
+	}
 
 	cfg := &Config{
 		BaseDir:     base,
