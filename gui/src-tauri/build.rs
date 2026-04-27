@@ -1,14 +1,11 @@
 fn main() {
-    // Embed the Windows manifest that requests administrator elevation.
-    // Windows shows UAC once on launch; the app and all child processes
-    // (including the daemon sidecar) inherit the elevated token.
-    #[cfg(target_os = "windows")]
-    {
-        let mut res = winres::WindowsResource::new();
-        res.set_manifest_file("windows/app.manifest");
-        if let Err(e) = res.compile() {
-            eprintln!("cargo:warning=Failed to embed Windows manifest: {e}");
-        }
+    let mut windows = tauri_build::WindowsAttributes::new();
+    // Use our custom manifest for elevation
+    if let Ok(manifest) = std::fs::read_to_string("windows/app.manifest") {
+        windows = windows.app_manifest(manifest);
     }
-    tauri_build::build()
+    
+    tauri_build::try_build(
+        tauri_build::Attributes::new().windows_attributes(windows)
+    ).expect("failed to run tauri-build");
 }

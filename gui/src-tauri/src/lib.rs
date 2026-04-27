@@ -1,6 +1,20 @@
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
+struct DaemonState {
+    child: Mutex<Option<std::process::Child>>,
+}
+
+impl Drop for DaemonState {
+    fn drop(&mut self) {
+        if let Ok(mut lock) = self.child.lock() {
+            if let Some(mut child) = lock.take() {
+                let _ = child.kill();
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -9,20 +23,10 @@ pub fn run() {
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();
 
-            // Spawn daemon and keep its handle so we can kill it on exit.
+            // Spawn daemon and keep its handle in managed state so it's killed on exit
             let daemon_child = spawn_daemon(app.handle());
-            let daemon_handle = Arc::new(Mutex::new(daemon_child));
-
-            // Kill daemon when the last window closes.
-            let daemon_on_exit = Arc::clone(&daemon_handle);
-            app.on_window_event(move |_window, event| {
-                if let tauri::WindowEvent::Destroyed = event {
-                    if let Ok(mut child) = daemon_on_exit.lock() {
-                        if let Some(ref mut c) = *child {
-                            let _ = c.kill();
-                        }
-                    }
-                }
+            app.manage(DaemonState {
+                child: Mutex::new(daemon_child),
             });
 
             Ok(())
