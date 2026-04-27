@@ -37,8 +37,14 @@ pub fn run() {
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();
 
-            let sidecar = app.shell().sidecar("phpenv-daemon")
-                .expect("phpenv-daemon sidecar not found");
+            let sidecar = match app.shell().sidecar("phpenv-daemon") {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("phpenv-daemon sidecar not found: {}", e);
+                    app.manage(DaemonState { child: Mutex::new(None) });
+                    return Ok(());
+                }
+            };
 
             // In portable mode, tell the daemon where to store its data so it
             // uses the same directory as the GUI, not ~/.phpenv.
@@ -50,11 +56,12 @@ pub fn run() {
 
             match sidecar.spawn() {
                 Ok((_rx, child)) => {
-                    app.manage(DaemonState {
-                        child: Mutex::new(Some(child)),
-                    });
+                    app.manage(DaemonState { child: Mutex::new(Some(child)) });
                 }
-                Err(e) => eprintln!("Failed to spawn sidecar: {}", e),
+                Err(e) => {
+                    eprintln!("Failed to spawn daemon: {}", e);
+                    app.manage(DaemonState { child: Mutex::new(None) });
+                }
             }
 
             Ok(())

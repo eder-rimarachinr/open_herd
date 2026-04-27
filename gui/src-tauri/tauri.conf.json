@@ -29,6 +29,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Eder R",
+    "copyright": "Copyright © 2025 Eder R",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,7 +42,8 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": null,
-        "sidebarImage": null
+        "sidebarImage": null,
+        "manufacturer": "Eder R"
       }
     },
     "externalBin": [

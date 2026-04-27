@@ -25,7 +25,7 @@ Set-Location (Join-Path $root "gui")
 npx tauri icon "..\logo.png"
 
 # ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
-Write-Host "`n[2/5] Building Go daemon (phpenv-daemon)..." -ForegroundColor Yellow
+Write-Host "`n[2/5] Building Go daemon..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "daemon")
 $sidecarDest = Join-Path $root "gui\src-tauri\phpenv-daemon-$triple.exe"
 go build -ldflags="-H windowsgui" -o $sidecarDest .
@@ -90,12 +90,10 @@ Remove-Item $portableStage -Recurse -Force
 Write-Host "  Portable  : $portableZip" -ForegroundColor Green
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-Write-Host "`n============================================" -ForegroundColor Cyan
-Write-Host "  Done — outputs in dist\"                   -ForegroundColor Cyan
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  Done. Outputs in dist/" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Full install : open-herd-v$version-setup.exe"   -ForegroundColor White
-Write-Host "    Data stored in  : ~/.phpenv"                   -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "  Portable    : open-herd-v$version-portable.zip" -ForegroundColor White
-Write-Host "    Data stored in  : <carpeta-extraida>/data/"    -ForegroundColor DarkGray
+Write-Host "  Installer : open-herd-v$version-setup.exe  -- data en ~/.phpenv" -ForegroundColor White
+Write-Host "  Portable  : open-herd-v$version-portable.zip  -- data en ./data/" -ForegroundColor White
