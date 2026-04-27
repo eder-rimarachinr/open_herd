@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 )
 
@@ -24,5 +23,7 @@ func isProcessRunning(proc *os.Process) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), strconv.Itoa(proc.Pid))
+	// Tasklist CSV format starts with a quote (e.g. "nginx.exe","123",...).
+	// If the process is not found, it returns an info message without leading quotes.
+	return strings.HasPrefix(strings.TrimSpace(string(out)), "\"")
 }
