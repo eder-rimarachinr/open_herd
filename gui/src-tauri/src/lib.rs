@@ -27,12 +27,19 @@ pub fn run() {
 
             // Spawn daemon using the official sidecar API
             // The name must match the path in tauri.conf.json (without the triple suffix)
-            let sidecar = app.shell().sidecar("bin/phpenv-daemon").unwrap();
-            let (mut _rx, child) = sidecar.spawn().unwrap();
-
-            app.manage(DaemonState {
-                child: Mutex::new(Some(child)),
-            });
+            match app.shell().sidecar("phpenv-daemon") {
+                Ok(sidecar) => {
+                    match sidecar.spawn() {
+                        Ok((_rx, child)) => {
+                            app.manage(DaemonState {
+                                child: Mutex::new(Some(child)),
+                            });
+                        }
+                        Err(e) => eprintln!("Failed to spawn sidecar: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Failed to find sidecar: {}", e),
+            }
 
             Ok(())
         })

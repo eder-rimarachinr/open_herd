@@ -32,8 +32,19 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/phpenv-daemon"
+      "phpenv-daemon"
     ],
     "resources": []
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": [
+        {
+          "name": "phpenv-daemon",
+          "command": "phpenv-daemon",
+          "args": true
+        }
+      ]
+    }
   }
 }
