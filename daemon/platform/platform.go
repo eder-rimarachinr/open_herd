@@ -16,6 +16,10 @@ type Platform interface {
 	// Shell helpers
 	OpenBrowser(url string) error
 
+	// IsElevated reports whether the current process has admin/root privileges.
+	// Used to decide whether ElevatedRun is needed or we can run directly.
+	IsElevated() bool
+
 	// ElevatedRun runs program with elevated privileges (UAC on Windows,
 	// pkexec/sudo on Linux). It blocks until the child exits.
 	ElevatedRun(program string, args ...string) error

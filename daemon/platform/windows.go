@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 const hostsMarker = "# phpenv"
@@ -117,6 +119,10 @@ func (w *WindowsPlatform) MkcertBinary() string {
 		return candidate
 	}
 	return "mkcert"
+}
+
+func (w *WindowsPlatform) IsElevated() bool {
+	return windows.GetCurrentProcessToken().IsElevated()
 }
 
 func (w *WindowsPlatform) OpenBrowser(url string) error {

@@ -97,6 +97,10 @@ func (l *LinuxPlatform) MkcertBinary() string {
 	return "mkcert"
 }
 
+func (l *LinuxPlatform) IsElevated() bool {
+	return os.Getuid() == 0
+}
+
 func (l *LinuxPlatform) OpenBrowser(url string) error {
 	return exec.Command("xdg-open", url).Start()
 }
