@@ -8,7 +8,12 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
     headers: { "Content-Type": "application/json" },
     signal: controller.signal,
     ...fetchInit,
-  }).finally(() => clearTimeout(timer));
+  }).finally(() => clearTimeout(timer)).catch((err: Error) => {
+    if (err.name === "AbortError") {
+      throw new Error(`Request timed out after ${(timeoutMs ?? 15_000) / 1000}s`);
+    }
+    throw err;
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error ?? res.statusText);
@@ -100,7 +105,8 @@ export const api = {
     update: (id: string, body: Partial<Site>) =>
       request<Site>(`/sites/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/sites/${id}`, { method: "DELETE" }),
-    enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST" }),
+    // Allow 90s — first run generates the mkcert CA key + domain cert.
+    enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: 90_000 }),
     disableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "DELETE" }),
   },
 

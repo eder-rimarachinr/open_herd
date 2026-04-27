@@ -15,6 +15,11 @@ import (
 )
 
 func main() {
+	// On Windows, re-launch as Administrator if not already elevated.
+	// When spawned as a Tauri sidecar the parent's UAC token is inherited
+	// so this is a no-op in that case.
+	ensureElevated()
+
 	cfg, err := core.LoadConfig()
 	if err != nil {
 		log.Fatalf("config: %v", err)
