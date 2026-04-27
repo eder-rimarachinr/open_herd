@@ -23,13 +23,14 @@ if (-not (Test-Path $logoSrc)) {
 }
 Set-Location (Join-Path $root "gui")
 npx tauri icon "..\logo.png"
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: tauri icon failed." -ForegroundColor Red; exit 1 }
 
 # ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
 Write-Host "`n[2/5] Building Go daemon..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "daemon")
 $sidecarDest = Join-Path $root "gui\src-tauri\phpenv-daemon-$triple.exe"
 go build -ldflags="-H windowsgui" -o $sidecarDest .
-if (-not (Test-Path $sidecarDest)) {
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $sidecarDest)) {
     Write-Host "ERROR: Go build failed." -ForegroundColor Red
     exit 1
 }
@@ -43,7 +44,9 @@ if (Test-Path $stale) { Remove-Item -Path $stale -Recurse -Force -ErrorAction Si
 Write-Host "`n[4/5] Building frontend + Tauri app..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "gui")
 npm install
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: npm install failed." -ForegroundColor Red; exit 1 }
 npm run tauri build
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Tauri build failed." -ForegroundColor Red; exit 1 }
 
 # ── 5. Package outputs ────────────────────────────────────────────────────────
 Write-Host "`n[5/5] Packaging outputs..." -ForegroundColor Yellow

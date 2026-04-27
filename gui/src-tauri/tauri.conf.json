@@ -42,8 +42,7 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": null,
-        "sidebarImage": null,
-        "manufacturer": "Eder R"
+        "sidebarImage": null
       }
     },
     "externalBin": [
