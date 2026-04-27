@@ -7,17 +7,12 @@ Write-Host "==============================================" -ForegroundColor Cya
 Write-Host " Compilador Portable (Tauri) para open_herd" -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
-# 1. Crear el icono vacío requerido por Tauri en Windows
-Write-Host "`n[1/4] Generando icono temporal para Tauri..." -ForegroundColor Yellow
-$iconsDir = Join-Path $root "gui\src-tauri\icons"
-if (-not (Test-Path $iconsDir)) {
-    New-Item -ItemType Directory -Path $iconsDir | Out-Null
-}
-$iconPath = Join-Path $iconsDir "icon.ico"
-if (-not (Test-Path $iconPath)) {
-    $base64 = "AAABAAEAAQEAAAEAIAAwAAAAFgAAACgAAAABAAAAAgAAAAEAIAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAA=="
-    [IO.File]::WriteAllBytes($iconPath, [Convert]::FromBase64String($base64))
-}
+# 1. Preparar iconos
+Write-Host "[1/4] Preparando iconos..." -ForegroundColor Yellow
+$iconSource = Join-Path $root "icon.ico"
+$iconDestDir = Join-Path $root "gui\src-tauri\icons"
+if (-not (Test-Path $iconDestDir)) { New-Item -ItemType Directory -Path $iconDestDir | Out-Null }
+Copy-Item $iconSource (Join-Path $iconDestDir "icon.ico") -Force
 
 # 2. Compilar el daemon de Go como Sidecar de Tauri
 Write-Host "`n[2/4] Compilando el motor de Go (phpenv-daemon)..." -ForegroundColor Yellow

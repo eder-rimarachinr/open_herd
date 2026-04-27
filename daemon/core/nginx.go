@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,22 +18,34 @@ const nginxSiteTemplate = `server {
     listen {{ .HTTPPort }};
     server_name {{ .Domain }};
     root {{ .DocumentRoot }};
-    index index.php index.html index.htm;
+    index {{ if .HasPHP }}index.php {{ end }}index.html index.htm;
 
     access_log {{ .LogsDir }}/{{ .Domain }}-access.log;
     error_log  {{ .LogsDir }}/{{ .Domain }}-error.log;
 
     location / {
+        {{ if eq .ProjectType "spa" -}}
+        try_files $uri $uri/ /index.html;
+        {{- else if eq .ProjectType "static" -}}
+        try_files $uri $uri/ =404;
+        {{- else -}}
         try_files $uri $uri/ /index.php?$query_string;
+        {{ if eq .ProjectType "generic" }}autoindex on;{{ end }}
+        {{- end }}
     }
-
+{{ if .SubdirAlias }}
+    location /{{ .DirName }}/ {
+        alias {{ .DocumentRoot }}/;
+    }
+{{ end -}}
+{{ if .HasPHP }}
     location ~ \.php$ {
         fastcgi_pass {{ .FastCGIAddr }};
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
     }
-
+{{ end }}
     location ~ /\.(?!well-known).* {
         deny all;
     }
@@ -42,7 +55,7 @@ server {
     listen {{ .HTTPSPort }} ssl;
     server_name {{ .Domain }};
     root {{ .DocumentRoot }};
-    index index.php index.html index.htm;
+    index {{ if .HasPHP }}index.php {{ end }}index.html index.htm;
 
     ssl_certificate     {{ .CertsDir }}/{{ .Domain }}.pem;
     ssl_certificate_key {{ .CertsDir }}/{{ .Domain }}-key.pem;
@@ -53,14 +66,30 @@ server {
     error_log  {{ .LogsDir }}/{{ .Domain }}-ssl-error.log;
 
     location / {
+        {{ if eq .ProjectType "spa" -}}
+        try_files $uri $uri/ /index.html;
+        {{- else if eq .ProjectType "static" -}}
+        try_files $uri $uri/ =404;
+        {{- else -}}
         try_files $uri $uri/ /index.php?$query_string;
+        {{ if eq .ProjectType "generic" }}autoindex on;{{ end }}
+        {{- end }}
     }
-
+{{ if .SubdirAlias }}
+    location /{{ .DirName }}/ {
+        alias {{ .DocumentRoot }}/;
+    }
+{{ end -}}
+{{ if .HasPHP }}
     location ~ \.php$ {
         fastcgi_pass {{ .FastCGIAddr }};
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
+    }
+{{ end }}
+    location ~ /\.(?!well-known).* {
+        deny all;
     }
 }
 {{ end }}`
@@ -86,12 +115,16 @@ http {
 type nginxSiteData struct {
 	Domain       string
 	DocumentRoot string
+	DirName      string
+	SubdirAlias  bool
+	HasPHP       bool
 	FastCGIAddr  string
 	HTTPPort     int
 	HTTPSPort    int
 	SSLEnabled   bool
 	CertsDir     string
 	LogsDir      string
+	ProjectType  string
 }
 
 type nginxMainData struct {
@@ -155,9 +188,19 @@ func (n *NginxManager) GenerateSiteConfig(site *Site, fastCGIAddr string) error 
 	tmpl := template.Must(template.New("site").Parse(nginxSiteTemplate))
 
 	docRoot := site.Path
-	if site.ProjectType == ProjectTypeLaravel || site.ProjectType == ProjectTypeCI4 {
+	switch site.ProjectType {
+	case ProjectTypeLaravel, ProjectTypeCI4:
 		docRoot = filepath.Join(site.Path, "public")
+	case ProjectTypeSPA:
+		if fileExists(filepath.Join(site.Path, "dist", "index.html")) {
+			docRoot = filepath.Join(site.Path, "dist")
+		} else {
+			docRoot = filepath.Join(site.Path, "build")
+		}
 	}
+
+	hasPHP := site.ProjectType != ProjectTypeSPA && site.ProjectType != ProjectTypeStatic
+	subdirAlias := site.ProjectType == ProjectTypeStatic || site.ProjectType == ProjectTypeGeneric
 
 	configPath := filepath.Join(n.cfg.SitesDir, site.Domain+".conf")
 	f, err := os.Create(configPath)
@@ -169,12 +212,16 @@ func (n *NginxManager) GenerateSiteConfig(site *Site, fastCGIAddr string) error 
 	return tmpl.Execute(f, nginxSiteData{
 		Domain:       site.Domain,
 		DocumentRoot: nginxPath(docRoot),
+		DirName:      filepath.Base(site.Path),
+		SubdirAlias:  subdirAlias,
+		HasPHP:       hasPHP,
 		FastCGIAddr:  fastCGIAddr,
 		HTTPPort:     n.cfg.HTTPPort,
 		HTTPSPort:    n.cfg.HTTPSPort,
 		SSLEnabled:   site.SSLEnabled,
 		CertsDir:     nginxPath(n.cfg.CertsDir),
 		LogsDir:      nginxPath(n.cfg.LogsDir),
+		ProjectType:  string(site.ProjectType),
 	})
 }
 
@@ -215,6 +262,17 @@ func (n *NginxManager) Start() error {
 		}
 		return fmt.Errorf("nginx not found in PATH — install it via your package manager (e.g. apt install nginx)")
 	}
+
+	// Check for port conflicts (common with Laravel Herd/XAMPP)
+	if runtime.GOOS == "windows" {
+		if err := checkPort(n.cfg.HTTPPort); err != nil {
+			return fmt.Errorf("port %d is occupied. Please close Laravel Herd, XAMPP or other web servers", n.cfg.HTTPPort)
+		}
+		if err := checkPort(n.cfg.HTTPSPort); err != nil {
+			return fmt.Errorf("port %d (SSL) is occupied. Please close Laravel Herd or other web servers", n.cfg.HTTPSPort)
+		}
+	}
+
 	if runtime.GOOS == "linux" {
 		return n.plat.ElevatedRun(n.nginxBin(), "-c", n.nginxConf())
 	}
@@ -231,6 +289,15 @@ func (n *NginxManager) Start() error {
 		}
 		return fmt.Errorf("nginx failed to start (check the error log)")
 	}
+	return nil
+}
+
+func checkPort(port int) error {
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
+	}
+	l.Close()
 	return nil
 }
 

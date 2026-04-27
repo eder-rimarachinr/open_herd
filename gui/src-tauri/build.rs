@@ -1,6 +1,5 @@
 fn main() {
     let mut windows = tauri_build::WindowsAttributes::new();
-    // Use our custom manifest for elevation
     if let Ok(manifest) = std::fs::read_to_string("windows/app.manifest") {
         windows = windows.app_manifest(manifest);
     }

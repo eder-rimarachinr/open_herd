@@ -26,7 +26,6 @@ pub fn run() {
             app.get_webview_window("main").unwrap().open_devtools();
 
             // Spawn daemon using the official sidecar API
-            // The name must match the path in tauri.conf.json (without the triple suffix)
             match app.shell().sidecar("phpenv-daemon") {
                 Ok(sidecar) => {
                     match sidecar.spawn() {

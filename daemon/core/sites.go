@@ -18,6 +18,7 @@ const (
 	ProjectTypeWordPress ProjectType = "wordpress"
 	ProjectTypeCI4       ProjectType = "codeigniter4"
 	ProjectTypeCI3       ProjectType = "codeigniter3"
+	ProjectTypeSPA       ProjectType = "spa"
 	ProjectTypeStatic    ProjectType = "static"
 	ProjectTypeGeneric   ProjectType = "generic"
 )
@@ -161,6 +162,8 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 					sm.mu.Lock()
 					existing.ProjectType = newType
 					sm.mu.Unlock()
+					// Signal that something changed and we might need to refresh configs
+					added = append(added, existing) 
 				}
 				continue
 			}
@@ -224,18 +227,27 @@ func (sm *SiteManager) findByPath(path string) *Site {
 }
 
 func detectProjectType(path string) ProjectType {
-	if fileExists(filepath.Join(path, "artisan")) {
+	// Laravel: artisan + public/
+	if fileExists(filepath.Join(path, "artisan")) && fileExists(filepath.Join(path, "public")) {
 		return ProjectTypeLaravel
 	}
+	// CodeIgniter 4
 	if fileExists(filepath.Join(path, "spark")) {
 		return ProjectTypeCI4
 	}
+	// CodeIgniter 3
 	if fileExists(filepath.Join(path, "application")) && fileExists(filepath.Join(path, "system")) && fileExists(filepath.Join(path, "index.php")) {
 		return ProjectTypeCI3
 	}
+	// WordPress
 	if fileExists(filepath.Join(path, "wp-config.php")) || fileExists(filepath.Join(path, "wp-login.php")) {
 		return ProjectTypeWordPress
 	}
+	// Compiled SPA (React/Vue/Angular — Vite, CRA, Vue CLI, etc.)
+	if fileExists(filepath.Join(path, "dist", "index.html")) || fileExists(filepath.Join(path, "build", "index.html")) {
+		return ProjectTypeSPA
+	}
+	// Pure HTML
 	if fileExists(filepath.Join(path, "index.html")) || fileExists(filepath.Join(path, "index.htm")) {
 		return ProjectTypeStatic
 	}
