@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/open-herd/phpenv/daemon/core"
@@ -38,5 +41,20 @@ func Status(app *core.App) http.HandlerFunc {
 			PHPVersions: phpVersions,
 			Nginx:       nginxStatus{Running: app.Nginx.IsRunning()},
 		})
+	}
+}
+func DaemonLogs(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logPath := filepath.Join(app.Config.LogsDir, "daemon.log")
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			OK(w, map[string]string{"logs": ""})
+			return
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 100 {
+			lines = lines[len(lines)-100:]
+		}
+		OK(w, map[string]string{"logs": strings.Join(lines, "\n")})
 	}
 }

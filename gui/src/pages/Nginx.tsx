@@ -81,14 +81,14 @@ export default function Nginx() {
         <div className={styles.actions}>
           {!installed && (
             <div className={styles.installActions}>
-              {info?.os === "windows" || info?.downloadable ? (
+              {(!info || info?.os === "windows" || info?.downloadable) ? (
                 <div className={styles.downloadSection}>
                   <p className={styles.installDesc}>
-                    Nginx will be downloaded and installed automatically into the application folder.
+                    {info ? "Nginx will be downloaded and installed automatically into the application folder." : "Connecting to daemon to check status..."}
                   </p>
                   <button
                     className={styles.btnDownload}
-                    disabled={busy !== null}
+                    disabled={busy !== null || !info}
                     onClick={() => act("download", () => api.nginx.download())}
                   >
                     {busy === "download" ? "Downloading…" : "⬇ Download and Setup Nginx"}

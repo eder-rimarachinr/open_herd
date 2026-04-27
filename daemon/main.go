@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -15,15 +18,20 @@ import (
 )
 
 func main() {
-	// On Windows, re-launch as Administrator if not already elevated.
-	// When spawned as a Tauri sidecar the parent's UAC token is inherited
-	// so this is a no-op in that case.
-	ensureElevated()
+	cfg, _ := core.LoadConfig()
 
-	cfg, err := core.LoadConfig()
-	if err != nil {
-		log.Fatalf("config: %v", err)
+	// Setup logging to file and stdout immediately to capture startup issues
+	if err := os.MkdirAll(cfg.LogsDir, 0755); err == nil {
+		logPath := filepath.Join(cfg.LogsDir, "daemon.log")
+		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			log.SetOutput(io.MultiWriter(os.Stdout, f))
+		}
 	}
+
+	log.Printf("Daemon starting (OS: %s, BaseDir: %s)", runtime.GOOS, cfg.BaseDir)
+
+	// On Windows, re-launch as Administrator if not already elevated.
+	ensureElevated()
 
 	plat := platform.New()
 	app := core.NewApp(cfg, plat)

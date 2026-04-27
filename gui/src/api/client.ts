@@ -160,6 +160,7 @@ export const api = {
 
   daemon: {
     quit: () => request<unknown>("/daemon/quit", { method: "POST" }),
+    logs: () => request<{ logs: string }>("/daemon/logs"),
   },
 };
 

@@ -9,6 +9,7 @@ const nav = [
   { to: "/nginx", label: "Nginx", icon: "⚙️" },
   { to: "/database", label: "Database", icon: "🗄️" },
   { to: "/ssl", label: "SSL", icon: "🔒" },
+  { to: "/logs", label: "Logs", icon: "📝" },
 ];
 
 const POLL_INTERVAL = 4000;

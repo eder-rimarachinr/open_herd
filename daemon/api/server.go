@@ -76,6 +76,7 @@ func (s *Server) Start() error {
 		})
 
 		r.Post("/daemon/quit", handlers.QuitDaemon(s.app))
+		r.Get("/daemon/logs", handlers.DaemonLogs(s.app))
 	})
 
 	s.httpSrv = &http.Server{
