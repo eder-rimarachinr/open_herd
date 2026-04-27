@@ -17,6 +17,18 @@ impl Drop for DaemonState {
 
 use tauri_plugin_shell::ShellExt;
 
+/// Returns the portable data directory if the app is running in portable mode
+/// (i.e. a `data/config.json` file exists next to the executable).
+fn portable_data_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let data_dir = exe.parent()?.join("data");
+    if data_dir.join("config.json").exists() {
+        Some(data_dir)
+    } else {
+        None
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -25,19 +37,24 @@ pub fn run() {
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();
 
-            // Spawn daemon using the official sidecar API
-            match app.shell().sidecar("phpenv-daemon") {
-                Ok(sidecar) => {
-                    match sidecar.spawn() {
-                        Ok((_rx, child)) => {
-                            app.manage(DaemonState {
-                                child: Mutex::new(Some(child)),
-                            });
-                        }
-                        Err(e) => eprintln!("Failed to spawn sidecar: {}", e),
-                    }
+            let sidecar = app.shell().sidecar("phpenv-daemon")
+                .expect("phpenv-daemon sidecar not found");
+
+            // In portable mode, tell the daemon where to store its data so it
+            // uses the same directory as the GUI, not ~/.phpenv.
+            let sidecar = if let Some(data_dir) = portable_data_dir() {
+                sidecar.env("PHPENV_DATA_DIR", data_dir.to_string_lossy().as_ref())
+            } else {
+                sidecar
+            };
+
+            match sidecar.spawn() {
+                Ok((_rx, child)) => {
+                    app.manage(DaemonState {
+                        child: Mutex::new(Some(child)),
+                    });
                 }
-                Err(e) => eprintln!("Failed to find sidecar: {}", e),
+                Err(e) => eprintln!("Failed to spawn sidecar: {}", e),
             }
 
             Ok(())

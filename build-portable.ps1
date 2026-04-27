@@ -1,63 +1,97 @@
-# build-portable.ps1 - Compila open_herd en una aplicación nativa usando Tauri
+# build.ps1
+# Produces two distributions for open_herd:
+#   - Full installer : NSIS setup exe, installs to Program Files, data in ~/.phpenv
+#   - Portable ZIP   : extract anywhere and run, data stored in data/ next to the exe
 
 $ErrorActionPreference = "Stop"
-$root = $PSScriptRoot
+$root      = $PSScriptRoot
+$version   = "0.1.0"   # keep in sync with tauri.conf.json
+$triple    = "x86_64-pc-windows-msvc"
+$appExe    = "phpenv-gui.exe"
+$distDir   = Join-Path $root "dist"
 
-Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host " Compilador Portable (Tauri) para open_herd" -ForegroundColor Cyan
-Write-Host "==============================================" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  open_herd build — installer + portable"    -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
 
-# 1. Preparar iconos
-Write-Host "[1/4] Preparando iconos..." -ForegroundColor Yellow
-$iconSource = Join-Path $root "icon.ico"
-$iconDestDir = Join-Path $root "gui\src-tauri\icons"
-if (-not (Test-Path $iconDestDir)) { New-Item -ItemType Directory -Path $iconDestDir | Out-Null }
-Copy-Item $iconSource (Join-Path $iconDestDir "icon.ico") -Force
+# ── 1. Icons ──────────────────────────────────────────────────────────────────
+Write-Host "`n[1/5] Preparing icons..." -ForegroundColor Yellow
+$iconDir = Join-Path $root "gui\src-tauri\icons"
+if (-not (Test-Path $iconDir)) { New-Item -ItemType Directory -Path $iconDir | Out-Null }
+Copy-Item (Join-Path $root "icon.ico") (Join-Path $iconDir "icon.ico") -Force
 
-# 2. Compilar el daemon de Go como Sidecar de Tauri
-Write-Host "`n[2/4] Compilando el motor de Go (phpenv-daemon)..." -ForegroundColor Yellow
+# ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
+Write-Host "`n[2/5] Building Go daemon (phpenv-daemon)..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "daemon")
-# Tauri exige que los sidecars tengan el triple del sistema en el nombre
-$targetTriple = "x86_64-pc-windows-msvc"
-$sidecarName = "phpenv-daemon-$targetTriple.exe"
-go build -ldflags="-H windowsgui" -o (Join-Path $root "gui\src-tauri\$sidecarName") .
-
-if (-not (Test-Path (Join-Path $root "gui\src-tauri\$sidecarName"))) {
-    Write-Host "ERROR: No se pudo compilar el ejecutable de Go." -ForegroundColor Red
+$sidecarDest = Join-Path $root "gui\src-tauri\phpenv-daemon-$triple.exe"
+go build -ldflags="-H windowsgui" -o $sidecarDest .
+if (-not (Test-Path $sidecarDest)) {
+    Write-Host "ERROR: Go build failed." -ForegroundColor Red
     exit 1
 }
 
-# 3. Limpiar cache corrupta del compilador de Windows (RC.exe)
-Write-Host "`n[3/5] Limpiando cache corrupta de compilacion..." -ForegroundColor Yellow
-$buildCache = Join-Path $root "gui\src-tauri\target\release\build\phpenv-gui-*"
-if (Test-Path $buildCache) {
-    Remove-Item -Path $buildCache -Recurse -Force -ErrorAction SilentlyContinue
-}
+# ── 3. Clean stale Tauri build cache ─────────────────────────────────────────
+Write-Host "`n[3/5] Cleaning stale build cache..." -ForegroundColor Yellow
+$stale = Join-Path $root "gui\src-tauri\target\release\build\phpenv-gui-*"
+if (Test-Path $stale) { Remove-Item -Path $stale -Recurse -Force -ErrorAction SilentlyContinue }
 
-# 4. Instalar dependencias del frontend si es necesario
-Write-Host "`n[4/5] Verificando dependencias del Frontend (npm install)..." -ForegroundColor Yellow
+# ── 4. Frontend deps + Tauri build ───────────────────────────────────────────
+Write-Host "`n[4/5] Building frontend + Tauri app..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "gui")
 npm install
-
-# 5. Construir la app nativa con Tauri
-Write-Host "`n[5/5] Empaquetando la aplicacion nativa con Tauri..." -ForegroundColor Yellow
 npm run tauri build
 
-$targetPath = Join-Path $root "gui\src-tauri\target\release\phpenv.exe"
-$setupPath = Join-Path $root "gui\src-tauri\target\release\bundle\nsis\phpenv_0.1.0_x64-setup.exe"
+# ── 5. Package outputs ────────────────────────────────────────────────────────
+Write-Host "`n[5/5] Packaging outputs..." -ForegroundColor Yellow
 
-Write-Host "`n==============================================" -ForegroundColor Green
-Write-Host " COMPILACION EXITOSA!" -ForegroundColor Green
-Write-Host "==============================================" -ForegroundColor Green
+$releaseDir  = Join-Path $root "gui\src-tauri\target\release"
+$builtExe    = Join-Path $releaseDir $appExe
+$nsisSetup   = Join-Path $releaseDir "bundle\nsis\phpenv_${version}_x64-setup.exe"
 
-if (Test-Path $targetPath) {
-    Write-Host "`nEjecutable Portable listo en:" -ForegroundColor Cyan
-    Write-Host $targetPath
+if (-not (Test-Path $builtExe)) {
+    Write-Host "ERROR: $appExe not found at $builtExe" -ForegroundColor Red
+    exit 1
 }
 
-if (Test-Path $setupPath) {
-    Write-Host "`nInstalador (Setup) listo en:" -ForegroundColor Cyan
-    Write-Host $setupPath
+# Create dist/ output folder
+if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
+New-Item -ItemType Directory -Path $distDir | Out-Null
+
+# ── Full installer ────────────────────────────────────────────────────────────
+if (Test-Path $nsisSetup) {
+    $installerOut = Join-Path $distDir "open-herd-v$version-setup.exe"
+    Copy-Item $nsisSetup $installerOut
+    Write-Host "  Installer : $installerOut" -ForegroundColor Green
+} else {
+    Write-Host "  WARNING: NSIS installer not found, skipping." -ForegroundColor DarkYellow
 }
 
-Write-Host "`nDisfruta de tu nueva aplicacion nativa!" -ForegroundColor Yellow
+# ── Portable ZIP ──────────────────────────────────────────────────────────────
+$portableStage = Join-Path $distDir "portable"
+New-Item -ItemType Directory -Path $portableStage | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
+
+# Copy main exe
+Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
+
+# Seed data/config.json — empty object is enough; the daemon fills in defaults.
+# Its presence is what signals "portable mode" to both the GUI and the daemon.
+Set-Content -Path (Join-Path $portableStage "data\config.json") -Value "{}" -Encoding utf8
+
+# Compress
+$portableZip = Join-Path $distDir "open-herd-v$version-portable.zip"
+Compress-Archive -Path "$portableStage\*" -DestinationPath $portableZip
+Remove-Item $portableStage -Recurse -Force
+
+Write-Host "  Portable  : $portableZip" -ForegroundColor Green
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+Write-Host "`n============================================" -ForegroundColor Cyan
+Write-Host "  Done — outputs in dist\"                   -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Full install : open-herd-v$version-setup.exe"   -ForegroundColor White
+Write-Host "    Data stored in  : ~/.phpenv"                   -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  Portable    : open-herd-v$version-portable.zip" -ForegroundColor White
+Write-Host "    Data stored in  : <carpeta-extraida>/data/"    -ForegroundColor DarkGray

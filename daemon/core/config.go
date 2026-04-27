@@ -24,15 +24,19 @@ type Config struct {
 }
 
 func DefaultConfig() *Config {
-	// Portable mode: only use a "data" folder next to the executable if it
-	// already contains a config.json (i.e. the user explicitly set it up that
-	// way). This prevents temp binaries (go run, CI) from creating a stray
-	// data dir and ignoring the real ~/.phpenv data.
-	base := ""
-	if exe, err := os.Executable(); err == nil {
-		dataDir := filepath.Join(filepath.Dir(exe), "data")
-		if _, err := os.Stat(filepath.Join(dataDir, "config.json")); err == nil {
-			base = dataDir
+	// PHPENV_DATA_DIR lets the Tauri GUI tell the daemon where to store data.
+	// Used for portable mode: GUI detects data/config.json next to itself and
+	// passes the absolute path via this env var when spawning the sidecar.
+	base := os.Getenv("PHPENV_DATA_DIR")
+
+	// Portable fallback: data/config.json exists next to the daemon exe.
+	// Covers go run / direct invocation outside Tauri.
+	if base == "" {
+		if exe, err := os.Executable(); err == nil {
+			dataDir := filepath.Join(filepath.Dir(exe), "data")
+			if _, err := os.Stat(filepath.Join(dataDir, "config.json")); err == nil {
+				base = dataDir
+			}
 		}
 	}
 

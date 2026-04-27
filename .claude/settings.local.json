@@ -8,7 +8,8 @@
       "PowerShell(@\\(12528, 20620, 32348, 24804, 23892\\) | ForEach-Object { $proc = Get-Process -Id $_ -ErrorAction SilentlyContinue; \"PID $_ : $\\($proc.ProcessName\\)\" })",
       "PowerShell(@\\(12528, 20620, 32348, 24804, 23892\\) | ForEach-Object { $proc = Get-WmiObject Win32_Process -Filter \"ProcessId=$_\" -ErrorAction SilentlyContinue; \"PID $_ ParentPID $\\($proc.ParentProcessId\\)\" })",
       "PowerShell(\\(Get-Process -Id 19548 -ErrorAction SilentlyContinue\\).ProcessName; \\(Get-Process -Id 3676 -ErrorAction SilentlyContinue\\).ProcessName)",
-      "PowerShell(@\\(3676, 19548\\) | ForEach-Object { $proc = Get-WmiObject Win32_Process -Filter \"ProcessId=$_\" -ErrorAction SilentlyContinue; \"PID $_ : $\\($proc.CommandLine\\)\" })"
+      "PowerShell(@\\(3676, 19548\\) | ForEach-Object { $proc = Get-WmiObject Win32_Process -Filter \"ProcessId=$_\" -ErrorAction SilentlyContinue; \"PID $_ : $\\($proc.CommandLine\\)\" })",
+      "Bash(go build *)"
     ]
   }
 }
