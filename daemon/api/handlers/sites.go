@@ -139,6 +139,48 @@ func DeleteSite(app *core.App) http.HandlerFunc {
 	}
 }
 
+func RefreshSiteConfig(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		site, ok := app.Sites.Get(chi.URLParam(r, "siteID"))
+		if !ok {
+			NotFound(w)
+			return
+		}
+
+		// Re-detect project type in case the project was compiled or changed.
+		if newType := core.DetectProjectType(site.Path); site.ProjectType != newType {
+			site.ProjectType = newType
+			_ = app.Sites.Update(site)
+		}
+
+		// Resolve FastCGI address.
+		phpVer, ok := app.PHP.GetVersion(site.PHPVersion)
+		if !ok {
+			for _, v := range app.PHP.GetVersions() {
+				if v.Running {
+					phpVer = v
+					ok = true
+					break
+				}
+			}
+		}
+		if !ok {
+			BadRequest(w, "no running PHP version found")
+			return
+		}
+
+		if err := app.Nginx.GenerateSiteConfig(site, phpVer.FastCGIAddr); err != nil {
+			InternalError(w, err)
+			return
+		}
+		if app.Nginx.IsRunning() {
+			_ = app.Nginx.Reload()
+		}
+
+		OK(w, site)
+	}
+}
+
 func EnableSSL(app *core.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		site, ok := app.Sites.Get(chi.URLParam(r, "siteID"))

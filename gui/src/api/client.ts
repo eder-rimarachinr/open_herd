@@ -38,7 +38,7 @@ export interface Site {
   domain: string;
   path: string;
   php_version: string;
-  project_type: "laravel" | "wordpress" | "generic";
+  project_type: "laravel" | "wordpress" | "codeigniter4" | "codeigniter3" | "spa" | "static" | "generic";
   ssl_enabled: boolean;
   active: boolean;
   created_at: string;
@@ -119,6 +119,7 @@ export const api = {
     // Allow 90s — first run generates the mkcert CA key + domain cert.
     enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: 90_000 }),
     disableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "DELETE" }),
+    refreshConfig: (id: string) => request<Site>(`/sites/${id}/refresh-config`, { method: "POST" }),
   },
 
   php: {

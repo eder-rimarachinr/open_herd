@@ -226,6 +226,10 @@ func (sm *SiteManager) findByPath(path string) *Site {
 	return nil
 }
 
+func DetectProjectType(path string) ProjectType {
+	return detectProjectType(path)
+}
+
 func detectProjectType(path string) ProjectType {
 	// Laravel: artisan + public/
 	if fileExists(filepath.Join(path, "artisan")) && fileExists(filepath.Join(path, "public")) {

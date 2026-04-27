@@ -10,6 +10,7 @@ export default function Sites() {
   const [config, setConfig] = useState<any>(null);
   const [newDir, setNewDir] = useState("");
   const [sslLoading, setSslLoading] = useState<Record<string, boolean>>({});
+  const [refreshLoading, setRefreshLoading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     api.sites.list()
@@ -45,6 +46,18 @@ export default function Sites() {
       setError(e.message);
     } finally {
       setSslLoading((prev) => ({ ...prev, [site.id]: false }));
+    }
+  }
+
+  async function refreshConfig(site: Site) {
+    setRefreshLoading((prev) => ({ ...prev, [site.id]: true }));
+    try {
+      const updated = await api.sites.refreshConfig(site.id);
+      setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRefreshLoading((prev) => ({ ...prev, [site.id]: false }));
     }
   }
 
@@ -134,7 +147,15 @@ export default function Sites() {
                     {sslLoading[site.id] ? "Processing…" : (site.ssl_enabled ? "Disable HTTPS" : "Enable HTTPS")}
                   </button>
                 </td>
-                <td>
+                <td style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => refreshConfig(site)}
+                    disabled={refreshLoading[site.id]}
+                    title="Regenerate nginx config and reload"
+                  >
+                    {refreshLoading[site.id] ? "…" : "↺ Refresh"}
+                  </button>
                   <button className="btn-danger" onClick={() => deleteSite(site.id)}>
                     Remove
                   </button>
