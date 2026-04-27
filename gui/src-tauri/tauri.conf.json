@@ -39,10 +39,15 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": null,
-        "sidebarImage": null
+        "sidebarImage": null,
+        "installMode": "perMachine"
       }
     },
     "externalBin": [

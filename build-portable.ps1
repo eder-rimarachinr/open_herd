@@ -78,8 +78,14 @@ $portableStage = Join-Path $distDir "portable"
 New-Item -ItemType Directory -Path $portableStage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
 
-# Copy main exe
+# Copy main exe and daemon sidecar
 Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
+$daemonExe = Join-Path $releaseDir "phpenv-daemon.exe"
+if (Test-Path $daemonExe) {
+    Copy-Item $daemonExe (Join-Path $portableStage "phpenv-daemon.exe")
+} else {
+    Write-Host "  WARNING: phpenv-daemon.exe not found in release dir, portable mode won't have daemon." -ForegroundColor DarkYellow
+}
 
 # Seed data/config.json — empty object is enough; the daemon fills in defaults.
 # Its presence is what signals "portable mode" to both the GUI and the daemon.
