@@ -24,23 +24,19 @@ type Config struct {
 }
 
 func DefaultConfig() *Config {
-	// Try to be portable: use a "data" folder next to the executable if possible.
+	// Portable mode: only use a "data" folder next to the executable if it
+	// already contains a config.json (i.e. the user explicitly set it up that
+	// way). This prevents temp binaries (go run, CI) from creating a stray
+	// data dir and ignoring the real ~/.phpenv data.
 	base := ""
 	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		// Check if we can write to a "data" folder here.
-		dataDir := filepath.Join(exeDir, "data")
-		if err := os.MkdirAll(dataDir, 0755); err == nil {
-			// Test write permission
-			testFile := filepath.Join(dataDir, ".test")
-			if err := os.WriteFile(testFile, []byte("1"), 0644); err == nil {
-				os.Remove(testFile)
-				base = dataDir
-			}
+		dataDir := filepath.Join(filepath.Dir(exe), "data")
+		if _, err := os.Stat(filepath.Join(dataDir, "config.json")); err == nil {
+			base = dataDir
 		}
 	}
 
-	// Fallback to ~/.phpenv if not portable or not writable.
+	// Default: ~/.phpenv — consistent across dev (go run) and production.
 	if base == "" {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".phpenv")

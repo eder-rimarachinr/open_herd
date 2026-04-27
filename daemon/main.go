@@ -32,6 +32,13 @@ func main() {
 		log.Fatalf("init: %v", err)
 	}
 
+	// Auto-start services if there are already configured sites.
+	if len(app.Sites.List()) > 0 {
+		if err := app.StartServices(); err != nil {
+			log.Printf("auto-start services: %v", err)
+		}
+	}
+
 	srv := api.NewServer(cfg, app)
 
 	go func() {
