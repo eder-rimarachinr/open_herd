@@ -15,10 +15,14 @@ Write-Host "  open_herd build — installer + portable"    -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 
 # ── 1. Icons ──────────────────────────────────────────────────────────────────
-Write-Host "`n[1/5] Preparing icons..." -ForegroundColor Yellow
-$iconDir = Join-Path $root "gui\src-tauri\icons"
-if (-not (Test-Path $iconDir)) { New-Item -ItemType Directory -Path $iconDir | Out-Null }
-Copy-Item (Join-Path $root "icon.ico") (Join-Path $iconDir "icon.ico") -Force
+Write-Host "`n[1/5] Generating icons from logo.png..." -ForegroundColor Yellow
+$logoSrc = Join-Path $root "logo.png"
+if (-not (Test-Path $logoSrc)) {
+    Write-Host "ERROR: logo.png not found at project root." -ForegroundColor Red
+    exit 1
+}
+Set-Location (Join-Path $root "gui")
+npx tauri icon "..\logo.png"
 
 # ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
 Write-Host "`n[2/5] Building Go daemon (phpenv-daemon)..." -ForegroundColor Yellow
