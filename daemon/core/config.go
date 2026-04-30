@@ -53,7 +53,7 @@ func DefaultConfig() *Config {
 		CertsDir:    filepath.Join(base, "certs"),
 		LogsDir:     filepath.Join(base, "logs"),
 		SitesDir:    filepath.Join(base, "nginx", "sites"),
-		APIAddr:     "127.0.0.1:7878",
+		APIAddr:     DefaultAPIAddr,
 		HTTPPort:    80,
 		HTTPSPort:   443,
 		ScannedDirs: []string{},

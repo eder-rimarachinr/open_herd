@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // Compiler variants to try, in order of preference.
@@ -120,7 +119,7 @@ func resolveDownloadURL(ctx context.Context, major, version string) (string, err
 		compilers = []string{"vs16", "vs17", "vc15"}
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: urlCheckTimeout}
 	var tried []string
 
 	for _, vs := range compilers {

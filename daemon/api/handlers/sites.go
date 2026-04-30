@@ -78,7 +78,7 @@ func CreateSite(app *core.App) http.HandlerFunc {
 			Active:      true,
 		}
 		if site.Domain == "" {
-			site.Domain = site.Name + ".test"
+			site.Domain = site.Name + core.DefaultTLD
 		}
 
 		if err := app.Sites.Add(site); err != nil {

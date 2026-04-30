@@ -133,13 +133,13 @@ func (p *PHPManager) fastCGIAddr(major string) string {
 func majorToPort(major string) int {
 	parts := strings.SplitN(major, ".", 2)
 	if len(parts) != 2 {
-		return 9000
+		return FastCGIPortBase
 	}
 	var minor int
 	fmt.Sscanf(parts[1], "%d", &minor)
 	var maj int
 	fmt.Sscanf(parts[0], "%d", &maj)
-	return 9000 + maj*10 + minor
+	return FastCGIPortBase + maj*10 + minor
 }
 
 func (p *PHPManager) searchPaths() []string {

@@ -178,7 +178,7 @@ func (sm *SiteManager) Scan() ([]*Site, error) {
 			s := &Site{
 				ID:          uuid.New().String(),
 				Name:        name,
-				Domain:      strings.ToLower(name) + ".test",
+				Domain:      strings.ToLower(name) + DefaultTLD,
 				Path:        path,
 				PHPVersion:  sm.cfg.DefaultPHP,
 				ProjectType: detectProjectType(path),

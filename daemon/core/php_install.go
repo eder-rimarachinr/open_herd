@@ -75,7 +75,7 @@ func (p *PHPManager) Install(major string) error {
 		return fmt.Errorf("PHP %s is not in the catalog", major)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), phpInstallTimeout)
 	prog := &InstallProgress{Major: major, State: InstallStatePending, cancel: cancel}
 	p.mu.Lock()
 	p.installs[major] = prog
@@ -94,7 +94,7 @@ func (p *PHPManager) Install(major string) error {
 		}
 
 		// Re-detect so the new version appears immediately.
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(phpDetectDelay)
 		_ = p.Detect()
 		prog.set(InstallStateDone, "Installed PHP "+latestPatch, 100)
 	}()

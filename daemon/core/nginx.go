@@ -282,7 +282,7 @@ func (n *NginxManager) Start() error {
 		return err
 	}
 	// Wait briefly so nginx can write its pid file and we can detect early failures.
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(nginxStartDelay)
 	if !n.IsRunning() {
 		if tail := n.ErrorLogTail(5); tail != "" {
 			return fmt.Errorf("nginx failed to start: %s", tail)

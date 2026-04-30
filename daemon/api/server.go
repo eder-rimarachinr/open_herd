@@ -11,6 +11,12 @@ import (
 	"github.com/open-herd/phpenv/daemon/core"
 )
 
+const (
+	serverReadTimeout  = 30 * time.Second
+	serverWriteTimeout = 120 * time.Second
+	serverIdleTimeout  = 60 * time.Second
+)
+
 type Server struct {
 	cfg     *core.Config
 	app     *core.App
@@ -82,9 +88,9 @@ func (s *Server) Start() error {
 	s.httpSrv = &http.Server{
 		Addr:         s.cfg.APIAddr,
 		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	return s.httpSrv.ListenAndServe()

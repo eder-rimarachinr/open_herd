@@ -1,9 +1,13 @@
 const BASE = "http://127.0.0.1:7878/api/v1";
 
+const TIMEOUT_DEFAULT  =  15_000; // ms — standard API calls
+const TIMEOUT_SSL      =  90_000; // ms — first run generates mkcert CA + cert
+const TIMEOUT_DOWNLOAD = 120_000; // ms — nginx download (~1.5 MB, nginx.org can be slow)
+
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, ...fetchInit } = init ?? {};
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs ?? 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs ?? TIMEOUT_DEFAULT);
   const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
     signal: controller.signal,
@@ -118,7 +122,7 @@ export const api = {
       request<Site>(`/sites/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/sites/${id}`, { method: "DELETE" }),
     // Allow 90s — first run generates the mkcert CA key + domain cert.
-    enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: 90_000 }),
+    enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: TIMEOUT_SSL }),
     disableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "DELETE" }),
     refreshConfig: (id: string) => request<Site>(`/sites/${id}/refresh-config`, { method: "POST" }),
   },
@@ -145,7 +149,7 @@ export const api = {
     status: () => request<{ running: boolean }>("/nginx/status"),
     info: () => request<NginxInfo>("/nginx/info"),
     // Allow 120s — download is ~1.5 MB but nginx.org can be slow.
-    download: () => request<unknown>("/nginx/download", { method: "POST", timeoutMs: 120_000 }),
+    download: () => request<unknown>("/nginx/download", { method: "POST", timeoutMs: TIMEOUT_DOWNLOAD }),
     start: () => request<unknown>("/nginx/start", { method: "POST" }),
     stop: () => request<unknown>("/nginx/stop", { method: "POST" }),
     reload: () => request<unknown>("/nginx/reload", { method: "POST" }),
@@ -154,7 +158,7 @@ export const api = {
   services: {
     status: () => request<ServiceStatus>("/services/status"),
     // Allow 120s — first start may download nginx (~15 MB).
-    start: () => request<ServiceStatus>("/services/start", { method: "POST", timeoutMs: 120_000 }),
+    start: () => request<ServiceStatus>("/services/start", { method: "POST", timeoutMs: TIMEOUT_DOWNLOAD }),
     stop: () => request<ServiceStatus>("/services/stop", { method: "POST" }),
   },
 

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
 // EnsureTools checks for necessary binaries (mkcert, nginx) and downloads them if missing.
@@ -87,7 +86,7 @@ func ensureNginxWindows(nginxDir string) error {
 		return nil
 	}
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: toolDownloadTimeout}
 
 	for _, version := range nginxVersions {
 		url := fmt.Sprintf("https://nginx.org/download/nginx-%s.zip", version)
