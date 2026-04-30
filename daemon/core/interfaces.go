@@ -60,11 +60,25 @@ type CertManager interface {
 	GetCertTask(domain string) *AsyncTask
 }
 
+// DBController manages local and remote database instances.
+type DBController interface {
+	Load() error
+	List() []*DBInstance
+	Get(id string) (*DBInstance, bool)
+	Add(inst *DBInstance) error
+	Delete(id string) error
+	IsRunning(inst *DBInstance) bool
+	Start(inst *DBInstance) error
+	Stop(inst *DBInstance) error
+	Detect() ([]*DBInstance, error)
+}
+
 // Compile-time checks: concrete types must satisfy their interfaces.
 var (
-	_ SiteStore      = (*SiteManager)(nil)
-	_ PHPRuntime     = (*PHPManager)(nil)
+	_ SiteStore       = (*SiteManager)(nil)
+	_ PHPRuntime      = (*PHPManager)(nil)
 	_ NginxController = (*NginxManager)(nil)
-	_ DNSController  = (*DNSManager)(nil)
-	_ CertManager    = (*SSLManager)(nil)
+	_ DNSController   = (*DNSManager)(nil)
+	_ CertManager     = (*SSLManager)(nil)
+	_ DBController    = (*DBManager)(nil)
 )

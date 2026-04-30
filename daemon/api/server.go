@@ -72,7 +72,19 @@ func (s *Server) Start() error {
 			r.Post("/reload", handlers.ReloadNginx(s.app))
 		})
 
-		r.Route("/config", func(r chi.Router) {
+		r.Route("/databases", func(r chi.Router) {
+				r.Get("/", handlers.ListDatabases(s.app))
+				r.Post("/", handlers.AddDatabase(s.app))
+				r.Post("/detect", handlers.DetectDatabases(s.app))
+				r.Route("/{dbID}", func(r chi.Router) {
+					r.Get("/", handlers.GetDatabase(s.app))
+					r.Delete("/", handlers.DeleteDatabase(s.app))
+					r.Post("/start", handlers.StartDatabase(s.app))
+					r.Post("/stop", handlers.StopDatabase(s.app))
+				})
+			})
+
+			r.Route("/config", func(r chi.Router) {
 			r.Get("/", handlers.GetConfig(s.app))
 			r.Put("/", handlers.UpdateConfig(s.app))
 		})

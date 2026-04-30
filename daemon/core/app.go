@@ -28,6 +28,7 @@ type App struct {
 	Nginx   NginxController
 	DNS     DNSController
 	SSL     CertManager
+	DB      DBController
 	Watcher *DirWatcher
 }
 
@@ -40,6 +41,7 @@ func NewApp(cfg *Config, plat platform.Platform) *App {
 		Nginx:  NewNginxManager(cfg, plat),
 		DNS:    NewDNSManager(cfg, plat),
 		SSL:    NewSSLManager(cfg, plat),
+		DB:     NewDBManager(cfg),
 	}
 	app.Watcher = NewDirWatcher(app)
 	return app
@@ -51,6 +53,9 @@ func (a *App) Initialize() error {
 	}
 	if err := a.Sites.Load(); err != nil {
 		return err
+	}
+	if err := a.DB.Load(); err != nil {
+		slog.Warn("databases load failed", "err", err)
 	}
 	if err := a.PHP.Detect(); err != nil {
 		slog.Warn("PHP detection failed", "err", err)
