@@ -7,18 +7,38 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/open-herd/phpenv/daemon/platform"
 )
 
 type SSLManager struct {
-	cfg  *Config
-	plat platform.Platform
+	cfg   *Config
+	plat  platform.Platform
+	mu    sync.RWMutex
+	tasks map[string]*AsyncTask // domain → active task
 }
 
 func NewSSLManager(cfg *Config, plat platform.Platform) *SSLManager {
-	return &SSLManager{cfg: cfg, plat: plat}
+	return &SSLManager{cfg: cfg, plat: plat, tasks: make(map[string]*AsyncTask)}
+}
+
+// StartCertTask registers and returns a new pending task for the domain.
+// The caller is responsible for running the operation in a goroutine.
+func (s *SSLManager) StartCertTask(domain string) *AsyncTask {
+	task := &AsyncTask{State: TaskStatePending, Message: "Starting..."}
+	s.mu.Lock()
+	s.tasks[domain] = task
+	s.mu.Unlock()
+	return task
+}
+
+// GetCertTask returns the current task for domain, or nil if none exists.
+func (s *SSLManager) GetCertTask(domain string) *AsyncTask {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tasks[domain]
 }
 
 // Install runs `mkcert -install` to add the local CA to the system trust store.

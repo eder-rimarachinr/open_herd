@@ -19,6 +19,10 @@ func Created(w http.ResponseWriter, v any) {
 	JSON(w, http.StatusCreated, v)
 }
 
+func Accepted(w http.ResponseWriter, v any) {
+	JSON(w, http.StatusAccepted, v)
+}
+
 func NoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }

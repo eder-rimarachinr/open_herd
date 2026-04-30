@@ -1,8 +1,6 @@
 const BASE = "http://127.0.0.1:7878/api/v1";
 
-const TIMEOUT_DEFAULT  =  15_000; // ms — standard API calls
-const TIMEOUT_SSL      =  90_000; // ms — first run generates mkcert CA + cert
-const TIMEOUT_DOWNLOAD = 120_000; // ms — nginx download (~1.5 MB, nginx.org can be slow)
+const TIMEOUT_DEFAULT = 15_000; // ms — standard API calls
 
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, ...fetchInit } = init ?? {};
@@ -78,6 +76,12 @@ export interface InstallProgress {
   error?: string;
 }
 
+export interface AsyncTask {
+  state: "pending" | "running" | "done" | "error";
+  message: string;
+  error?: string;
+}
+
 export interface NginxInfo {
   installed: boolean;
   running: boolean;
@@ -121,8 +125,9 @@ export const api = {
     update: (id: string, body: Partial<Site>) =>
       request<Site>(`/sites/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/sites/${id}`, { method: "DELETE" }),
-    // Allow 90s — first run generates the mkcert CA key + domain cert.
-    enableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: TIMEOUT_SSL }),
+    // SSL issuance is async: POST returns 202, then poll sslProgress until done.
+    enableSSL: (id: string) => request<AsyncTask>(`/sites/${id}/ssl`, { method: "POST" }),
+    sslProgress: (id: string) => request<AsyncTask>(`/sites/${id}/ssl/progress`),
     disableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "DELETE" }),
     refreshConfig: (id: string) => request<Site>(`/sites/${id}/refresh-config`, { method: "POST" }),
   },
@@ -148,8 +153,9 @@ export const api = {
   nginx: {
     status: () => request<{ running: boolean }>("/nginx/status"),
     info: () => request<NginxInfo>("/nginx/info"),
-    // Allow 120s — download is ~1.5 MB but nginx.org can be slow.
-    download: () => request<unknown>("/nginx/download", { method: "POST", timeoutMs: TIMEOUT_DOWNLOAD }),
+    // Nginx download is async: POST returns 202, then poll downloadProgress until done.
+    download: () => request<AsyncTask>("/nginx/download", { method: "POST" }),
+    downloadProgress: () => request<AsyncTask>("/nginx/download/progress"),
     start: () => request<unknown>("/nginx/start", { method: "POST" }),
     stop: () => request<unknown>("/nginx/stop", { method: "POST" }),
     reload: () => request<unknown>("/nginx/reload", { method: "POST" }),
@@ -157,8 +163,7 @@ export const api = {
 
   services: {
     status: () => request<ServiceStatus>("/services/status"),
-    // Allow 120s — first start may download nginx (~15 MB).
-    start: () => request<ServiceStatus>("/services/start", { method: "POST", timeoutMs: TIMEOUT_DOWNLOAD }),
+    start: () => request<ServiceStatus>("/services/start", { method: "POST" }),
     stop: () => request<ServiceStatus>("/services/stop", { method: "POST" }),
   },
 

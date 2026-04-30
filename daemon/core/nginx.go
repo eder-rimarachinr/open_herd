@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -135,12 +136,30 @@ type nginxMainData struct {
 }
 
 type NginxManager struct {
-	cfg  *Config
-	plat platform.Platform
+	cfg          *Config
+	plat         platform.Platform
+	taskMu       sync.RWMutex
+	downloadTask *AsyncTask
 }
 
 func NewNginxManager(cfg *Config, plat platform.Platform) *NginxManager {
 	return &NginxManager{cfg: cfg, plat: plat}
+}
+
+// StartDownloadTask registers and returns a new pending task for a background download.
+func (n *NginxManager) StartDownloadTask() *AsyncTask {
+	task := &AsyncTask{State: TaskStatePending, Message: "Starting download..."}
+	n.taskMu.Lock()
+	n.downloadTask = task
+	n.taskMu.Unlock()
+	return task
+}
+
+// GetDownloadProgress returns the current download task, or nil if none has started.
+func (n *NginxManager) GetDownloadProgress() *AsyncTask {
+	n.taskMu.RLock()
+	defer n.taskMu.RUnlock()
+	return n.downloadTask
 }
 
 // nginxPath converts backslashes to forward slashes for use inside nginx.conf.

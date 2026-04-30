@@ -54,11 +54,29 @@ func NginxInfo(app *core.App) http.HandlerFunc {
 
 func DownloadNginx(app *core.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := app.Nginx.Download(); err != nil {
-			InternalError(w, err)
+		task := app.Nginx.StartDownloadTask()
+
+		go func() {
+			task.Set(core.TaskStateRunning, "Downloading nginx…")
+			if err := app.Nginx.Download(); err != nil {
+				task.Fail(err)
+				return
+			}
+			task.Set(core.TaskStateDone, "Nginx "+app.Nginx.Version()+" installed")
+		}()
+
+		Accepted(w, map[string]string{"status": "pending"})
+	}
+}
+
+func NginxDownloadProgress(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		task := app.Nginx.GetDownloadProgress()
+		if task == nil {
+			NotFound(w)
 			return
 		}
-		OK(w, map[string]string{"status": "installed", "version": app.Nginx.Version()})
+		OK(w, task)
 	}
 }
 

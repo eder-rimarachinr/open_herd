@@ -30,6 +30,8 @@ type NginxController interface {
 	IsRunning() bool
 	Downloadable() bool
 	Download() error
+	StartDownloadTask() *AsyncTask
+	GetDownloadProgress() *AsyncTask
 	Start() error
 	Stop() error
 	Reload() error
@@ -54,6 +56,8 @@ type CertManager interface {
 	IssueCert(domain string) error
 	RevokeCert(domain string) error
 	HasCert(domain string) bool
+	StartCertTask(domain string) *AsyncTask
+	GetCertTask(domain string) *AsyncTask
 }
 
 // Compile-time checks: concrete types must satisfy their interfaces.

@@ -189,20 +189,40 @@ func EnableSSL(app *core.App) http.HandlerFunc {
 			return
 		}
 
-		if err := app.SSL.IssueCert(site.Domain); err != nil {
-			InternalError(w, err)
+		task := app.SSL.StartCertTask(site.Domain)
+
+		go func() {
+			task.Set(core.TaskStateRunning, "Issuing certificate for "+site.Domain+"…")
+			if err := app.SSL.IssueCert(site.Domain); err != nil {
+				task.Fail(err)
+				return
+			}
+			site.SSLEnabled = true
+			_ = app.Sites.Update(site)
+			if phpVer, ok := app.PHP.GetVersion(site.PHPVersion); ok {
+				_ = app.Nginx.GenerateSiteConfig(site, phpVer.FastCGIAddr)
+				_ = app.Nginx.Reload()
+			}
+			task.Set(core.TaskStateDone, "SSL enabled for "+site.Domain)
+		}()
+
+		Accepted(w, map[string]string{"status": "pending", "domain": site.Domain})
+	}
+}
+
+func SSLProgress(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		site, ok := app.Sites.Get(chi.URLParam(r, "siteID"))
+		if !ok {
+			NotFound(w)
 			return
 		}
-
-		site.SSLEnabled = true
-		_ = app.Sites.Update(site)
-
-		if phpVer, ok := app.PHP.GetVersion(site.PHPVersion); ok {
-			_ = app.Nginx.GenerateSiteConfig(site, phpVer.FastCGIAddr)
-			_ = app.Nginx.Reload()
+		task := app.SSL.GetCertTask(site.Domain)
+		if task == nil {
+			NotFound(w)
+			return
 		}
-
-		OK(w, site)
+		OK(w, task)
 	}
 }
 
