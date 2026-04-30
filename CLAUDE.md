@@ -10,9 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Component | Language | Entry point |
 |-----------|----------|-------------|
-| `daemon/` | Go (module: `github.com/open-herd/phpenv/daemon`) | `daemon/main.go` |
-| `cli/` | Go (separate module) | `cli/main.go` |
+| `daemon/` | Go 1.25 (module: `github.com/open-herd/phpenv/daemon`) | `daemon/main.go` |
+| `cli/` | Go 1.22 (module: `github.com/open-herd/phpenv/cli`) | `cli/main.go` |
 | `gui/` | Tauri v2 + React/TypeScript | `gui/src/main.tsx`, `gui/src-tauri/src/lib.rs` |
+
+Key dependencies: daemon uses `go-chi/chi` (v5) and `google/uuid`; CLI uses `spf13/cobra`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
 
 ## Development commands
 
@@ -44,7 +46,7 @@ npm run dev           # serves at http://localhost:1420
 ```powershell
 .\build-portable.ps1
 ```
-Produces `dist/open-herd-v0.1.0-setup.exe` (NSIS installer) and `dist/open-herd-v0.1.0-portable.zip`. Requires `logo.png` at project root.
+Produces `dist/open-herd-v0.1.0-setup.exe` (NSIS installer) and `dist/open-herd-v0.1.0-portable.zip`. Requires `logo.png` at project root. The script builds icons from `logo.png`, compiles the daemon sidecar, cleans Tauri cache, then builds the frontend + Tauri app.
 
 ### Build individual pieces
 ```bash
@@ -57,10 +59,73 @@ cd gui
 npm run tauri build
 ```
 
+## Tests and linting
+
+No automated tests exist yet. No linting configs are set up (no `.golangci.yml`, no ESLint config). There is no CI/CD pipeline.
+
 ## Architecture
 
 ### Daemon API
 The daemon is a Go HTTP server (chi router) listening on `127.0.0.1:7878`. All routes are under `/api/v1`. Both the Tauri GUI and the CLI communicate exclusively through this API — there are no direct inter-process calls.
+
+Full route list (defined in `daemon/api/server.go`):
+
+```text
+GET/PUT  /api/v1/config
+GET      /api/v1/status
+GET      /api/v1/daemon/logs
+POST     /api/v1/daemon/quit
+
+GET      /api/v1/sites
+POST     /api/v1/sites
+POST     /api/v1/sites/bulk
+POST     /api/v1/sites/scan
+GET/PUT/DELETE /api/v1/sites/{siteID}
+POST     /api/v1/sites/{siteID}/ssl
+DELETE   /api/v1/sites/{siteID}/ssl
+POST     /api/v1/sites/{siteID}/refresh-config
+
+GET      /api/v1/php/versions
+GET      /api/v1/php/catalog
+POST     /api/v1/php/detect
+POST     /api/v1/php/install
+GET      /api/v1/php/install/{major}/progress
+POST     /api/v1/php/versions/{version}/start
+POST     /api/v1/php/versions/{version}/stop
+
+GET      /api/v1/nginx/status
+GET      /api/v1/nginx/info
+POST     /api/v1/nginx/download
+POST     /api/v1/nginx/start
+POST     /api/v1/nginx/stop
+POST     /api/v1/nginx/reload
+
+GET      /api/v1/services/status
+POST     /api/v1/services/start
+POST     /api/v1/services/stop
+```
+
+The GUI API client (`gui/src/api/client.ts`) wraps `fetch` with a 15s default timeout, extended to 90s for SSL (first-run CA generation) and 120s for nginx download and service start.
+
+### CLI commands
+
+Built with Cobra; the binary locates the daemon in order: same dir as CLI → `~/.phpenv/bin/` → PATH.
+
+```text
+phpenv open [--no-gui]          start all services + open GUI
+phpenv stop [--quit]            stop services (--quit also quits daemon)
+phpenv status                   show daemon + services status
+
+phpenv sites list
+phpenv sites scan
+
+phpenv php versions
+phpenv php start [version]
+phpenv php stop [version]
+
+phpenv nginx start|stop|reload
+phpenv nginx status
+```
 
 ### Core managers (`daemon/core/`)
 - `App` — top-level coordinator; wired with `Config`, `Platform`, and all managers
@@ -80,7 +145,7 @@ The daemon is a Go HTTP server (chi router) listening on `127.0.0.1:7878`. All r
 `gui/src-tauri/src/lib.rs` spawns `phpenv-daemon` as a sidecar at launch. If a `data/config.json` file exists next to the exe, it sets `PHPENV_DATA_DIR` env var to activate **portable mode** (data stored in `./data/` instead of `~/.phpenv`).
 
 ### GUI (`gui/src/`)
-Plain React with `react-router-dom`. No state management library. Pages: Sites, PHP, Nginx, Database, SSL. All API calls go through `gui/src/api/client.ts`, which wraps `fetch` with a 15s timeout (extended to 90–120s for slow operations like first SSL or nginx download).
+Plain React with `react-router-dom`. No state management library. Pages: Sites, PHP, Nginx, Database, SSL, Logs. All API calls go through `gui/src/api/client.ts`. TypeScript strict mode is enabled.
 
 ## Key cross-platform differences
 

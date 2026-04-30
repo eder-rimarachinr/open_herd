@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // PHPVersion describes an installed PHP version.
@@ -24,6 +25,7 @@ type PHPVersion struct {
 }
 
 type PHPManager struct {
+	mu       sync.RWMutex
 	cfg      *Config
 	versions map[string]*PHPVersion
 	// installs tracks in-progress or completed installs.
@@ -43,9 +45,10 @@ func NewPHPManager(cfg *Config) *PHPManager {
 
 // Detect scans well-known paths, common installers (XAMPP, WAMP, Laragon),
 // the system PATH, and user-configured custom dirs for PHP binaries.
+// I/O runs without holding the lock; only the final map swap is protected.
 func (p *PHPManager) Detect() error {
-	p.versions = make(map[string]*PHPVersion)
-	
+	found := make(map[string]*PHPVersion)
+
 	for _, dir := range p.searchPaths() {
 		log.Printf("PHP Detect: Scanning dir %s", dir)
 		entries, err := os.ReadDir(dir)
@@ -54,34 +57,34 @@ func (p *PHPManager) Detect() error {
 			continue
 		}
 		for _, entry := range entries {
-			// Sub-directories may be versioned installs (WAMP, Laragon, managed).
 			if entry.IsDir() {
-				p.detectInDir(filepath.Join(dir, entry.Name()))
+				p.detectInDir(filepath.Join(dir, entry.Name()), found)
 				continue
 			}
 			if isPHPBinary(entry.Name()) {
 				log.Printf("PHP Detect: Found binary %s in %s", entry.Name(), dir)
-				p.detectBinary(filepath.Join(dir, entry.Name()))
+				p.detectBinary(filepath.Join(dir, entry.Name()), found)
 			}
 		}
 	}
 
-	// Also detect whatever `php` / `php.exe` resolves to in PATH.
 	for _, name := range []string{"php", "php.exe"} {
 		if resolved, err := exec.LookPath(name); err == nil {
-			p.detectBinary(resolved)
+			p.detectBinary(resolved, found)
 		}
 	}
 
+	p.mu.Lock()
+	p.versions = found
+	p.mu.Unlock()
 	return nil
 }
 
-func (p *PHPManager) detectInDir(dir string) {
-	binary := phpBinaryName()
-	p.detectBinary(filepath.Join(dir, binary))
+func (p *PHPManager) detectInDir(dir string, into map[string]*PHPVersion) {
+	p.detectBinary(filepath.Join(dir, phpBinaryName()), into)
 }
 
-func (p *PHPManager) detectBinary(binaryPath string) {
+func (p *PHPManager) detectBinary(binaryPath string, into map[string]*PHPVersion) {
 	if !fileExists(binaryPath) {
 		return
 	}
@@ -99,20 +102,17 @@ func (p *PHPManager) detectBinary(binaryPath string) {
 	}
 	major := parts[0] + "." + parts[1]
 
-	if _, exists := p.versions[major]; exists {
+	if _, exists := into[major]; exists {
 		return // first one wins
 	}
 
 	dir := filepath.Dir(binaryPath)
-	fpmBin := p.findFPMBinary(dir, major)
-	fastCGI := p.fastCGIAddr(major)
-
-	p.versions[major] = &PHPVersion{
+	into[major] = &PHPVersion{
 		Version:     full,
 		Major:       major,
 		BinaryPath:  binaryPath,
-		FPMBinary:   fpmBin,
-		FastCGIAddr: fastCGI,
+		FPMBinary:   p.findFPMBinary(dir, major),
+		FastCGIAddr: p.fastCGIAddr(major),
 		FPMPidFile:  filepath.Join(p.cfg.BaseDir, fmt.Sprintf("php%s-fpm.pid", major)),
 		Installed:   true,
 	}
@@ -179,6 +179,8 @@ func (p *PHPManager) findFPMBinary(dir, major string) string {
 }
 
 func (p *PHPManager) GetVersions() []*PHPVersion {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	result := make([]*PHPVersion, 0, len(p.versions))
 	for _, v := range p.versions {
 		result = append(result, v)
@@ -187,10 +189,11 @@ func (p *PHPManager) GetVersions() []*PHPVersion {
 }
 
 func (p *PHPManager) GetVersion(major string) (*PHPVersion, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if major == "" {
 		major = p.cfg.DefaultPHP
 	}
-	// If still empty, pick the first available version
 	if major == "" {
 		for k := range p.versions {
 			major = k
@@ -203,6 +206,8 @@ func (p *PHPManager) GetVersion(major string) (*PHPVersion, bool) {
 
 // StartFPM starts php-fpm (Linux) or php-cgi (Windows) for the given major version.
 func (p *PHPManager) StartFPM(major string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	v, ok := p.versions[major]
 	if !ok {
 		return fmt.Errorf("PHP %s not installed", major)
@@ -240,6 +245,8 @@ func (p *PHPManager) StartFPM(major string) error {
 
 // StopFPM stops the FastCGI process for the given major version.
 func (p *PHPManager) StopFPM(major string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	v, ok := p.versions[major]
 	if !ok {
 		return fmt.Errorf("PHP %s not found", major)

@@ -28,7 +28,9 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: tauri icon failed." -ForegroundCol
 # ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
 Write-Host "`n[2/5] Building Go daemon..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "daemon")
-$sidecarDest = Join-Path $root "gui\src-tauri\phpenv-daemon-$triple.exe"
+$binDir = Join-Path $root "gui\src-tauri\bin"
+if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
+$sidecarDest = Join-Path $binDir "phpenv-daemon-$triple.exe"
 go build -ldflags="-H windowsgui" -o $sidecarDest .
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $sidecarDest)) {
     Write-Host "ERROR: Go build failed." -ForegroundColor Red
@@ -80,11 +82,11 @@ New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
 
 # Copy main exe and daemon sidecar
 Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
-$daemonExe = Join-Path $releaseDir "phpenv-daemon.exe"
-if (Test-Path $daemonExe) {
-    Copy-Item $daemonExe (Join-Path $portableStage "phpenv-daemon.exe")
+$builtSidecar = Join-Path $root "gui\src-tauri\bin\phpenv-daemon-$triple.exe"
+if (Test-Path $builtSidecar) {
+    Copy-Item $builtSidecar (Join-Path $portableStage "phpenv-daemon.exe")
 } else {
-    Write-Host "  WARNING: phpenv-daemon.exe not found in release dir, portable mode won't have daemon." -ForegroundColor DarkYellow
+    Write-Host "  WARNING: phpenv-daemon sidecar not found, portable mode won't have daemon." -ForegroundColor DarkYellow
 }
 
 # Seed data/config.json — empty object is enough; the daemon fills in defaults.

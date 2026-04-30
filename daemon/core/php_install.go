@@ -44,6 +44,8 @@ func (ip *InstallProgress) fail(err error) {
 
 // GetInstallProgress returns the progress for a major version, or nil if none.
 func (p *PHPManager) GetInstallProgress(major string) *InstallProgress {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.installs[major]
 }
 
@@ -63,7 +65,9 @@ func (p *PHPManager) Install(major string) error {
 	}
 
 	prog := &InstallProgress{Major: major, State: InstallStatePending}
+	p.mu.Lock()
 	p.installs[major] = prog
+	p.mu.Unlock()
 
 	go func() {
 		defer func() {
