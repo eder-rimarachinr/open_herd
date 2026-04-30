@@ -38,7 +38,7 @@ type Site struct {
 
 type SiteManager struct {
 	cfg   *Config
-	mu    sync.Mutex
+	mu    sync.RWMutex
 	sites map[string]*Site
 }
 
@@ -75,12 +75,19 @@ func (sm *SiteManager) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(sm.cfg.BaseDir, "sites.json"), data, 0644)
+	finalPath := filepath.Join(sm.cfg.BaseDir, "sites.json")
+	// Write to a sibling temp file so os.Rename is a single syscall on the
+	// same filesystem — the file is either fully written or not replaced at all.
+	tmpPath := finalPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, finalPath)
 }
 
 func (sm *SiteManager) List() []*Site {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	result := make([]*Site, 0, len(sm.sites))
 	for _, s := range sm.sites {
 		result = append(result, s)
@@ -89,8 +96,8 @@ func (sm *SiteManager) List() []*Site {
 }
 
 func (sm *SiteManager) Get(id string) (*Site, bool) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	s, ok := sm.sites[id]
 	return s, ok
 }
@@ -216,8 +223,8 @@ func (sm *SiteManager) AddMultiple(sites []*Site) error {
 }
 
 func (sm *SiteManager) findByPath(path string) *Site {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	for _, s := range sm.sites {
 		if s.Path == path {
 			return s
