@@ -1,7 +1,7 @@
 package core
 
 import (
-	"log"
+	"log/slog"
 
 	"github.com/open-herd/phpenv/daemon/platform"
 )
@@ -50,13 +50,13 @@ func (a *App) Initialize() error {
 		return err
 	}
 	if err := a.PHP.Detect(); err != nil {
-		log.Printf("PHP detection error: %v", err)
+		slog.Warn("PHP detection failed", "err", err)
 	}
 	if err := a.EnsureTools(); err != nil {
-		log.Printf("Tool bootstrap error: %v", err)
+		slog.Warn("tool bootstrap failed", "err", err)
 	}
 	if err := a.Nginx.GenerateMainConfig(); err != nil {
-		log.Printf("nginx config generation error: %v", err)
+		slog.Warn("nginx main config generation failed", "err", err)
 	}
 	return nil
 }
@@ -80,7 +80,7 @@ func (a *App) StartServices() error {
 		if v.Major == activeMajor {
 			if !v.Running {
 				if err := a.PHP.StartFPM(v.Major); err != nil {
-					log.Printf("php-fpm %s: %v", v.Major, err)
+					slog.Error("php-fpm start failed", "version", v.Major, "err", err)
 				}
 			}
 		} else {
@@ -108,7 +108,7 @@ func (a *App) StartServices() error {
 		}
 		if ok {
 			if err := a.Nginx.GenerateSiteConfig(site, phpV.FastCGIAddr); err != nil {
-				log.Printf("nginx config for %s: %v", site.Domain, err)
+				slog.Error("nginx site config failed", "domain", site.Domain, "err", err)
 			}
 		}
 		_ = a.DNS.AddSite(site.Domain)
@@ -117,7 +117,7 @@ func (a *App) StartServices() error {
 	// 3. Start or reload nginx.
 	if a.Nginx.IsRunning() {
 		if err := a.Nginx.Reload(); err != nil {
-			log.Printf("nginx reload: %v", err)
+			slog.Error("nginx reload failed", "err", err)
 		}
 	} else {
 		if err := a.Nginx.Start(); err != nil {
@@ -132,13 +132,13 @@ func (a *App) StartServices() error {
 func (a *App) StopServices() {
 	if a.Nginx.IsRunning() {
 		if err := a.Nginx.Stop(); err != nil {
-			log.Printf("nginx stop: %v", err)
+			slog.Error("nginx stop failed", "err", err)
 		}
 	}
 	for _, v := range a.PHP.GetVersions() {
 		if v.Running {
 			if err := a.PHP.StopFPM(v.Major); err != nil {
-				log.Printf("php-fpm %s stop: %v", v.Major, err)
+				slog.Error("php-fpm stop failed", "version", v.Major, "err", err)
 			}
 		}
 	}

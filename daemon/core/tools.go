@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,13 +21,13 @@ func (a *App) EnsureTools() error {
 
 	// 1. mkcert
 	if err := a.ensureMkcert(binDir); err != nil {
-		log.Printf("Warning: could not setup mkcert: %v", err)
+		slog.Warn("mkcert setup failed", "err", err)
 	}
 
 	// 2. nginx (Windows only — Linux uses system nginx)
 	if runtime.GOOS == "windows" {
 		if err := ensureNginxWindows(a.Config.NginxDir); err != nil {
-			log.Printf("Warning: could not setup nginx: %v", err)
+			slog.Warn("nginx setup failed", "err", err)
 		}
 	}
 
@@ -45,7 +45,7 @@ func (a *App) ensureMkcert(binDir string) error {
 		return nil // already exists
 	}
 
-	log.Printf("mkcert not found, downloading...")
+	slog.Info("downloading mkcert")
 	
 	var url string
 	if runtime.GOOS == "windows" {
@@ -64,7 +64,7 @@ func (a *App) ensureMkcert(binDir string) error {
 		_ = os.Chmod(path, 0755)
 	}
 
-	log.Printf("mkcert installed to %s. Running mkcert -install...", path)
+	slog.Info("mkcert installed, running -install", "path", path)
 	return a.SSL.Install()
 }
 
@@ -90,7 +90,7 @@ func ensureNginxWindows(nginxDir string) error {
 
 	for _, version := range nginxVersions {
 		url := fmt.Sprintf("https://nginx.org/download/nginx-%s.zip", version)
-		log.Printf("nginx: trying %s", url)
+		slog.Debug("nginx download: trying", "url", url)
 
 		tmp, err := os.CreateTemp("", "nginx-*.zip")
 		if err != nil {
@@ -108,11 +108,11 @@ func ensureNginxWindows(nginxDir string) error {
 			resp.Body.Close()
 			tmp.Close()
 			os.Remove(tmpName)
-			log.Printf("nginx: %s returned HTTP %d, trying next version", url, resp.StatusCode)
+			slog.Warn("nginx download: HTTP error, trying next", "url", url, "status", resp.StatusCode)
 			continue
 		}
 
-		log.Printf("nginx: downloading %s (~1.5 MB)…", url)
+		slog.Info("nginx download: starting", "url", url)
 		_, copyErr := io.Copy(tmp, resp.Body)
 		resp.Body.Close()
 		tmp.Close()
@@ -127,7 +127,7 @@ func ensureNginxWindows(nginxDir string) error {
 			return err
 		}
 		os.Remove(tmpName)
-		log.Printf("nginx %s installed to %s", version, nginxDir)
+		slog.Info("nginx installed", "version", version, "dir", nginxDir)
 		return nil
 	}
 
@@ -173,7 +173,7 @@ func extractNginxZip(zipPath, destDir, prefix string) error {
 		if copyErr != nil {
 			return copyErr
 		}
-		log.Printf("nginx: extracted %s", dstName)
+		slog.Debug("nginx extract: file", "name", dstName)
 	}
 	return nil
 }
