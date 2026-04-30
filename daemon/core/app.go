@@ -21,17 +21,18 @@ type PHPRunningStatus struct {
 
 // App is the central application object passed to all API handlers.
 type App struct {
-	Config *Config
-	Plat   platform.Platform
-	Sites  SiteStore
-	PHP    PHPRuntime
-	Nginx  NginxController
-	DNS    DNSController
-	SSL    CertManager
+	Config  *Config
+	Plat    platform.Platform
+	Sites   SiteStore
+	PHP     PHPRuntime
+	Nginx   NginxController
+	DNS     DNSController
+	SSL     CertManager
+	Watcher *DirWatcher
 }
 
 func NewApp(cfg *Config, plat platform.Platform) *App {
-	return &App{
+	app := &App{
 		Config: cfg,
 		Plat:   plat,
 		Sites:  NewSiteManager(cfg),
@@ -40,6 +41,8 @@ func NewApp(cfg *Config, plat platform.Platform) *App {
 		DNS:    NewDNSManager(cfg, plat),
 		SSL:    NewSSLManager(cfg, plat),
 	}
+	app.Watcher = NewDirWatcher(app)
+	return app
 }
 
 func (a *App) Initialize() error {
@@ -57,6 +60,9 @@ func (a *App) Initialize() error {
 	}
 	if err := a.Nginx.GenerateMainConfig(); err != nil {
 		slog.Warn("nginx main config generation failed", "err", err)
+	}
+	if err := a.Watcher.Start(a.Config.ScannedDirs); err != nil {
+		slog.Warn("dirwatcher: failed to start", "err", err)
 	}
 	return nil
 }
@@ -171,5 +177,6 @@ func (a *App) ServiceStatus() ServiceStatus {
 }
 
 func (a *App) Shutdown() {
+	a.Watcher.Stop()
 	a.StopServices()
 }

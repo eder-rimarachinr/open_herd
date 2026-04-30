@@ -19,6 +19,9 @@ const (
 	nginxStartDelay = 400 * time.Millisecond
 	// phpDetectDelay is a brief pause after archive extraction before re-running Detect.
 	phpDetectDelay = 500 * time.Millisecond
+	// watchDebounce coalesces rapid filesystem events (e.g. a project being copied in)
+	// into a single site-detection run.
+	watchDebounce = 500 * time.Millisecond
 )
 
 // Timeouts for long-running operations.

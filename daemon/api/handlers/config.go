@@ -22,8 +22,10 @@ func UpdateConfig(app *core.App) http.HandlerFunc {
 		}
 
 		// Only allow updating user-facing fields.
+		scannedDirsChanged := false
 		if len(patch.ScannedDirs) > 0 {
 			app.Config.ScannedDirs = patch.ScannedDirs
+			scannedDirsChanged = true
 		}
 		if patch.DefaultPHP != "" {
 			app.Config.DefaultPHP = patch.DefaultPHP
@@ -37,6 +39,12 @@ func UpdateConfig(app *core.App) http.HandlerFunc {
 			InternalError(w, err)
 			return
 		}
+
+		// Restart watcher so new dirs are observed and removed dirs are dropped.
+		if scannedDirsChanged {
+			app.Watcher.Restart(app.Config.ScannedDirs)
+		}
+
 		OK(w, app.Config)
 	}
 }
