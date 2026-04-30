@@ -23,11 +23,11 @@ type PHPRunningStatus struct {
 type App struct {
 	Config *Config
 	Plat   platform.Platform
-	Sites  *SiteManager
-	PHP    *PHPManager
-	Nginx  *NginxManager
-	DNS    *DNSManager
-	SSL    *SSLManager
+	Sites  SiteStore
+	PHP    PHPRuntime
+	Nginx  NginxController
+	DNS    DNSController
+	SSL    CertManager
 }
 
 func NewApp(cfg *Config, plat platform.Platform) *App {
