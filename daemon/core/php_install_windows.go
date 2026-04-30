@@ -4,6 +4,7 @@ package core
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +25,7 @@ var compilerOrder = map[string][]string{
 	"7.4": {"vc15"},
 }
 
-func (p *PHPManager) runInstall(major, version string, prog *InstallProgress) error {
+func (p *PHPManager) runInstall(ctx context.Context, major, version string, prog *InstallProgress) error {
 	destDir := filepath.Join(p.cfg.PHPDir, major)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
@@ -34,7 +35,7 @@ func (p *PHPManager) runInstall(major, version string, prog *InstallProgress) er
 
 	prog.set(InstallStateDownloading, "Locating PHP "+version+" on windows.php.net…", 3)
 
-	downloadURL, err := resolveDownloadURL(major, version)
+	downloadURL, err := resolveDownloadURL(ctx, major, version)
 	if err != nil {
 		return err
 	}
@@ -50,7 +51,11 @@ func (p *PHPManager) runInstall(major, version string, prog *InstallProgress) er
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 
-	resp, err := http.Get(downloadURL) //nolint:gosec
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("download request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -109,7 +114,7 @@ func (p *PHPManager) runInstall(major, version string, prog *InstallProgress) er
 
 // resolveDownloadURL tries each compiler variant (HEAD request) until one returns 200.
 // It checks both the main releases folder and the archives folder.
-func resolveDownloadURL(major, version string) (string, error) {
+func resolveDownloadURL(ctx context.Context, major, version string) (string, error) {
 	compilers, ok := compilerOrder[major]
 	if !ok {
 		compilers = []string{"vs16", "vs17", "vc15"}
@@ -120,18 +125,18 @@ func resolveDownloadURL(major, version string) (string, error) {
 
 	for _, vs := range compilers {
 		fileName := fmt.Sprintf("php-%s-nts-Win32-%s-x64.zip", version, vs)
-		
+
 		// 1. Try main releases folder
 		url := "https://windows.php.net/downloads/releases/" + fileName
 		tried = append(tried, url)
-		if urlExists(client, url) {
+		if urlExists(ctx, client, url) {
 			return url, nil
 		}
 
 		// 2. Try archives folder (where older patches go)
 		archiveURL := "https://windows.php.net/downloads/releases/archives/" + fileName
 		tried = append(tried, archiveURL)
-		if urlExists(client, archiveURL) {
+		if urlExists(ctx, client, archiveURL) {
 			return archiveURL, nil
 		}
 	}
@@ -144,8 +149,11 @@ func resolveDownloadURL(major, version string) (string, error) {
 	)
 }
 
-func urlExists(client *http.Client, url string) bool {
-	req, _ := http.NewRequest(http.MethodHead, url, nil)
+func urlExists(ctx context.Context, client *http.Client, url string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

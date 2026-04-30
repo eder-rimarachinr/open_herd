@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -25,6 +26,16 @@ type InstallProgress struct {
 	Percent int          `json:"percent"`
 	Error   string       `json:"error,omitempty"`
 	mu      sync.Mutex
+	cancel  context.CancelFunc // non-nil while the goroutine is running
+}
+
+// Cancel stops an in-progress installation. Safe to call multiple times.
+func (ip *InstallProgress) Cancel() {
+	ip.mu.Lock()
+	defer ip.mu.Unlock()
+	if ip.cancel != nil {
+		ip.cancel()
+	}
 }
 
 func (ip *InstallProgress) set(state InstallState, msg string, pct int) {
@@ -64,18 +75,20 @@ func (p *PHPManager) Install(major string) error {
 		return fmt.Errorf("PHP %s is not in the catalog", major)
 	}
 
-	prog := &InstallProgress{Major: major, State: InstallStatePending}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	prog := &InstallProgress{Major: major, State: InstallStatePending, cancel: cancel}
 	p.mu.Lock()
 	p.installs[major] = prog
 	p.mu.Unlock()
 
 	go func() {
+		defer cancel() // release resources when done, regardless of outcome
 		defer func() {
 			if r := recover(); r != nil {
 				prog.fail(fmt.Errorf("panic: %v", r))
 			}
 		}()
-		if err := p.runInstall(major, latestPatch, prog); err != nil {
+		if err := p.runInstall(ctx, major, latestPatch, prog); err != nil {
 			prog.fail(err)
 			return
 		}
