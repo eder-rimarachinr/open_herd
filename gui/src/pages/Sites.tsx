@@ -38,10 +38,20 @@ export default function Sites() {
   async function toggleSSL(site: Site) {
     setSslLoading((prev) => ({ ...prev, [site.id]: true }));
     try {
-      const updated = site.ssl_enabled
-        ? await api.sites.disableSSL(site.id)
-        : await api.sites.enableSSL(site.id);
-      setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      if (site.ssl_enabled) {
+        const updated = await api.sites.disableSSL(site.id);
+        setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      } else {
+        await api.sites.enableSSL(site.id);
+        let task;
+        do {
+          await new Promise<void>((r) => setTimeout(r, 1000));
+          task = await api.sites.sslProgress(site.id);
+        } while (task.state === "pending" || task.state === "running");
+        if (task.state === "error") throw new Error(task.error ?? task.message);
+        api.sites.invalidate();
+        setSites(await api.sites.list());
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {

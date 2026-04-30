@@ -2,6 +2,27 @@ const BASE = "http://127.0.0.1:7878/api/v1";
 
 const TIMEOUT_DEFAULT = 15_000; // ms — standard API calls
 
+// ── Cache ─────────────────────────────────────────────────────────────────────
+// Module-level TTL cache for stable GET endpoints. Mutations call invalidate()
+// so the next read always hits the network after any write operation.
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 min — safety net; mutations invalidate eagerly
+
+interface CacheEntry<T> { data: T; expiresAt: number }
+const _cache = new Map<string, CacheEntry<unknown>>();
+
+async function cached<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const entry = _cache.get(key) as CacheEntry<T> | undefined;
+  if (entry && Date.now() < entry.expiresAt) return entry.data;
+  const data = await fetcher();
+  _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL });
+  return data;
+}
+
+function invalidate(...keys: string[]) {
+  keys.forEach(k => _cache.delete(k));
+}
+
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, ...fetchInit } = init ?? {};
   const controller = new AbortController();
@@ -115,21 +136,38 @@ export const api = {
   status: () => request<DaemonStatus>("/status"),
 
   sites: {
-    list: () => request<Site[]>("/sites"),
-    scan: () => request<Site[]>("/sites/scan", { method: "POST" }),
+    // Cached — shared between Sites and SSL pages, invalidated by any write below.
+    list: () => cached("/sites", () => request<Site[]>("/sites")),
+    // scan returns the full updated list so we pre-populate the cache instead of invalidating.
+    scan: () => request<Site[]>("/sites/scan", { method: "POST" }).then(data => {
+      _cache.set("/sites", { data, expiresAt: Date.now() + CACHE_TTL });
+      return data;
+    }),
     bulk: (sites: Partial<Site>[]) =>
-      request<Site[]>("/sites/bulk", { method: "POST", body: JSON.stringify(sites) }),
+      request<Site[]>("/sites/bulk", { method: "POST", body: JSON.stringify(sites) })
+        .then(r => { invalidate("/sites"); return r; }),
     get: (id: string) => request<Site>(`/sites/${id}`),
     create: (body: Partial<Site>) =>
-      request<Site>("/sites", { method: "POST", body: JSON.stringify(body) }),
+      request<Site>("/sites", { method: "POST", body: JSON.stringify(body) })
+        .then(r => { invalidate("/sites"); return r; }),
     update: (id: string, body: Partial<Site>) =>
-      request<Site>(`/sites/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-    delete: (id: string) => request<void>(`/sites/${id}`, { method: "DELETE" }),
+      request<Site>(`/sites/${id}`, { method: "PUT", body: JSON.stringify(body) })
+        .then(r => { invalidate("/sites"); return r; }),
+    delete: (id: string) =>
+      request<void>(`/sites/${id}`, { method: "DELETE" })
+        .then(r => { invalidate("/sites"); return r; }),
     // SSL issuance is async: POST returns 202, then poll sslProgress until done.
-    enableSSL: (id: string) => request<AsyncTask>(`/sites/${id}/ssl`, { method: "POST" }),
+    // Invalidate immediately so the list re-fetches fresh data once polling shows "done".
+    enableSSL: (id: string) =>
+      request<AsyncTask>(`/sites/${id}/ssl`, { method: "POST" })
+        .then(r => { invalidate("/sites"); return r; }),
     sslProgress: (id: string) => request<AsyncTask>(`/sites/${id}/ssl/progress`),
-    disableSSL: (id: string) => request<Site>(`/sites/${id}/ssl`, { method: "DELETE" }),
+    disableSSL: (id: string) =>
+      request<Site>(`/sites/${id}/ssl`, { method: "DELETE" })
+        .then(r => { invalidate("/sites"); return r; }),
     refreshConfig: (id: string) => request<Site>(`/sites/${id}/refresh-config`, { method: "POST" }),
+    // Call after an async operation (SSL, etc.) completes to force a fresh list fetch.
+    invalidate: () => invalidate("/sites"),
   },
 
   php: {
@@ -145,9 +183,10 @@ export const api = {
   },
 
   config: {
-    get: () => request<AppConfig>("/config"),
+    get: () => cached("/config", () => request<AppConfig>("/config")),
     update: (body: Partial<AppConfig>) =>
-      request<AppConfig>("/config", { method: "PUT", body: JSON.stringify(body) }),
+      request<AppConfig>("/config", { method: "PUT", body: JSON.stringify(body) })
+        .then(r => { invalidate("/config"); return r; }),
   },
 
   nginx: {
