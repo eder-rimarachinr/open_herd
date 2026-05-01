@@ -49,6 +49,8 @@ func (s *Server) Start() error {
 				r.Delete("/ssl", handlers.DisableSSL(s.app))
 				r.Get("/ssl/progress", handlers.SSLProgress(s.app))
 				r.Post("/refresh-config", handlers.RefreshSiteConfig(s.app))
+				r.Get("/info", handlers.GetSiteInfo(s.app))
+				r.Post("/open-folder", handlers.OpenSiteFolder(s.app))
 			})
 		})
 

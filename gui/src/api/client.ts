@@ -115,6 +115,18 @@ export interface NginxInfo {
   os: string;
 }
 
+export interface SiteInfo {
+  app_name: string;
+  app_env: string;
+  app_debug: boolean;
+  app_url: string;
+  app_timezone: string;
+  app_locale: string;
+  framework_name: string;
+  framework_version: string;
+  maintenance_mode: boolean;
+}
+
 export interface AppConfig {
   base_dir: string;
   nginx_dir: string;
@@ -166,6 +178,8 @@ export const api = {
       request<Site>(`/sites/${id}/ssl`, { method: "DELETE" })
         .then(r => { invalidate("/sites"); return r; }),
     refreshConfig: (id: string) => request<Site>(`/sites/${id}/refresh-config`, { method: "POST" }),
+    info: (id: string) => request<SiteInfo>(`/sites/${id}/info`),
+    openFolder: (id: string) => request<unknown>(`/sites/${id}/open-folder`, { method: "POST" }),
     // Call after an async operation (SSL, etc.) completes to force a fresh list fetch.
     invalidate: () => invalidate("/sites"),
   },

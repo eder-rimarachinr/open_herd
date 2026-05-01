@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os/exec"
+	"runtime"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/open-herd/phpenv/daemon/core"
@@ -270,6 +272,35 @@ func BulkAddSites(app *core.App) http.HandlerFunc {
 		_ = app.Nginx.Reload()
 
 		OK(w, sites)
+	}
+}
+
+func GetSiteInfo(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		site, ok := app.Sites.Get(chi.URLParam(r, "siteID"))
+		if !ok {
+			NotFound(w)
+			return
+		}
+		OK(w, core.ReadSiteInfo(site))
+	}
+}
+
+func OpenSiteFolder(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		site, ok := app.Sites.Get(chi.URLParam(r, "siteID"))
+		if !ok {
+			NotFound(w)
+			return
+		}
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("explorer", site.Path)
+		} else {
+			cmd = exec.Command("xdg-open", site.Path)
+		}
+		_ = cmd.Start()
+		OK(w, struct{}{})
 	}
 }
 
