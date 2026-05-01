@@ -127,6 +127,8 @@ export interface DBInstance {
   password?: string;
   managed: boolean;
   service_name?: string;
+  binary_dir?: string;
+  data_dir?: string;
   created_at: string;
   running: boolean; // enriched by the list/get endpoints
 }
@@ -231,6 +233,10 @@ export const api = {
     delete: (id: string) => request<void>(`/databases/${id}`, { method: "DELETE" }),
     start: (id: string) => request<unknown>(`/databases/${id}/start`, { method: "POST" }),
     stop: (id: string) => request<unknown>(`/databases/${id}/stop`, { method: "POST" }),
+    // Local install (MariaDB portable — Windows only for now).
+    install: (body: { name: string; type: "mariadb"; port?: number }) =>
+      request<{ id: string; status: string }>("/databases/install", { method: "POST", body: JSON.stringify(body) }),
+    installProgress: (id: string) => request<AsyncTask>(`/databases/${id}/install/progress`),
   },
 
   daemon: {

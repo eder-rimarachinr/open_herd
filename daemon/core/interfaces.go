@@ -71,6 +71,11 @@ type DBController interface {
 	Start(inst *DBInstance) error
 	Stop(inst *DBInstance) error
 	Detect() ([]*DBInstance, error)
+	// InstallLocal downloads and initialises a portable DB inside the phpenv data dir.
+	// It is async: call StartInstallTask first, then launch InstallLocal in a goroutine.
+	InstallLocal(id string)
+	StartInstallTask(id string) *AsyncTask
+	GetInstallProgress(id string) *AsyncTask
 }
 
 // Compile-time checks: concrete types must satisfy their interfaces.

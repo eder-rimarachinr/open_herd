@@ -21,6 +21,7 @@ const (
 )
 
 // DBInstance is either a locally managed database server or a remote connection profile.
+// BinaryDir/DataDir are set only for phpenv-managed portable installs (not service-based).
 type DBInstance struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -29,19 +30,42 @@ type DBInstance struct {
 	Port        int       `json:"port"`
 	User        string    `json:"user"`
 	Password    string    `json:"password,omitempty"`
-	Managed     bool      `json:"managed"`                  // true = phpenv can start/stop it
-	ServiceName string    `json:"service_name,omitempty"`   // Windows service or systemd unit
+	Managed     bool      `json:"managed"`                // true = phpenv can start/stop it
+	ServiceName string    `json:"service_name,omitempty"` // Windows service or systemd unit
+	BinaryDir   string    `json:"binary_dir,omitempty"`   // phpenv portable install directory
+	DataDir     string    `json:"data_dir,omitempty"`     // mysqld data directory
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 type DBManager struct {
-	cfg       *Config
-	mu        sync.RWMutex
-	instances map[string]*DBInstance
+	cfg          *Config
+	mu           sync.RWMutex
+	instances    map[string]*DBInstance
+	instMu       sync.RWMutex
+	installTasks map[string]*AsyncTask
 }
 
 func NewDBManager(cfg *Config) *DBManager {
-	return &DBManager{cfg: cfg, instances: make(map[string]*DBInstance)}
+	return &DBManager{
+		cfg:          cfg,
+		instances:    make(map[string]*DBInstance),
+		installTasks: make(map[string]*AsyncTask),
+	}
+}
+
+func (m *DBManager) StartInstallTask(id string) *AsyncTask {
+	task := &AsyncTask{}
+	task.Set(TaskStatePending, "Queued…")
+	m.instMu.Lock()
+	m.installTasks[id] = task
+	m.instMu.Unlock()
+	return task
+}
+
+func (m *DBManager) GetInstallProgress(id string) *AsyncTask {
+	m.instMu.RLock()
+	defer m.instMu.RUnlock()
+	return m.installTasks[id]
 }
 
 func (m *DBManager) Load() error {

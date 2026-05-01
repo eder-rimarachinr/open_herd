@@ -8,18 +8,21 @@ import (
 	"github.com/open-herd/phpenv/daemon/core"
 )
 
+func dbWithStatus(app *core.App, instances []*core.DBInstance) any {
+	type item struct {
+		*core.DBInstance
+		Running bool `json:"running"`
+	}
+	result := make([]item, 0, len(instances))
+	for _, inst := range instances {
+		result = append(result, item{inst, app.DB.IsRunning(inst)})
+	}
+	return result
+}
+
 func ListDatabases(app *core.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instances := app.DB.List()
-		type item struct {
-			*core.DBInstance
-			Running bool `json:"running"`
-		}
-		result := make([]item, 0, len(instances))
-		for _, inst := range instances {
-			result = append(result, item{inst, app.DB.IsRunning(inst)})
-		}
-		OK(w, result)
+		OK(w, dbWithStatus(app, app.DB.List()))
 	}
 }
 
@@ -111,16 +114,56 @@ func DetectDatabases(app *core.App) http.HandlerFunc {
 		for _, inst := range found {
 			_ = app.DB.Add(inst)
 		}
-		// Return the full updated list with running status.
-		instances := app.DB.List()
-		type item struct {
-			*core.DBInstance
-			Running bool `json:"running"`
+		OK(w, dbWithStatus(app, app.DB.List()))
+	}
+}
+
+// InstallDatabase creates a new DBInstance and starts an async MariaDB download + init.
+func InstallDatabase(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name string         `json:"name"`
+			Type core.DBType    `json:"type"`
+			Port int            `json:"port"`
 		}
-		result := make([]item, 0, len(instances))
-		for _, inst := range instances {
-			result = append(result, item{inst, app.DB.IsRunning(inst)})
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			BadRequest(w, "invalid JSON")
+			return
 		}
-		OK(w, result)
+		if body.Name == "" {
+			BadRequest(w, "name is required")
+			return
+		}
+		if body.Type != core.DBTypeMariaDB {
+			BadRequest(w, "only 'mariadb' is supported for local install")
+			return
+		}
+		inst := &core.DBInstance{
+			Name:    body.Name,
+			Type:    body.Type,
+			Port:    body.Port,
+			Managed: true,
+		}
+		if err := app.DB.Add(inst); err != nil {
+			InternalError(w, err)
+			return
+		}
+		task := app.DB.StartInstallTask(inst.ID)
+		go func() {
+			task.Set(core.TaskStateRunning, "Starting installation…")
+			app.DB.InstallLocal(inst.ID)
+		}()
+		Accepted(w, map[string]string{"id": inst.ID, "status": "pending"})
+	}
+}
+
+func InstallDatabaseProgress(app *core.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		task := app.DB.GetInstallProgress(chi.URLParam(r, "dbID"))
+		if task == nil {
+			NotFound(w)
+			return
+		}
+		OK(w, task)
 	}
 }

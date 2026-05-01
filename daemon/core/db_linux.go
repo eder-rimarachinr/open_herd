@@ -6,33 +6,67 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func (m *DBManager) Start(inst *DBInstance) error {
 	if !inst.Managed {
 		return fmt.Errorf("%q is a remote connection — cannot start", inst.Name)
 	}
-	if inst.ServiceName == "" {
-		return fmt.Errorf("no service name configured for %q", inst.Name)
+	if inst.ServiceName != "" {
+		out, err := exec.Command("systemctl", "start", inst.ServiceName).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl start %s: %w — %s", inst.ServiceName, err, strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
-	out, err := exec.Command("systemctl", "start", inst.ServiceName).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("systemctl start %s: %w — %s", inst.ServiceName, err, strings.TrimSpace(string(out)))
+	if inst.BinaryDir != "" {
+		return m.startProcess(inst)
 	}
-	return nil
+	return fmt.Errorf("no service name or binary directory configured for %q", inst.Name)
 }
 
 func (m *DBManager) Stop(inst *DBInstance) error {
 	if !inst.Managed {
 		return fmt.Errorf("%q is a remote connection — cannot stop", inst.Name)
 	}
-	if inst.ServiceName == "" {
-		return fmt.Errorf("no service name configured for %q", inst.Name)
+	if inst.ServiceName != "" {
+		out, err := exec.Command("systemctl", "stop", inst.ServiceName).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl stop %s: %w — %s", inst.ServiceName, err, strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
-	out, err := exec.Command("systemctl", "stop", inst.ServiceName).CombinedOutput()
+	if inst.BinaryDir != "" {
+		return m.stopProcess(inst)
+	}
+	return fmt.Errorf("no service name or binary directory configured for %q", inst.Name)
+}
+
+func (m *DBManager) startProcess(inst *DBInstance) error {
+	mysqld := filepath.Join(inst.BinaryDir, "bin", "mysqld")
+	myini := filepath.Join(inst.BinaryDir, "my.cnf")
+	cmd := exec.Command(mysqld, "--defaults-file="+myini)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start mysqld: %w", err)
+	}
+	slog.Info("db: started mysqld process", "pid", cmd.Process.Pid, "instance", inst.Name)
+	return nil
+}
+
+func (m *DBManager) stopProcess(inst *DBInstance) error {
+	mysqladmin := filepath.Join(inst.BinaryDir, "bin", "mysqladmin")
+	out, err := exec.Command(mysqladmin,
+		"-u", "root",
+		fmt.Sprintf("--port=%d", inst.Port),
+		"--connect-timeout=10",
+		"shutdown",
+	).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("systemctl stop %s: %w — %s", inst.ServiceName, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("mysqladmin shutdown: %w — %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -42,8 +76,8 @@ var knownServices = []struct {
 	dbType DBType
 	port   int
 }{
-	{"mysql",      DBTypeMySQL,    3306},
-	{"mariadb",    DBTypeMariaDB,  3306},
+	{"mysql", DBTypeMySQL, 3306},
+	{"mariadb", DBTypeMariaDB, 3306},
 	{"postgresql", DBTypePostgres, 5432},
 }
 
@@ -81,4 +115,13 @@ func (m *DBManager) alreadyRegistered(serviceName string) bool {
 		}
 	}
 	return false
+}
+
+// InstallLocal is not yet supported on Linux — databases must be installed via apt/dnf.
+func (m *DBManager) InstallLocal(id string) {
+	task := m.GetInstallProgress(id)
+	if task == nil {
+		return
+	}
+	task.Fail(fmt.Errorf("local install not supported on Linux — use: sudo apt install mariadb-server"))
 }
