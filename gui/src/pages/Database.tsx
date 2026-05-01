@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, AsyncTask, DBInstance, DBType } from "../api/client";
+import { api, AdminerStatus, AsyncTask, DBInstance, DBType } from "../api/client";
 import styles from "./Page.module.css";
 
 const DB_LABELS: Record<DBType, string> = {
@@ -33,6 +33,8 @@ export default function Database() {
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [adminer, setAdminer] = useState<AdminerStatus | null>(null);
+  const [adminerLoading, setAdminerLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -47,8 +49,21 @@ export default function Database() {
       .then(setInstances)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    api.databases.adminerStatus().then(setAdminer).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  async function setupAdminer() {
+    setAdminerLoading(true);
+    setError(null);
+    try {
+      setAdminer(await api.databases.adminerSetup());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setAdminerLoading(false);
+    }
+  }
 
   async function detect() {
     setDetecting(true);
@@ -172,6 +187,34 @@ export default function Database() {
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
+
+      {/* ── Adminer panel ────────────────────────────────────────────── */}
+      {adminer && (
+        <div style={{ marginBottom: "24px", background: "var(--surface)", borderRadius: "8px", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <span style={{ fontWeight: 600, marginRight: "10px" }}>Adminer</span>
+            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+              {adminer.installed
+                ? `Servido en ${adminer.url}`
+                : "Gestor web de bases de datos — similar a phpMyAdmin"}
+            </span>
+          </div>
+          {adminer.installed ? (
+            <a href={adminer.url} target="_blank" rel="noreferrer" className="btn-primary" style={{ textDecoration: "none" }}>
+              Abrir Adminer ↗
+            </a>
+          ) : (
+            <button
+              className="btn-ghost"
+              onClick={setupAdminer}
+              disabled={adminerLoading || !adminer.php_ready}
+              title={!adminer.php_ready ? "Inicia PHP primero" : ""}
+            >
+              {adminerLoading ? "Instalando…" : "Instalar Adminer"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Install local MariaDB ─────────────────────────────────────── */}
       {showInstall && (

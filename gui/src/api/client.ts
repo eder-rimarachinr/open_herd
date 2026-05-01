@@ -133,6 +133,12 @@ export interface DBInstance {
   running: boolean; // enriched by the list/get endpoints
 }
 
+export interface AdminerStatus {
+  installed: boolean;
+  url: string;
+  php_ready: boolean;
+}
+
 export interface AppConfig {
   base_dir: string;
   nginx_dir: string;
@@ -237,6 +243,9 @@ export const api = {
     install: (body: { name: string; type: "mariadb"; port?: number }) =>
       request<{ id: string; status: string }>("/databases/install", { method: "POST", body: JSON.stringify(body) }),
     installProgress: (id: string) => request<AsyncTask>(`/databases/${id}/install/progress`),
+    // Adminer web UI.
+    adminerStatus: () => request<AdminerStatus>("/databases/adminer"),
+    adminerSetup: () => request<AdminerStatus>("/databases/adminer/setup", { method: "POST" }),
   },
 
   daemon: {

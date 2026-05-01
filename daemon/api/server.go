@@ -77,6 +77,8 @@ func (s *Server) Start() error {
 				r.Post("/", handlers.AddDatabase(s.app))
 				r.Post("/detect", handlers.DetectDatabases(s.app))
 				r.Post("/install", handlers.InstallDatabase(s.app))
+				r.Get("/adminer", handlers.GetAdminerStatus(s.app))
+				r.Post("/adminer/setup", handlers.SetupAdminer(s.app))
 				r.Route("/{dbID}", func(r chi.Router) {
 					r.Get("/", handlers.GetDatabase(s.app))
 					r.Delete("/", handlers.DeleteDatabase(s.app))
