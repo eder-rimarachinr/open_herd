@@ -115,30 +115,6 @@ export interface NginxInfo {
   os: string;
 }
 
-export type DBType = "mysql" | "mariadb" | "postgres";
-
-export interface DBInstance {
-  id: string;
-  name: string;
-  type: DBType;
-  host: string;
-  port: number;
-  user: string;
-  password?: string;
-  managed: boolean;
-  service_name?: string;
-  binary_dir?: string;
-  data_dir?: string;
-  created_at: string;
-  running: boolean; // enriched by the list/get endpoints
-}
-
-export interface AdminerStatus {
-  installed: boolean;
-  url: string;
-  php_ready: boolean;
-}
-
 export interface AppConfig {
   base_dir: string;
   nginx_dir: string;
@@ -228,24 +204,6 @@ export const api = {
     status: () => request<ServiceStatus>("/services/status"),
     start: () => request<ServiceStatus>("/services/start", { method: "POST" }),
     stop: () => request<ServiceStatus>("/services/stop", { method: "POST" }),
-  },
-
-  databases: {
-    list: () => request<DBInstance[]>("/databases"),
-    detect: () => request<DBInstance[]>("/databases/detect", { method: "POST" }),
-    add: (body: Partial<DBInstance>) =>
-      request<DBInstance>("/databases", { method: "POST", body: JSON.stringify(body) }),
-    get: (id: string) => request<DBInstance>(`/databases/${id}`),
-    delete: (id: string) => request<void>(`/databases/${id}`, { method: "DELETE" }),
-    start: (id: string) => request<unknown>(`/databases/${id}/start`, { method: "POST" }),
-    stop: (id: string) => request<unknown>(`/databases/${id}/stop`, { method: "POST" }),
-    // Local install (MariaDB portable — Windows only for now).
-    install: (body: { name: string; type: "mariadb"; port?: number }) =>
-      request<{ id: string; status: string }>("/databases/install", { method: "POST", body: JSON.stringify(body) }),
-    installProgress: (id: string) => request<AsyncTask>(`/databases/${id}/install/progress`),
-    // Adminer web UI.
-    adminerStatus: () => request<AdminerStatus>("/databases/adminer"),
-    adminerSetup: () => request<AdminerStatus>("/databases/adminer/setup", { method: "POST" }),
   },
 
   daemon: {
