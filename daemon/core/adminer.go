@@ -11,24 +11,12 @@ import (
 	"strings"
 )
 
-const adminerDownloadURL = "https://www.adminer.org/latest.php"
+const adminerDownloadURL = "https://github.com/vrana/adminer/releases/download/v4.8.1/adminer-4.8.1.php"
 const AdminerPort = 8080
 
 // adminerWrapper overrides Adminer's login() to allow empty passwords in local dev.
-const adminerWrapper = `<?php
-function adminer_object() {
-    class AdminerLocalDev extends Adminer {
-        function login($login, $password) {
-            return true; // allow passwordless login for local development
-        }
-        function name() {
-            return 'Open Herd — Adminer';
-        }
-    }
-    return new AdminerLocalDev;
-}
-require __DIR__ . '/adminer-core.php';
-`
+// Written as a plain string to avoid any multi-byte encoding issues in the PHP file.
+const adminerWrapper = "<?php\nfunction adminer_object() {\n    class AdminerLocalDev extends Adminer {\n        function login($login, $password) { return true; }\n    }\n    return new AdminerLocalDev;\n}\nrequire __DIR__ . '/adminer-core.php';\n"
 
 // AdminerStatus is returned by the /databases/adminer endpoint.
 type AdminerStatus struct {
@@ -125,7 +113,8 @@ func (a *App) writeAdminerNginxConfig(fastcgiAddr string) error {
     location ~ \.php$ {
         fastcgi_pass %s;
         fastcgi_index adminer.php;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PHP_VALUE "display_errors=On\nerror_reporting=-1";
         include fastcgi_params;
         fastcgi_read_timeout 300;
     }
