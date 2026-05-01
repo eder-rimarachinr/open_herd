@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api, Site, PHPVersion, SiteInfo } from "../api/client";
 import styles from "./Page.module.css";
 
+const sortSites = (s: Site[]) => [...s].sort((a, b) => a.domain.localeCompare(b.domain));
+
 const TYPE_LABELS: Record<string, string> = {
   laravel: "Laravel",
   wordpress: "WordPress",
@@ -39,7 +41,7 @@ export default function Sites() {
   useEffect(() => {
     Promise.all([api.sites.list(), api.php.versions(), api.config.get()])
       .then(([s, php, cfg]) => {
-        setSites(s);
+        setSites(sortSites(s));
         setPhpVersions(php);
         setConfig(cfg);
       })
@@ -68,7 +70,7 @@ export default function Sites() {
     setScanning(true);
     setError(null);
     try {
-      setSites(await api.sites.scan());
+      setSites(sortSites(await api.sites.scan()));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -93,7 +95,7 @@ export default function Sites() {
         } while (task.state === "pending" || task.state === "running");
         if (task.state === "error") throw new Error(task.error ?? task.message);
         api.sites.invalidate();
-        setSites(await api.sites.list());
+        setSites(sortSites(await api.sites.list()));
       }
     } catch (e: any) {
       setError(e.message);
