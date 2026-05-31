@@ -29,6 +29,7 @@ pub fn run() {
 
     // Launch Tauri
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();

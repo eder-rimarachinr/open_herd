@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api, Site, PHPVersion, SiteInfo } from "../api/client";
 import styles from "./Page.module.css";
 
@@ -151,6 +152,23 @@ export default function Sites() {
     }
   }
 
+  async function pickAndAddDir() {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "Select projects folder" });
+      if (!selected || !config) return;
+      const dir = typeof selected === "string" ? selected : selected[0];
+      if (!dir) return;
+      const already = (config.scanned_dirs ?? []).includes(dir);
+      if (already) return;
+      const updated = await api.config.update({
+        scanned_dirs: [...(config.scanned_dirs ?? []), dir],
+      });
+      setConfig(updated);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   async function addScannedDir() {
     const dir = newDir.trim();
     if (!dir || !config) return;
@@ -265,9 +283,10 @@ export default function Sites() {
               onChange={(e) => setNewDir(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addScannedDir()}
             />
-            <button className="btn-primary" onClick={addScannedDir}
-              style={{ fontSize: "11px", padding: "4px 10px" }}>
-              +
+            <button className="btn-primary" onClick={pickAndAddDir}
+              title="Browse for folder"
+              style={{ fontSize: "13px", padding: "4px 10px" }}>
+              📁
             </button>
           </div>
         </div>

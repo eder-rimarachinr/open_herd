@@ -3,6 +3,7 @@ use std::process::{Child, Command};
 use std::sync::Arc;
 use parking_lot::Mutex;
 
+use super::site_config;
 use super::state::AppState;
 
 pub struct NginxProcess {
@@ -65,6 +66,15 @@ pub fn start(state: &Arc<AppState>, nginx_proc: &Arc<NginxProcess>) -> Result<()
 
     // Validate the binary actually works
     test_binary(&binary)?;
+
+    // Regenerate nginx config for all existing sites
+    {
+        let sites: Vec<_> = state.sites.read().values().cloned().collect();
+        site_config::ensure_fastcgi_params(&nginx_dir);
+        for site in &sites {
+            let _ = site_config::generate(site, &nginx_dir, http_port);
+        }
+    }
 
     // Ensure our config and directory structure exist
     ensure_config(&nginx_dir, &binary, http_port, https_port)?;
@@ -226,6 +236,7 @@ fn ensure_config(nginx_dir: &str, _binary: &Path, http_port: u16, https_port: u1
     let sites  = to_fwd(dir.join("sites"));
     let _ = https_port;
 
+    let fastcgi = to_fwd(dir.join("fastcgi_params"));
     let conf = format!(
         r#"worker_processes 1;
 error_log  "{logs}/error.log";
@@ -244,9 +255,10 @@ http {{
     sendfile        on;
     keepalive_timeout  65;
 
+    # catch-all: reject requests with no matching site
     server {{
-        listen       {http_port};
-        server_name  localhost;
+        listen       {http_port} default_server;
+        server_name  _;
         return       444;
     }}
 

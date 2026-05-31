@@ -1,7 +1,9 @@
 pub mod config;
+pub mod dns;
 pub mod download;
 pub mod models;
 pub mod nginx;
+pub mod site_config;
 pub mod state;
 pub mod routes;
 pub mod server;
