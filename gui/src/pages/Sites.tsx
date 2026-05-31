@@ -31,6 +31,8 @@ export default function Sites() {
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [folderLoading, setFolderLoading] = useState(false);
   const [changingPhp, setChangingPhp] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [config, setConfig] = useState<any>(null);
   const [newDir, setNewDir] = useState("");
 
@@ -65,6 +67,7 @@ export default function Sites() {
     setTab("general");
     setSiteInfo(null);
     setError(null);
+    setConfirmDelete(false);
   }
 
   async function scan() {
@@ -120,10 +123,19 @@ export default function Sites() {
   }
 
   async function deleteSite() {
-    if (!selected || !confirm(`Remove ${selected.domain}?`)) return;
-    await api.sites.delete(selected.id);
-    setSites((prev) => prev.filter((s) => s.id !== selected.id));
-    setSelectedId(null);
+    if (!selected) return;
+    setDeleteLoading(true);
+    setError(null);
+    try {
+      await api.sites.delete(selected.id);
+      setSites((prev) => prev.filter((s) => s.id !== selected.id));
+      setSelectedId(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDeleteLoading(false);
+      setConfirmDelete(false);
+    }
   }
 
   async function openFolder() {
@@ -385,22 +397,44 @@ export default function Sites() {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                   <button className="btn-primary" onClick={() => window.open(siteUrl, "_blank")}>
                     Open ↗
                   </button>
-                  <button className="btn-ghost" onClick={openFolder} disabled={folderLoading}>
-                    {folderLoading ? "…" : "Open folder"}
+
+                  <button className="btn-ghost" onClick={openFolder} disabled={folderLoading}
+                    style={{ minWidth: "100px" }}>
+                    {folderLoading ? <Spinner /> : "Open folder"}
                   </button>
-                  <button className="btn-ghost" onClick={toggleSSL} disabled={sslLoading}>
+
+                  <button className="btn-ghost" onClick={toggleSSL} disabled={sslLoading}
+                    style={{ minWidth: "120px" }}>
                     {sslLoading
-                      ? "Processing…"
+                      ? <Spinner />
                       : selected.ssl_enabled ? "Disable HTTPS" : "Enable HTTPS"}
                   </button>
-                  <button className="btn-ghost" onClick={refreshConfig} disabled={refreshLoading}>
-                    {refreshLoading ? "Refreshing…" : "↺ Refresh config"}
+
+                  <button className="btn-ghost" onClick={refreshConfig} disabled={refreshLoading}
+                    style={{ minWidth: "120px" }}>
+                    {refreshLoading ? <Spinner /> : "↺ Refresh config"}
                   </button>
-                  <button className="btn-danger" onClick={deleteSite}>Remove</button>
+
+                  {!confirmDelete ? (
+                    <button className="btn-danger" onClick={() => setConfirmDelete(true)}>
+                      Remove
+                    </button>
+                  ) : (
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Remove {selected.domain}?</span>
+                      <button className="btn-danger" onClick={deleteSite} disabled={deleteLoading}
+                        style={{ minWidth: "64px" }}>
+                        {deleteLoading ? <Spinner /> : "Yes"}
+                      </button>
+                      <button className="btn-ghost" onClick={() => setConfirmDelete(false)} disabled={deleteLoading}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -457,6 +491,19 @@ export default function Sites() {
         )}
       </div>
     </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span style={{
+      display: "inline-block",
+      width: "12px", height: "12px",
+      border: "2px solid currentColor",
+      borderTopColor: "transparent",
+      borderRadius: "50%",
+      animation: "spin 0.6s linear infinite",
+    }} />
   );
 }
 

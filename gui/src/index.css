@@ -52,3 +52,5 @@ button {
 .badge-red   { background: #450a0a; color: var(--danger); }
 .badge-blue  { background: #1e1b4b; color: var(--accent-hover); }
 .badge-gray  { background: var(--border); color: var(--text-muted); }
+
+@keyframes spin { to { transform: rotate(360deg); } }

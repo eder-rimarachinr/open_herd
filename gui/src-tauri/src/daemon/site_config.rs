@@ -48,6 +48,17 @@ pub fn remove(site: &Site, nginx_dir: &str) {
         .join("sites")
         .join(format!("{}.conf", site.domain));
     let _ = std::fs::remove_file(conf_path);
+
+    // Nginx include "sites/*.conf" fails if the directory is empty.
+    // Keep a harmless placeholder so nginx doesn't error on reload.
+    let sites_dir = Path::new(nginx_dir).join("sites");
+    let placeholder = sites_dir.join(".keep.conf");
+    if std::fs::read_dir(&sites_dir)
+        .map(|mut d| d.next().is_none())
+        .unwrap_or(false)
+    {
+        let _ = std::fs::write(&placeholder, "# placeholder\n");
+    }
 }
 
 fn build_conf(site: &Site, http_port: u16) -> String {
