@@ -3,33 +3,52 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Site {
     pub id: String,
+    pub name: String,
     pub domain: String,
     pub path: String,
-    #[serde(rename = "projectType")]
-    pub project_type: String,
-    #[serde(rename = "phpVersion")]
     pub php_version: String,
-    pub ssl: bool,
-    pub nginx: bool,
-    #[serde(rename = "createdAt")]
+    pub project_type: String,
+    pub ssl_enabled: bool,
+    pub active: bool,
     pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogEntry {
+    pub major: String,
+    pub latest_patch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_patch: Option<String>,
+    pub installed: bool,
+    pub running: bool,
+    pub has_update: bool,
+    pub security_only: bool,
+    pub end_of_life: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhpVersion {
     pub version: String,
-    pub path: String,
+    pub major: String,
+    pub binary_path: String,
+    pub fpm_binary: String,
+    pub fastcgi_addr: String,
+    pub installed: bool,
     pub running: bool,
-    #[serde(rename = "isDefault")]
-    pub is_default: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceStatus {
-    Running,
-    Stopped,
-    Error,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NginxInfo {
+    pub installed: bool,
+    pub running: bool,
+    pub version: String,
+    pub binary_path: String,
+    pub config_valid: Option<bool>,
+    pub config_error: String,
+    pub error_log: String,
+    pub downloadable: bool,
+    pub os: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,15 +59,48 @@ pub struct NginxStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServicesStatus {
-    pub nginx: NginxStatus,
-    pub php: Vec<PhpVersion>,
+pub struct DaemonStatus {
+    pub status: String,
+    pub version: String,
+    pub uptime: String,
+    pub os: String,
+    pub php_versions: Vec<String>,
+    pub nginx: NginxRunning,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonStatus {
-    pub ok: bool,
+pub struct NginxRunning {
+    pub running: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceStatus {
+    pub nginx: bool,
+    pub php_versions: Vec<PhpVersionStatus>,
+    pub all_running: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhpVersionStatus {
+    pub major: String,
     pub version: String,
-    pub uptime: u64,
-    pub services: ServicesStatus,
+    pub running: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstallProgress {
+    pub major: String,
+    pub state: String,
+    pub message: String,
+    pub percent: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsyncTask {
+    pub state: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }

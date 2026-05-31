@@ -5,7 +5,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::config::Config;
+use super::download::DownloadState;
 use super::models::{NginxStatus, PhpVersion, Site};
+use super::nginx::NginxProcess;
 
 pub struct AppState {
     pub config: RwLock<Config>,
@@ -13,7 +15,10 @@ pub struct AppState {
     pub sites: RwLock<HashMap<String, Site>>,
     pub php_versions: RwLock<Vec<PhpVersion>>,
     pub nginx: RwLock<NginxStatus>,
+    pub nginx_proc: Arc<NginxProcess>,
+    pub downloads: Arc<DownloadState>,
     pub started_at: Instant,
+    pub daemon_log: RwLock<Vec<String>>,
 }
 
 impl AppState {
@@ -24,17 +29,24 @@ impl AppState {
             base_dir,
             sites: RwLock::new(sites),
             php_versions: RwLock::new(vec![]),
-            nginx: RwLock::new(NginxStatus {
-                running: false,
-                version: None,
-                pid: None,
-            }),
+            nginx: RwLock::new(NginxStatus { running: false, version: None, pid: None }),
+            nginx_proc: NginxProcess::new(),
+            downloads: DownloadState::new(),
             started_at: Instant::now(),
+            daemon_log: RwLock::new(vec![]),
         })
+    }
+
+    pub fn log(&self, msg: String) {
+        let mut log = self.daemon_log.write();
+        let entry = format!("[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
+        eprintln!("{}", entry);
+        log.push(entry);
+        if log.len() > 500 { log.drain(0..100); }
     }
 }
 
-fn load_sites(base_dir: &PathBuf) -> HashMap<String, Site> {
+pub fn load_sites(base_dir: &PathBuf) -> HashMap<String, Site> {
     let path = base_dir.join("sites.json");
     if let Ok(data) = std::fs::read_to_string(&path) {
         if let Ok(list) = serde_json::from_str::<Vec<Site>>(&data) {

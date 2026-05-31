@@ -3,18 +3,18 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(rename = "apiAddr")]
     pub api_addr: String,
-    #[serde(rename = "baseDir")]
     pub base_dir: String,
-    #[serde(rename = "defaultPHP")]
+    pub nginx_dir: String,
+    pub php_dir: String,
+    pub certs_dir: String,
+    pub logs_dir: String,
+    pub http_port: u16,
+    pub https_port: u16,
+    pub scanned_dirs: Vec<String>,
     pub default_php: String,
-    #[serde(rename = "scanDirs")]
-    pub scan_dirs: Vec<String>,
-    #[serde(rename = "nginxPort")]
-    pub nginx_port: u16,
-    #[serde(rename = "nginxSSLPort")]
-    pub nginx_ssl_port: u16,
+    pub custom_php_dirs: Vec<String>,
+    pub os: String,
 }
 
 impl Config {
@@ -37,26 +37,31 @@ impl Config {
     }
 
     fn default_with_base(base_dir: &PathBuf) -> Self {
+        let base = base_dir.to_string_lossy().into_owned();
         Self {
             api_addr: "127.0.0.1:7878".into(),
-            base_dir: base_dir.to_string_lossy().into(),
+            nginx_dir: format!("{}/nginx", base),
+            php_dir: format!("{}/php", base),
+            certs_dir: format!("{}/certs", base),
+            logs_dir: format!("{}/logs", base),
+            base_dir: base,
+            http_port: 80,
+            https_port: 443,
+            scanned_dirs: vec![],
             default_php: "8.2".into(),
-            scan_dirs: vec![],
-            nginx_port: 80,
-            nginx_ssl_port: 443,
+            custom_php_dirs: vec![],
+            os: std::env::consts::OS.into(),
         }
     }
 }
 
 pub fn resolve_base_dir() -> PathBuf {
-    // Portable mode: data/config.json next to exe
     if let Ok(exe) = std::env::current_exe() {
         let portable = exe.parent().unwrap_or(&exe).join("data");
         if portable.join("config.json").exists() {
             return portable;
         }
     }
-    // Standard mode: ~/.phpenv
     dirs_next::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".phpenv")
