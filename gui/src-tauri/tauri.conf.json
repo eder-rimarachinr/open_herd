@@ -50,9 +50,7 @@
         "installMode": "perMachine"
       }
     },
-    "externalBin": [
-      "phpenv-daemon"
-    ],
+    "externalBin": [],
     "resources": []
   },
   "plugins": {}

@@ -4,17 +4,6 @@
   "description": "Default capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "shell:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "phpenv-daemon",
-          "sidecar": true
-        }
-      ]
-    },
-    "shell:allow-spawn"
+    "core:default"
   ]
 }
