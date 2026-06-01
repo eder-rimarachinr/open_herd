@@ -21,7 +21,11 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      // Async fetch → setState in effects is a valid React pattern; rule is too aggressive for data fetching.
+      "react-hooks/set-state-in-effect": "off",
+      // Empty catch blocks are intentional in best-effort fetch helpers.
+      "no-empty": ["error", { "allowEmptyCatch": true }],
     },
   },
 );

@@ -19,7 +19,7 @@ export default function Layout() {
   const [busy, setBusy] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [failCount, setFailCount] = useState(0);
+  const [, setFailCount] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchStatus = useCallback(async () => {

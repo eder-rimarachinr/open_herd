@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend (Vite)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "gui",
+      "port": 1420
+    },
+    {
+      "name": "Tauri dev (GUI + daemon)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "tauri", "dev"],
+      "cwd": "gui",
+      "port": 1420
+    }
+  ]
+}
