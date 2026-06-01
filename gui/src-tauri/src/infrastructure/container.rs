@@ -3,14 +3,17 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     application::{
         nginx::{
+            download_nginx::DownloadNginxUseCase,
             reload_nginx::ReloadNginxUseCase,
             start_nginx::StartNginxUseCase,
             stop_nginx::StopNginxUseCase,
         },
         php::{
             detect_php::DetectPhpUseCase,
+            install_php::InstallPhpUseCase,
             start_php::StartPhpUseCase,
             stop_php::StopPhpUseCase,
+            update_php_ini::UpdatePhpIniUseCase,
         },
         services::{
             start_services::StartServicesUseCase,
@@ -74,10 +77,15 @@ pub struct AppContainer {
     pub start_php_uc:  StartPhpUseCase,
     pub stop_php_uc:   StopPhpUseCase,
 
+    // ── Casos de uso — PHP (extra) ───────────────────────────────────────────
+    pub install_php_uc:     InstallPhpUseCase,
+    pub update_php_ini_uc:  UpdatePhpIniUseCase,
+
     // ── Casos de uso — Nginx ─────────────────────────────────────────────────
-    pub start_nginx_uc:  StartNginxUseCase,
-    pub stop_nginx_uc:   StopNginxUseCase,
-    pub reload_nginx_uc: ReloadNginxUseCase,
+    pub start_nginx_uc:    StartNginxUseCase,
+    pub stop_nginx_uc:     StopNginxUseCase,
+    pub reload_nginx_uc:   ReloadNginxUseCase,
+    pub download_nginx_uc: DownloadNginxUseCase,
 
     // ── Casos de uso — Services ──────────────────────────────────────────────
     pub start_services_uc: StartServicesUseCase,
@@ -112,10 +120,17 @@ impl AppContainer {
         let start_php_uc  = StartPhpUseCase::new(php_detector.clone(), php_process_port.clone());
         let stop_php_uc   = StopPhpUseCase::new(php_process_port.clone());
 
+        // ── Use cases — PHP (extra) ──────────────────────────────────────────
+        let install_php_uc    = InstallPhpUseCase::new(state.downloads.clone());
+        let update_php_ini_uc = UpdatePhpIniUseCase::new(
+            php_process_port.clone(), php_detector.clone(), web_server.clone(),
+        );
+
         // ── Use cases — Nginx ────────────────────────────────────────────────
-        let start_nginx_uc  = StartNginxUseCase::new(web_server.clone());
-        let stop_nginx_uc   = StopNginxUseCase::new(web_server.clone());
-        let reload_nginx_uc = ReloadNginxUseCase::new(web_server.clone());
+        let start_nginx_uc    = StartNginxUseCase::new(web_server.clone());
+        let stop_nginx_uc     = StopNginxUseCase::new(web_server.clone());
+        let reload_nginx_uc   = ReloadNginxUseCase::new(web_server.clone());
+        let download_nginx_uc = DownloadNginxUseCase::new(state.downloads.clone());
 
         // ── Use cases — Services ─────────────────────────────────────────────
         let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone());
@@ -128,7 +143,8 @@ impl AppContainer {
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,
             detect_php_uc, start_php_uc, stop_php_uc,
-            start_nginx_uc, stop_nginx_uc, reload_nginx_uc,
+            install_php_uc, update_php_ini_uc,
+            start_nginx_uc, stop_nginx_uc, reload_nginx_uc, download_nginx_uc,
             start_services_uc, stop_services_uc,
         })
     }

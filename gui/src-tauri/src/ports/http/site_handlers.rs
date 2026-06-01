@@ -1,6 +1,3 @@
-/// Handlers HTTP para el dominio de Sites — delegan en los use cases de aplicación.
-/// Cada handler tiene una sola responsabilidad: deserializar la request,
-/// llamar al use case, y serializar la respuesta o el error.
 use axum::{
     Json,
     extract::{Path, State},
@@ -17,15 +14,12 @@ use crate::{
         update_site::UpdateSiteCommand,
     },
     domain::errors::ApplicationError,
-    infrastructure::{
-        container::AppContainer,
-        persistence::site_mapper,
-    },
+    infrastructure::{container::AppContainer, persistence::site_mapper},
 };
 
 pub type ContainerRef = Arc<AppContainer>;
 
-// ── Respuestas de error ────────────────────────────────────────────────────────
+// ── Error helper ──────────────────────────────────────────────────────────────
 
 fn domain_err(e: ApplicationError) -> impl IntoResponse {
     let (status, msg) = match &e {
@@ -34,21 +28,47 @@ fn domain_err(e: ApplicationError) -> impl IntoResponse {
             let code = match de {
                 SiteNotFound(_)        => StatusCode::NOT_FOUND,
                 DomainAlreadyExists(_) => StatusCode::CONFLICT,
-                InvalidTld
-                | InvalidDomain(_)
-                | InvalidPath(_)       => StatusCode::BAD_REQUEST,
-                _                      => StatusCode::UNPROCESSABLE_ENTITY,
+                InvalidTld | InvalidDomain(_) | InvalidPath(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::UNPROCESSABLE_ENTITY,
             };
             (code, e.to_string())
         }
-        ApplicationError::Infrastructure(_) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        }
+        ApplicationError::Infrastructure(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
     (status, Json(serde_json::json!({ "error": msg }))).into_response()
 }
 
-// ── POST /api/v1/sites ─────────────────────────────────────────────────────────
+fn not_found(msg: &str) -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": msg }))).into_response()
+}
+
+// ── GET /api/v1/sites ─────────────────────────────────────────────────────────
+
+pub async fn list_sites(State(container): State<ContainerRef>) -> impl IntoResponse {
+    match container.site_repo.list_all().await {
+        Ok(sites) => {
+            let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
+            Json(legacy).into_response()
+        }
+        Err(e) => domain_err(ApplicationError::Domain(e)).into_response(),
+    }
+}
+
+// ── GET /api/v1/sites/:id ─────────────────────────────────────────────────────
+
+pub async fn get_site(
+    State(container): State<ContainerRef>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let sid = crate::domain::site::value_objects::SiteId::from_string(&id);
+    match container.site_repo.find_by_id(&sid).await {
+        Ok(Some(site)) => Json(site_mapper::to_legacy(&site)).into_response(),
+        Ok(None)       => not_found("site not found").into_response(),
+        Err(e)         => domain_err(ApplicationError::Domain(e)).into_response(),
+    }
+}
+
+// ── POST /api/v1/sites ────────────────────────────────────────────────────────
 
 pub async fn create_site(
     State(container): State<ContainerRef>,
@@ -64,9 +84,7 @@ pub async fn create_site(
         None => return (StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "path required" }))).into_response(),
     };
-
     let default_php = container.legacy.config.read().default_php.clone();
-
     let cmd = CreateSiteCommand { domain, path, default_php: Some(default_php) };
     match container.create_site_uc.execute(cmd).await {
         Ok(site) => {
@@ -118,19 +136,14 @@ pub async fn enable_ssl(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     use crate::daemon::{models::AsyncTask, ssl as ssl_mgr};
-
-    // Marcar como pendiente para que el frontend empiece a hacer polling
     ssl_mgr::set_task(&container.legacy.ssl_tasks, &id, "pending", "Starting SSL issuance…", None);
-
     let container2 = container.clone();
     let site_id    = id.clone();
-
     tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Handle::current();
         let set = |s: &str, m: &str, e: Option<String>| {
             ssl_mgr::set_task(&container2.legacy.ssl_tasks, &site_id, s, m, e);
         };
-
         set("running", "Issuing SSL certificate…", None);
         match rt.block_on(container2.enable_ssl_uc.execute(&site_id)) {
             Ok(()) => {
@@ -143,12 +156,8 @@ pub async fn enable_ssl(
             }
         }
     });
-
-    Json(AsyncTask {
-        state:   "pending".into(),
-        message: "SSL issuance started".into(),
-        error:   None,
-    }).into_response()
+    Json(AsyncTask { state: "pending".into(), message: "SSL issuance started".into(), error: None })
+        .into_response()
 }
 
 // ── DELETE /api/v1/sites/:id/ssl ─────────────────────────────────────────────
@@ -161,7 +170,6 @@ pub async fn disable_ssl(
         Ok(()) => {
             container.legacy.ssl_tasks.lock().remove(&id);
             container.legacy.log(format!("SSL disabled: {}", id));
-
             let site_opt = container.legacy.sites.read().get(&id).cloned();
             match site_opt {
                 Some(s) => Json(s).into_response(),
@@ -172,6 +180,26 @@ pub async fn disable_ssl(
     }
 }
 
+// ── GET /api/v1/sites/:id/ssl/progress ───────────────────────────────────────
+
+pub async fn ssl_progress(
+    State(container): State<ContainerRef>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    use crate::daemon::models::AsyncTask;
+    if let Some(task) = container.legacy.ssl_tasks.lock().get(&id).cloned() {
+        return Json(task).into_response();
+    }
+    match container.legacy.sites.read().get(&id) {
+        Some(s) => Json(AsyncTask {
+            state:   "done".into(),
+            message: if s.ssl_enabled { "SSL active".into() } else { "SSL disabled".into() },
+            error:   None,
+        }).into_response(),
+        None => not_found("site not found").into_response(),
+    }
+}
+
 // ── POST /api/v1/sites/scan ───────────────────────────────────────────────────
 
 pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoResponse {
@@ -179,38 +207,22 @@ pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoRespo
         let cfg = container.legacy.config.read();
         (cfg.scanned_dirs.clone(), cfg.default_php.clone())
     };
-
     if scan_dirs.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "No scanned directories configured. Add a directory first."
-            })),
-        ).into_response();
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "No scanned directories configured. Add a directory first."
+        }))).into_response();
     }
-
     let cmd = ScanSitesCommand { dirs: scan_dirs, default_php: Some(default_php) };
     match container.scan_sites_uc.execute(cmd).await {
         Ok(result) => {
             container.legacy.log(format!("Scan complete: {} new site(s) found", result.added.len()));
-
             if !result.not_found.is_empty() && result.added.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": format!(
-                            "Directory not found: {}. Check the path and try again.",
-                            result.not_found.join(", ")
-                        )
-                    })),
-                ).into_response();
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Directory not found: {}. Check the path and try again.", result.not_found.join(", "))
+                }))).into_response();
             }
-
             match container.site_repo.list_all().await {
-                Ok(sites) => {
-                    let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
-                    Json(legacy).into_response()
-                }
+                Ok(sites) => Json(sites.iter().map(site_mapper::to_legacy).collect::<Vec<_>>()).into_response(),
                 Err(e) => domain_err(ApplicationError::Domain(e)).into_response(),
             }
         }
@@ -225,21 +237,13 @@ pub async fn bulk_add_sites(
     Json(body): Json<Vec<serde_json::Value>>,
 ) -> impl IntoResponse {
     let default_php = container.legacy.config.read().default_php.clone();
-
-    let items: Vec<BulkSiteItem> = body
-        .iter()
-        .filter_map(|item| {
-            let domain = item["domain"].as_str()?.to_string();
-            let path   = item["path"].as_str()?.to_string();
-            Some(BulkSiteItem { domain, path })
-        })
-        .collect();
-
+    let items: Vec<BulkSiteItem> = body.iter().filter_map(|item| {
+        let domain = item["domain"].as_str()?.to_string();
+        let path   = item["path"].as_str()?.to_string();
+        Some(BulkSiteItem { domain, path })
+    }).collect();
     match container.bulk_add_sites_uc.execute(items, Some(default_php)).await {
-        Ok(sites) => {
-            let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
-            Json(legacy).into_response()
-        }
+        Ok(sites) => Json(sites.iter().map(site_mapper::to_legacy).collect::<Vec<_>>()).into_response(),
         Err(e) => domain_err(e).into_response(),
     }
 }
@@ -252,12 +256,42 @@ pub async fn refresh_site_config(
 ) -> impl IntoResponse {
     match container.refresh_site_config_uc.execute(&id).await {
         Ok(site) => {
-            container.legacy.log(format!(
-                "Config refreshed: {} (type: {})",
-                site.domain, site.project_type
-            ));
+            container.legacy.log(format!("Config refreshed: {} (type: {})", site.domain, site.project_type));
             Json(site_mapper::to_legacy(&site)).into_response()
         }
         Err(e) => domain_err(e).into_response(),
+    }
+}
+
+// ── GET /api/v1/sites/:id/info ────────────────────────────────────────────────
+
+pub async fn get_site_info(
+    State(container): State<ContainerRef>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match container.legacy.sites.read().get(&id).cloned() {
+        Some(site) => Json(crate::daemon::site_info::read(&site)).into_response(),
+        None => not_found("site not found").into_response(),
+    }
+}
+
+// ── POST /api/v1/sites/:id/open-folder ───────────────────────────────────────
+
+pub async fn open_site_folder(
+    State(container): State<ContainerRef>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let path = container.legacy.sites.read().get(&id).map(|s| s.path.clone());
+    match path {
+        Some(p) => {
+            tokio::task::spawn_blocking(move || {
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("explorer").arg(&p).spawn();
+                #[cfg(not(target_os = "windows"))]
+                let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
+            });
+            Json(serde_json::json!({ "ok": true })).into_response()
+        }
+        None => not_found("site not found").into_response(),
     }
 }
