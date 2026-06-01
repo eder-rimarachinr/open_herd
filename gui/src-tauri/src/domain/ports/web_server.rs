@@ -12,4 +12,10 @@ pub trait WebServerPort: Send + Sync {
     /// Recarga la configuración sin reiniciar el proceso.
     async fn reload(&self) -> Result<(), InfrastructureError>;
     async fn is_running(&self) -> bool;
+
+    /// Inicia el proceso del servidor web. Implementación por defecto no-op
+    /// para adaptadores que no gestionan el ciclo de vida del proceso.
+    async fn start(&self) -> Result<(), InfrastructureError> { Ok(()) }
+    /// Detiene el proceso del servidor web.
+    async fn stop(&self) -> Result<(), InfrastructureError> { Ok(()) }
 }

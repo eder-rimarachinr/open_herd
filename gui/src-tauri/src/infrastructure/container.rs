@@ -1,18 +1,39 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::{
-    application::site::{
-        bulk_add_sites::BulkAddSitesUseCase,
-        create_site::CreateSiteUseCase,
-        delete_site::DeleteSiteUseCase,
-        disable_ssl::DisableSslUseCase,
-        enable_ssl::EnableSslUseCase,
-        refresh_site_config::RefreshSiteConfigUseCase,
-        scan_sites::ScanSitesUseCase,
-        update_site::UpdateSiteUseCase,
+    application::{
+        nginx::{
+            reload_nginx::ReloadNginxUseCase,
+            start_nginx::StartNginxUseCase,
+            stop_nginx::StopNginxUseCase,
+        },
+        php::{
+            detect_php::DetectPhpUseCase,
+            start_php::StartPhpUseCase,
+            stop_php::StopPhpUseCase,
+        },
+        services::{
+            start_services::StartServicesUseCase,
+            stop_services::StopServicesUseCase,
+        },
+        site::{
+            bulk_add_sites::BulkAddSitesUseCase,
+            create_site::CreateSiteUseCase,
+            delete_site::DeleteSiteUseCase,
+            disable_ssl::DisableSslUseCase,
+            enable_ssl::EnableSslUseCase,
+            refresh_site_config::RefreshSiteConfigUseCase,
+            scan_sites::ScanSitesUseCase,
+            update_site::UpdateSiteUseCase,
+        },
     },
     daemon::state::AppState,
-    domain::ports::{dns::DnsPort, ssl::SslPort, web_server::WebServerPort},
+    domain::ports::{
+        dns::DnsPort,
+        process_manager::{PhpDetectorPort, PhpProcessPort},
+        ssl::SslPort,
+        web_server::WebServerPort,
+    },
     domain::site::repository::SiteRepository,
 };
 
@@ -20,35 +41,47 @@ use super::{
     dns::hosts_adapter::HostsAdapter,
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
+    php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector},
     ssl::mkcert_adapter::MkcertAdapter,
 };
 
-/// Punto central de inyección de dependencias.
-///
-/// Implementa `Deref<Target=AppState>` para que los handlers legacy de `routes.rs`
-/// sigan compilando sin modificación — `state.sites`, `state.config`, etc. se
-/// resuelven automáticamente a través del deref.
-///
-/// Los nuevos handlers de `ports/http/site_handlers.rs` usan los use cases directamente.
 pub struct AppContainer {
-    /// Estado legacy — seguirá existiendo hasta que todos los handlers estén migrados.
+    /// Estado legacy — existirá hasta que todos los handlers estén migrados.
     pub legacy: Arc<AppState>,
 
-    // ── Puertos concretos (reutilizables por múltiples use cases) ─────────────
+    // ── Puertos concretos ────────────────────────────────────────────────────
     pub site_repo:  Arc<dyn SiteRepository>,
     pub web_server: Arc<dyn WebServerPort>,
     pub dns:        Arc<dyn DnsPort>,
     pub ssl:        Arc<dyn SslPort>,
+    /// Renombrado con sufijo `_port` para evitar shadowing del campo `php_proc`
+    /// de `AppState` que los handlers legacy acceden a través del Deref.
+    pub php_process_port: Arc<dyn PhpProcessPort>,
+    pub php_detector:     Arc<dyn PhpDetectorPort>,
 
-    // ── Casos de uso pre-construidos ─────────────────────────────────────────
-    pub create_site_uc:        CreateSiteUseCase,
-    pub delete_site_uc:        DeleteSiteUseCase,
-    pub update_site_uc:        UpdateSiteUseCase,
-    pub enable_ssl_uc:         EnableSslUseCase,
-    pub disable_ssl_uc:        DisableSslUseCase,
-    pub scan_sites_uc:         ScanSitesUseCase,
-    pub bulk_add_sites_uc:     BulkAddSitesUseCase,
+    // ── Casos de uso — Sites ─────────────────────────────────────────────────
+    pub create_site_uc:         CreateSiteUseCase,
+    pub delete_site_uc:         DeleteSiteUseCase,
+    pub update_site_uc:         UpdateSiteUseCase,
+    pub enable_ssl_uc:          EnableSslUseCase,
+    pub disable_ssl_uc:         DisableSslUseCase,
+    pub scan_sites_uc:          ScanSitesUseCase,
+    pub bulk_add_sites_uc:      BulkAddSitesUseCase,
     pub refresh_site_config_uc: RefreshSiteConfigUseCase,
+
+    // ── Casos de uso — PHP ───────────────────────────────────────────────────
+    pub detect_php_uc: DetectPhpUseCase,
+    pub start_php_uc:  StartPhpUseCase,
+    pub stop_php_uc:   StopPhpUseCase,
+
+    // ── Casos de uso — Nginx ─────────────────────────────────────────────────
+    pub start_nginx_uc:  StartNginxUseCase,
+    pub stop_nginx_uc:   StopNginxUseCase,
+    pub reload_nginx_uc: ReloadNginxUseCase,
+
+    // ── Casos de uso — Services ──────────────────────────────────────────────
+    pub start_services_uc: StartServicesUseCase,
+    pub stop_services_uc:  StopServicesUseCase,
 }
 
 impl AppContainer {
@@ -56,66 +89,52 @@ impl AppContainer {
         let certs_dir = PathBuf::from(state.config.read().certs_dir.clone());
         let base_dir  = state.base_dir.clone();
 
-        // Construir adaptadores concretos
-        let site_repo:  Arc<dyn SiteRepository> =
-            Arc::new(JsonSiteRepository::new(state.clone()));
-        let web_server: Arc<dyn WebServerPort>  =
-            Arc::new(NginxAdapter::new(state.clone()));
-        let dns:        Arc<dyn DnsPort>        =
-            Arc::new(HostsAdapter::new());
-        let ssl:        Arc<dyn SslPort>        =
-            Arc::new(MkcertAdapter::new(base_dir));
+        // ── Adaptadores ──────────────────────────────────────────────────────
+        let site_repo:    Arc<dyn SiteRepository>  = Arc::new(JsonSiteRepository::new(state.clone()));
+        let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone()));
+        let dns:          Arc<dyn DnsPort>          = Arc::new(HostsAdapter::new());
+        let ssl:          Arc<dyn SslPort>          = Arc::new(MkcertAdapter::new(base_dir));
+        let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone()));
+        let php_detector:     Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new(state.clone()));
 
-        // Construir use cases
-        let create_site_uc = CreateSiteUseCase::new(
-            site_repo.clone(), web_server.clone(), dns.clone(),
-        );
-        let delete_site_uc = DeleteSiteUseCase::new(
-            site_repo.clone(), web_server.clone(), dns.clone(),
-        );
-        let update_site_uc = UpdateSiteUseCase::new(
-            site_repo.clone(), web_server.clone(),
-        );
-        let enable_ssl_uc = EnableSslUseCase::new(
-            site_repo.clone(), ssl.clone(), web_server.clone(), certs_dir.clone(),
-        );
-        let disable_ssl_uc = DisableSslUseCase::new(
-            site_repo.clone(), ssl.clone(), web_server.clone(),
-        );
-        let scan_sites_uc = ScanSitesUseCase::new(
-            site_repo.clone(), web_server.clone(), dns.clone(),
-        );
-        let bulk_add_sites_uc = BulkAddSitesUseCase::new(
-            site_repo.clone(), web_server.clone(), dns.clone(),
-        );
-        let refresh_site_config_uc = RefreshSiteConfigUseCase::new(
-            site_repo.clone(), web_server.clone(), dns.clone(),
-        );
+        // ── Use cases — Sites ────────────────────────────────────────────────
+        let create_site_uc = CreateSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
+        let delete_site_uc = DeleteSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
+        let update_site_uc = UpdateSiteUseCase::new(site_repo.clone(), web_server.clone());
+        let enable_ssl_uc  = EnableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone(), certs_dir);
+        let disable_ssl_uc = DisableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone());
+        let scan_sites_uc  = ScanSitesUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
+        let bulk_add_sites_uc      = BulkAddSitesUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
+        let refresh_site_config_uc = RefreshSiteConfigUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
+
+        // ── Use cases — PHP ──────────────────────────────────────────────────
+        let detect_php_uc = DetectPhpUseCase::new(php_detector.clone());
+        let start_php_uc  = StartPhpUseCase::new(php_detector.clone(), php_process_port.clone());
+        let stop_php_uc   = StopPhpUseCase::new(php_process_port.clone());
+
+        // ── Use cases — Nginx ────────────────────────────────────────────────
+        let start_nginx_uc  = StartNginxUseCase::new(web_server.clone());
+        let stop_nginx_uc   = StopNginxUseCase::new(web_server.clone());
+        let reload_nginx_uc = ReloadNginxUseCase::new(web_server.clone());
+
+        // ── Use cases — Services ─────────────────────────────────────────────
+        let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone());
+        let stop_services_uc  = StopServicesUseCase::new(php_process_port.clone(), web_server.clone());
 
         Arc::new(Self {
             legacy: state,
-            site_repo,
-            web_server,
-            dns,
-            ssl,
-            create_site_uc,
-            delete_site_uc,
-            update_site_uc,
-            enable_ssl_uc,
-            disable_ssl_uc,
-            scan_sites_uc,
-            bulk_add_sites_uc,
-            refresh_site_config_uc,
+            site_repo, web_server, dns, ssl, php_process_port, php_detector,
+            create_site_uc, delete_site_uc, update_site_uc,
+            enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
+            bulk_add_sites_uc, refresh_site_config_uc,
+            detect_php_uc, start_php_uc, stop_php_uc,
+            start_nginx_uc, stop_nginx_uc, reload_nginx_uc,
+            start_services_uc, stop_services_uc,
         })
     }
 }
 
-/// Permite que los handlers legacy usen `state.sites`, `state.config`, etc.
-/// sin cambios — el compilador hace el deref de `Arc<AppContainer>` →
-/// `AppContainer` → `AppState` automáticamente.
 impl std::ops::Deref for AppContainer {
     type Target = AppState;
-    fn deref(&self) -> &Self::Target {
-        &self.legacy
-    }
+    fn deref(&self) -> &Self::Target { &self.legacy }
 }

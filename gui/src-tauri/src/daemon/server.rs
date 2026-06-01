@@ -4,7 +4,7 @@ use tower_http::cors::CorsLayer;
 
 use super::routes;
 use crate::infrastructure::container::AppContainer;
-use crate::ports::http::site_handlers;
+use crate::ports::http::{nginx_handlers, php_handlers, site_handlers};
 
 pub fn build_router(container: Arc<AppContainer>) -> Router {
     // Restrict CORS to the origins that legitimately call the daemon:
@@ -47,14 +47,14 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/sites/:id/refresh-config",  post(site_handlers::refresh_site_config))
         .route("/api/v1/sites/:id/info",            get(routes::get_site_info))
         .route("/api/v1/sites/:id/open-folder",     post(routes::open_site_folder))
-        // PHP
+        // PHP — lecturas legacy, escrituras via use cases
         .route("/api/v1/php/versions",              get(routes::list_php_versions))
         .route("/api/v1/php/catalog",               get(routes::php_catalog))
-        .route("/api/v1/php/detect",                post(routes::detect_php))
+        .route("/api/v1/php/detect",                post(php_handlers::detect_php))
         .route("/api/v1/php/install",               post(routes::install_php))
         .route("/api/v1/php/install/:major/progress", get(routes::install_php_progress))
-        .route("/api/v1/php/versions/:version/start", post(routes::start_php_fpm))
-        .route("/api/v1/php/versions/:version/stop",  post(routes::stop_php_fpm))
+        .route("/api/v1/php/versions/:version/start", post(php_handlers::start_php_fpm))
+        .route("/api/v1/php/versions/:version/stop",  post(php_handlers::stop_php_fpm))
         .route("/api/v1/php/versions/:version/ini",
             get(routes::get_php_ini).put(routes::update_php_ini))
         // Nginx
@@ -62,13 +62,13 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/nginx/info",                get(routes::nginx_info))
         .route("/api/v1/nginx/download",            post(routes::download_nginx))
         .route("/api/v1/nginx/download/progress",   get(routes::nginx_download_progress))
-        .route("/api/v1/nginx/start",               post(routes::start_nginx))
-        .route("/api/v1/nginx/stop",                post(routes::stop_nginx))
-        .route("/api/v1/nginx/reload",              post(routes::reload_nginx))
+        .route("/api/v1/nginx/start",               post(nginx_handlers::start_nginx))
+        .route("/api/v1/nginx/stop",                post(nginx_handlers::stop_nginx))
+        .route("/api/v1/nginx/reload",              post(nginx_handlers::reload_nginx))
         // Services
         .route("/api/v1/services/status",           get(routes::services_status))
-        .route("/api/v1/services/start",            post(routes::start_services))
-        .route("/api/v1/services/stop",             post(routes::stop_services))
+        .route("/api/v1/services/start",            post(nginx_handlers::start_services))
+        .route("/api/v1/services/stop",             post(nginx_handlers::stop_services))
         // Config
         .route("/api/v1/config",
             get(routes::get_config).put(routes::update_config))

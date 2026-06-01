@@ -57,4 +57,26 @@ impl WebServerPort for NginxAdapter {
     async fn is_running(&self) -> bool {
         ng::is_running(&self.state.nginx_proc)
     }
+
+    async fn start(&self) -> Result<(), InfrastructureError> {
+        let state = self.state.clone();
+        let nginx_proc = self.state.nginx_proc.clone();
+        tokio::task::spawn_blocking(move || {
+            ng::start(&state, &nginx_proc)
+                .map_err(|e| InfrastructureError::ProcessFailed(e))
+        })
+        .await
+        .unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
+    }
+
+    async fn stop(&self) -> Result<(), InfrastructureError> {
+        let state = self.state.clone();
+        let nginx_proc = self.state.nginx_proc.clone();
+        tokio::task::spawn_blocking(move || {
+            ng::stop(&state, &nginx_proc)
+                .map_err(|e| InfrastructureError::ProcessFailed(e))
+        })
+        .await
+        .unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
+    }
 }

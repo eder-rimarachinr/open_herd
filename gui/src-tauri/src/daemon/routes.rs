@@ -1350,6 +1350,11 @@ fn detect_php_versions() -> Vec<super::models::PhpVersion> {
     }).collect()
 }
 
+/// Versión pública para que los nuevos handlers en `ports/http/` puedan usarla.
+pub fn build_catalog_pub(versions: &[super::models::PhpVersion], running: &[String]) -> Vec<CatalogEntry> {
+    build_catalog(versions, running)
+}
+
 fn build_catalog(versions: &[super::models::PhpVersion], running: &[String]) -> Vec<CatalogEntry> {
     let known: &[(&str, &str, bool, bool)] = &[
         ("8.5", "8.5.6",  false, false),
