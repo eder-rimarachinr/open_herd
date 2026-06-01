@@ -36,12 +36,13 @@ fn reload_nginx_if_running(state: &AppStateRef) {
 pub async fn get_status(State(state): State<AppStateRef>) -> impl IntoResponse {
     let uptime = state.started_at.elapsed().as_secs();
     let nginx = state.nginx.read();
+    let php_versions = php_mgr::running_versions(&state.php_proc);
     Json(DaemonStatus {
         status: "ok".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         uptime: format!("{}s", uptime),
         os: std::env::consts::OS.into(),
-        php_versions: vec![],
+        php_versions,
         nginx: NginxRunning { running: nginx.running },
     })
 }

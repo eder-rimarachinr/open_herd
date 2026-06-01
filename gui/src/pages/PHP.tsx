@@ -261,7 +261,7 @@ export default function PHP() {
                   </div>
 
                   <div className={styles.statusCell}>
-                    {entry.installed && <span className={styles.checkmark}><Check size={15} strokeWidth={2.5} /></span>}
+                    {entry.installed && <span className={styles.checkmark} title="Installed"><Check size={15} strokeWidth={2.5} /></span>}
                   </div>
 
                   <div className={styles.activeCell}>
@@ -344,7 +344,7 @@ export default function PHP() {
             {config?.custom_php_dirs?.map((path: string) => (
               <div key={path} className={styles.pathItem}>
                 <code className={styles.pathLabel}>{path}</code>
-                <button className={styles.btnRemovePath} onClick={() => handleRemoveCustomDir(path)}>
+                <button className={styles.btnRemovePath} title="Remove path" onClick={() => handleRemoveCustomDir(path)}>
                   <X size={13} />
                 </button>
               </div>

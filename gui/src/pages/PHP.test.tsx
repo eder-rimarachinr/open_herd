@@ -109,7 +109,7 @@ describe("Catalog display", () => {
       catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" })],
     });
     renderPHP();
-    await waitFor(() => expect(screen.getByText("✓")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTitle("Installed")).toBeInTheDocument());
   });
 
   it("shows EOL tag for end-of-life versions", async () => {
@@ -233,8 +233,8 @@ describe("Rescan", () => {
   it("calls php.detect on Rescan click", async () => {
     setupDefaults();
     renderPHP();
-    await waitFor(() => screen.getByText("↺ Rescan"));
-    await userEvent.click(screen.getByText("↺ Rescan"));
+    await waitFor(() => screen.getByText("Rescan"));
+    await userEvent.click(screen.getByText("Rescan"));
     await waitFor(() => expect(m.php.detect).toHaveBeenCalled());
   });
 
@@ -242,8 +242,8 @@ describe("Rescan", () => {
     setupDefaults();
     m.php.detect.mockReturnValue(new Promise(() => {}));
     renderPHP();
-    await waitFor(() => screen.getByText("↺ Rescan"));
-    await userEvent.click(screen.getByText("↺ Rescan"));
+    await waitFor(() => screen.getByText("Rescan"));
+    await userEvent.click(screen.getByText("Rescan"));
     expect(screen.getByText("Scanning…")).toBeInTheDocument();
   });
 
@@ -251,8 +251,8 @@ describe("Rescan", () => {
     setupDefaults({ catalog: [] });
     m.php.detect.mockResolvedValue([mockCatalogEntry({ major: "8.4" })]);
     renderPHP();
-    await waitFor(() => screen.getByText("↺ Rescan"));
-    await userEvent.click(screen.getByText("↺ Rescan"));
+    await waitFor(() => screen.getByText("Rescan"));
+    await userEvent.click(screen.getByText("Rescan"));
     await waitFor(() => expect(screen.getByText(/8\.4/)).toBeInTheDocument());
   });
 });
@@ -303,7 +303,7 @@ describe("Install", () => {
     await waitFor(() => screen.getByText("Install"));
     await userEvent.click(screen.getByText("Install"));
     await waitFor(() => screen.getByText(/Download failed/));
-    await userEvent.click(screen.getByText(/✕/));
+    await userEvent.click(screen.getByTitle("Click to dismiss"));
     await waitFor(() =>
       expect(screen.queryByText(/Download failed/)).not.toBeInTheDocument()
     );
@@ -387,5 +387,67 @@ describe("Custom PHP paths", () => {
     await waitFor(() => screen.getByText("Add & Rescan"));
     await userEvent.click(screen.getByText("Add & Rescan"));
     expect(m.config.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── Start / Stop ──────────────────────────────────────────────────────────────
+
+describe("Start / Stop", () => {
+  beforeEach(() => {
+    m.php.start.mockResolvedValue({});
+    m.php.stop.mockResolvedValue({});
+  });
+
+  it("shows Start button for installed but not running versions", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: false })],
+    });
+    renderPHP();
+    await waitFor(() => expect(screen.getByTitle("Start PHP 8.2")).toBeInTheDocument());
+  });
+
+  it("shows Stop button for running versions", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: true })],
+    });
+    renderPHP();
+    await waitFor(() => expect(screen.getByTitle("Stop PHP 8.2")).toBeInTheDocument());
+  });
+
+  it("does not show Start button for non-installed versions", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: false, running: false })],
+    });
+    renderPHP();
+    await waitFor(() => screen.getByText(/8\.2/));
+    expect(screen.queryByTitle("Start PHP 8.2")).not.toBeInTheDocument();
+  });
+
+  it("calls php.start when Start button is clicked", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: false })],
+    });
+    renderPHP();
+    await waitFor(() => screen.getByTitle("Start PHP 8.2"));
+    await userEvent.click(screen.getByTitle("Start PHP 8.2"));
+    await waitFor(() => expect(m.php.start).toHaveBeenCalledWith("8.2"));
+  });
+
+  it("calls php.stop when Stop button is clicked", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: true })],
+    });
+    renderPHP();
+    await waitFor(() => screen.getByTitle("Stop PHP 8.2"));
+    await userEvent.click(screen.getByTitle("Stop PHP 8.2"));
+    await waitFor(() => expect(m.php.stop).toHaveBeenCalledWith("8.2"));
+  });
+
+  it("shows running dot for running versions", async () => {
+    setupDefaults({
+      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: true })],
+    });
+    renderPHP();
+    await waitFor(() => expect(screen.getByTitle("Running")).toBeInTheDocument());
   });
 });
