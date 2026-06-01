@@ -1,5 +1,6 @@
 use tempfile::TempDir;
-use super::helpers::make_server;
+mod common;
+use common::make_server;
 
 #[tokio::test]
 async fn nginx_status_returns_not_running() {

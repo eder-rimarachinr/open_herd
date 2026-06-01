@@ -1,7 +1,4 @@
-mod daemon;
-
-#[cfg(test)]
-mod tests;
+pub mod daemon;
 
 use tauri::Manager;
 use daemon::{

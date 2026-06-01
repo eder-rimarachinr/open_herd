@@ -1,5 +1,6 @@
 use tempfile::TempDir;
-use super::helpers::make_server;
+mod common;
+use common::make_server;
 
 #[tokio::test]
 async fn php_versions_returns_array() {

@@ -1,7 +1,8 @@
 use axum::http::StatusCode;
 use tempfile::TempDir;
 
-use super::helpers::make_server;
+mod common;
+use common::make_server;
 
 fn site_body(tmp: &TempDir) -> serde_json::Value {
     serde_json::json!({

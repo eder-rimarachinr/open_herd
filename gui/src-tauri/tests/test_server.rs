@@ -2,8 +2,9 @@
 use axum_test::TestServer;
 use tempfile::TempDir;
 
-use super::helpers::make_server;
-use crate::daemon::{config::Config, server::build_router, state::AppState};
+mod common;
+use common::make_server;
+use phpenv_gui_lib::daemon::{config::Config, server::build_router, state::AppState};
 
 // ── Port binding ──────────────────────────────────────────────────────────────
 
