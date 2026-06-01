@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Check, Download, AlertCircle, X, Plus, Settings2, ChevronRight } from "lucide-react";
+import { RefreshCw, Check, Download, AlertCircle, X, Plus, Settings2, ChevronRight, Play, Square } from "lucide-react";
 import { api, AppConfig, CatalogEntry, InstallProgress, PhpExtension, PhpIniConfig, PhpSetting } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import styles from "./PHP.module.css";
@@ -30,6 +30,7 @@ export default function PHP() {
   const [iniSaving,  setIniSaving]  = useState(false);
   const [iniEdits,    setIniEdits]    = useState<Record<string, boolean>>({}); // extension toggles
   const [settingEdits, setSettingEdits] = useState<Record<string, string>>({}); // setting values
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchCatalog = useCallback(async () => {
@@ -149,6 +150,30 @@ export default function PHP() {
     }
   }
 
+  async function handleStart(major: string) {
+    setToggling(prev => ({ ...prev, [major]: true }));
+    try {
+      await api.php.start(major);
+      await fetchCatalog();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setToggling(prev => ({ ...prev, [major]: false }));
+    }
+  }
+
+  async function handleStop(major: string) {
+    setToggling(prev => ({ ...prev, [major]: true }));
+    try {
+      await api.php.stop(major);
+      await fetchCatalog();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setToggling(prev => ({ ...prev, [major]: false }));
+    }
+  }
+
   async function handleSetActive(major: string) {
     if (!config || config.default_php === major) return;
     try {
@@ -226,6 +251,7 @@ export default function PHP() {
                   )}
 
                   <div className={styles.versionCell}>
+                    {entry.running && <span className={styles.runningDot} title="Running" />}
                     <span className={styles.major}>
                       PHP {entry.major}
                       {entry.installed_patch ? ` (${entry.installed_patch})` : ""}
@@ -268,6 +294,26 @@ export default function PHP() {
                     {!installing && prog?.state !== "error" && entry.installed && entry.has_update && (
                       <button className={styles.btnUpdate} onClick={() => handleInstall(entry.major)}>
                         Update
+                      </button>
+                    )}
+                    {!installing && entry.installed && !entry.running && (
+                      <button
+                        className={styles.btnStart}
+                        onClick={() => handleStart(entry.major)}
+                        disabled={toggling[entry.major]}
+                        title={`Start PHP ${entry.major}`}
+                      >
+                        <Play size={11} />
+                      </button>
+                    )}
+                    {!installing && entry.installed && entry.running && (
+                      <button
+                        className={styles.btnStop}
+                        onClick={() => handleStop(entry.major)}
+                        disabled={toggling[entry.major]}
+                        title={`Stop PHP ${entry.major}`}
+                      >
+                        <Square size={11} />
                       </button>
                     )}
                     {!installing && entry.installed && (

@@ -441,7 +441,8 @@ pub async fn php_catalog(State(state): State<AppStateRef>) -> impl IntoResponse 
         *state2.php_versions.write() = v.clone();
         v
     }).await.unwrap_or_default();
-    Json(build_catalog(&versions))
+    let running = php_mgr::running_versions(&state.php_proc);
+    Json(build_catalog(&versions, &running))
 }
 
 pub async fn detect_php(State(state): State<AppStateRef>) -> impl IntoResponse {
@@ -452,7 +453,8 @@ pub async fn detect_php(State(state): State<AppStateRef>) -> impl IntoResponse {
         v
     }).await.unwrap_or_default();
     state.log(format!("PHP detect: found {} version(s)", versions.len()));
-    Json(build_catalog(&versions))
+    let running = php_mgr::running_versions(&state.php_proc);
+    Json(build_catalog(&versions, &running))
 }
 
 pub async fn install_php(
@@ -1145,7 +1147,7 @@ fn detect_php_versions() -> Vec<super::models::PhpVersion> {
     }).collect()
 }
 
-fn build_catalog(versions: &[super::models::PhpVersion]) -> Vec<CatalogEntry> {
+fn build_catalog(versions: &[super::models::PhpVersion], running: &[String]) -> Vec<CatalogEntry> {
     let known: &[(&str, &str, bool, bool)] = &[
         ("8.5", "8.5.6",  false, false),
         ("8.4", "8.4.21", false, false),
@@ -1157,13 +1159,15 @@ fn build_catalog(versions: &[super::models::PhpVersion]) -> Vec<CatalogEntry> {
     ];
     known.iter().map(|(major, latest, security_only, eol)| {
         let installed_ver = versions.iter().find(|v| v.major == *major);
+        let is_running = running.iter().any(|r| r == *major);
+        let has_update = installed_ver.map(|v| v.version != *latest).unwrap_or(false);
         CatalogEntry {
             major: major.to_string(),
             latest_patch: latest.to_string(),
             installed_patch: installed_ver.map(|v| v.version.clone()),
             installed: installed_ver.is_some(),
-            running: false,
-            has_update: false,
+            running: is_running,
+            has_update,
             security_only: *security_only,
             end_of_life: *eol,
         }
