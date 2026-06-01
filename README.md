@@ -1,151 +1,165 @@
 # Open Herd
 
-A local PHP development environment manager for Windows and Linux — similar to Laravel Herd. Manage nginx, PHP versions, SSL certificates, and `.test` domains from a single desktop app.
+A local PHP development environment manager for Windows and Linux — similar to Laravel Herd.
+Manage nginx, PHP versions, SSL certificates and `.test` domains from a single desktop app.
 
 ![Open Herd](logo.png)
 
+---
+
 ## Features
 
-- **Site management** — Register local projects and serve them at `project.test` automatically. Detects Laravel, CodeIgniter 4/3, WordPress, SPA, and static sites.
-- **PHP version management** — Detect installed PHP versions, switch per-site, start/stop PHP-CGI (Windows) or PHP-FPM (Linux).
-- **nginx** — Auto-downloaded on Windows, auto-configured per site. Reload without restarting services.
-- **SSL** — One-click HTTPS via [mkcert](https://github.com/FiloSottile/mkcert). Trusted certificates for all `.test` domains.
-- **DNS** — Automatically writes and removes entries in `/etc/hosts` (Windows: `System32\drivers\etc\hosts`).
-- **Site info** — Reads `.env` and `composer.lock` to surface app name, framework version, environment, debug mode, timezone, and more.
-- **Directory watcher** — Monitors scanned directories and picks up new projects automatically.
-- **Portable mode** — Run fully self-contained from a USB drive or any folder.
+- **Site management** — Register local projects and serve them at `project.test`. Auto-detects Laravel, CodeIgniter 4/3, WordPress, SPA and static sites.
+- **PHP version management** — Detect installed PHP versions, assign per site, start/stop PHP-CGI (Windows) or PHP-FPM (Linux).
+- **nginx** — Auto-downloaded and configured on Windows. Per-site vhosts generated automatically.
+- **SSL** — One-click HTTPS via [mkcert](https://github.com/FiloSottile/mkcert). Browser-trusted certificates for all `.test` domains.
+- **DNS** — Writes and removes `/etc/hosts` entries automatically.
+- **Site info** — Reads `.env` and framework files to show app name, version, environment, timezone and more.
+- **Portable mode** — Place a `data/config.json` next to the exe to run fully self-contained (USB drive friendly).
 
-## Components
+---
 
-| Component | Stack | Description |
-|-----------|-------|-------------|
-| `daemon/` | Go | HTTP API server (`127.0.0.1:7878`), manages all services |
-| `cli/` | Go + Cobra | Terminal interface to the daemon |
-| `gui/` | Tauri v2 + React + TypeScript | Desktop GUI, spawns the daemon as a sidecar |
+## Architecture
+
+Open Herd is a **single Tauri application**. There is no separate daemon process — the HTTP API runs as a background Tokio thread inside the same binary.
+
+```
+┌─────────────────────────────────────────────┐
+│              Tauri Application              │
+│                                             │
+│  ┌────────────────┐   ┌──────────────────┐  │
+│  │  React + Vite  │   │   Rust Backend   │  │
+│  │  (WebView)     │◄──│   (axum API)     │  │
+│  │                │   │   127.0.0.1:7878 │  │
+│  └────────────────┘   └──────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+The backend follows **Hexagonal Architecture (Ports & Adapters)** with DDD principles:
+
+```
+src/
+├── domain/          # Pure business rules — no external dependencies
+│   ├── ports/       # Traits: WebServerPort, SslPort, DnsPort, PhpProcessPort
+│   └── site/        # Site entity, value objects, SiteRepository trait
+├── application/     # Use cases: CreateSite, EnableSsl, StartPhp, etc.
+├── infrastructure/  # Concrete adapters: nginx, mkcert, hosts file, JSON persistence
+└── ports/http/      # Thin axum handlers — delegate to use cases
+```
+
+---
+
+## Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop shell | [Tauri v2](https://tauri.app) |
+| Frontend | React 18 + TypeScript + Vite |
+| Backend | Rust — axum, tokio, sqlx, parking_lot |
+| Build | Cargo + npm |
+
+---
 
 ## Requirements
 
-| Dependency | Windows | Linux |
-|------------|---------|-------|
-| Go 1.22+ | build only | build only |
-| Node 18+ / npm | build only | build only |
-| PHP | pre-installed or detected | pre-installed |
-| nginx | auto-downloaded | `apt install nginx` |
-| mkcert | auto-downloaded | auto-downloaded |
+| Tool | Purpose |
+|------|---------|
+| Rust (stable) | Build the backend |
+| Node 18+ / npm | Build the frontend |
+| PHP | Pre-installed or auto-detected |
+| nginx | Auto-downloaded on Windows · `apt install nginx` on Linux |
+| mkcert | Auto-downloaded at first SSL use |
 
-## Installation
+> **Windows:** administrator privileges are required to write to `System32\drivers\etc\hosts` and bind port 80.
 
-Download the latest release from the [Releases](../../releases) page:
-
-- **`open-herd-vX.X.X-setup.exe`** — NSIS installer (recommended)
-- **`open-herd-vX.X.X-portable.zip`** — Portable, no installation required. Place `data/config.json` next to the exe to activate portable mode.
+---
 
 ## Running from source
 
-### Start everything (Windows)
-
 ```powershell
+# Windows — start everything (hot-reload)
 .\dev.ps1
+
+# Equivalent:
+cd gui && npm run tauri dev
 ```
-
-Opens a second elevated PowerShell for the daemon and starts the Vite dev server in the current terminal.
-
-### Daemon only
 
 ```bash
-cd daemon
-go run .
+# Frontend only (no Tauri shell, hot-reload at http://localhost:1420)
+cd gui && npm run dev
 ```
 
-> Requires admin/root — writes `/etc/hosts` and binds port 80.
-
-### Frontend only (hot-reload, no Tauri shell)
-
-```bash
-cd gui
-npm run dev
-# → http://localhost:1420
-```
-
-### CLI
-
-```bash
-cd cli
-go run . status
-go run . sites list
-go run . php versions
-```
+---
 
 ## Building
 
 ```powershell
-# Full portable + installer (Windows)
+# Windows — produces dist/open-herd-v0.1.0-setup.exe + portable zip
 .\build-portable.ps1
-
-# Daemon sidecar only
-cd daemon
-go build -ldflags="-H windowsgui" -o ../gui/src-tauri/phpenv-daemon-x86_64-pc-windows-msvc.exe .
-
-# Tauri app (requires daemon binary above)
-cd gui
-npm run tauri build
 ```
 
-## CLI reference
+Requires `logo.png` at the project root and a production Tauri build environment.
 
-```
-phpenv open [--no-gui]        Start all services and open the GUI
-phpenv stop [--quit]          Stop services (--quit also quits the daemon)
-phpenv status                 Show daemon and services status
+---
 
-phpenv sites list             List registered sites
-phpenv sites scan             Scan directories for new projects
+## Data directory
 
-phpenv php versions           List detected PHP versions
-phpenv php start [version]    Start PHP FastCGI for a version
-phpenv php stop  [version]    Stop PHP FastCGI for a version
-
-phpenv nginx start|stop|reload
-phpenv nginx status
-```
-
-## How it works
-
-```
-GUI / CLI
-    │
-    │  HTTP (localhost:7878)
-    ▼
- Daemon (Go)
-    ├── SiteManager   → sites.json, nginx config per site
-    ├── PHPManager    → php-cgi.exe (Win) / php-fpm (Linux)
-    ├── NginxManager  → nginx.conf + sites/*.conf
-    ├── DNSManager    → /etc/hosts entries
-    ├── SSLManager    → mkcert certificates
-    └── DirWatcher    → fsnotify, auto-detects new projects
-```
-
-All state lives under `~/.phpenv/` (installed) or `./data/` (portable):
+All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode — triggered when `data/config.json` exists next to the exe):
 
 ```
 ~/.phpenv/
 ├── config.json          Daemon configuration
 ├── sites.json           Registered sites
 ├── nginx/
-│   ├── nginx.conf       Generated main config
-│   └── sites/*.conf     Per-site vhosts
-├── certs/*.pem          mkcert certificates
+│   ├── nginx.conf       Generated main nginx config
+│   └── sites/*.conf     Per-site vhost configs
+├── certs/
+│   ├── <domain>.pem     mkcert certificate
+│   └── <domain>-key.pem
 └── logs/                nginx and PHP logs
 ```
+
+---
 
 ## Platform notes
 
 | Feature | Windows | Linux |
 |---------|---------|-------|
-| PHP FastCGI | `php-cgi.exe` on TCP | `php-fpm` on Unix socket |
-| nginx | Auto-downloaded | System package manager |
-| Elevation | UAC / `Start-Process -Verb RunAs` | `pkexec` → `sudo` |
-| Hosts file | `System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
+| PHP FastCGI | `php-cgi.exe` on TCP (`9000 + major×10 + minor`) | `php-fpm` on Unix socket |
+| nginx | Auto-downloaded from nginx.org | System package (`apt install nginx`) |
+| mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
+| Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
+
+---
+
+## Testing
+
+```bash
+# Unit tests (domain + application — no external deps)
+cd gui/src-tauri
+cargo test --lib
+
+# Integration tests (full HTTP stack with axum-test)
+cargo test
+```
+
+---
+
+## Project type detection
+
+Open Herd classifies sites by inspecting directory contents:
+
+| Type | Detection rule |
+|------|---------------|
+| `laravel` | `artisan` + `public/` present |
+| `codeigniter4` | `spark` present |
+| `codeigniter3` | `application/` + `system/` + `index.php` |
+| `wordpress` | `wp-config.php` or `wp-login.php` |
+| `spa` | `dist/index.html` or `build/index.html` |
+| `static` | `index.html` at root |
+| `generic` | Fallback — autoindex enabled in nginx |
+
+---
 
 ## License
 

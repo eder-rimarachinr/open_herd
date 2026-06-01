@@ -1,6 +1,9 @@
 use axum_test::TestServer;
 use tempfile::TempDir;
-use phpenv_gui_lib::daemon::{models::PhpVersion, server::build_router};
+use phpenv_gui_lib::{
+    infrastructure::{container::AppContainer, dto::PhpVersion},
+    ports::http::server::build_router,
+};
 mod common;
 use common::{make_server, make_state};
 
@@ -19,8 +22,6 @@ async fn php_catalog_returns_known_versions() {
     let catalog = server.get("/api/v1/php/catalog").await
         .json::<Vec<serde_json::Value>>();
     assert!(!catalog.is_empty(), "Catalog should not be empty");
-
-    // All entries must have required fields
     for entry in &catalog {
         assert!(entry.get("major").is_some(),        "missing major");
         assert!(entry.get("latest_patch").is_some(), "missing latest_patch");
@@ -35,8 +36,7 @@ async fn php_catalog_contains_php82() {
     let server = make_server(&tmp);
     let catalog = server.get("/api/v1/php/catalog").await
         .json::<Vec<serde_json::Value>>();
-    let has_82 = catalog.iter().any(|e| e["major"] == "8.2");
-    assert!(has_82, "Catalog should include PHP 8.2");
+    assert!(catalog.iter().any(|e| e["major"] == "8.2"), "Catalog should include PHP 8.2");
 }
 
 #[tokio::test]
@@ -64,27 +64,22 @@ async fn php_start_stop_return_ok() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp);
 
-    // Pre-register PHP 8.2 so start_php_fpm can find it.
-    // (The binary won't actually exist in CI, so start may error — but the endpoint
-    // must respond, not crash, and stop must always return 200.)
+    // Pre-registrar PHP 8.2 para que start_php_fpm pueda encontrarlo.
     state.php_versions.write().push(PhpVersion {
-        version: "8.2.31".into(),
-        major: "8.2".into(),
-        binary_path: "php".into(),
-        fpm_binary: "php".into(),
-        fastcgi_addr: "127.0.0.1:9082".into(),
-        installed: true,
-        running: false,
+        version: "8.2.31".into(), major: "8.2".into(),
+        binary_path: "php".into(), fpm_binary: "php".into(),
+        fastcgi_addr: "127.0.0.1:9082".into(), installed: true, running: false,
     });
 
-    let server = TestServer::new(build_router(state)).unwrap();
-    // Start returns either 200 (PHP found and spawned) or 500 (binary missing in test env).
-    // Either way the endpoint must respond, not hang or 404.
+    let container = AppContainer::new(state);
+    let server    = TestServer::new(build_router(container)).unwrap();
+
+    // Start: 200 si el binario existe, 500 si no (en CI). Nunca 404 ni cuelgue.
     let resp = server.post("/api/v1/php/versions/8.2/start").await;
     assert!(
         resp.status_code().is_success() || resp.status_code().as_u16() == 500,
         "start must respond with 2xx or 5xx, got {}", resp.status_code()
     );
-    // Stop is always 200 regardless of whether PHP is actually running
+    // Stop siempre 200
     server.post("/api/v1/php/versions/8.2/stop").await.assert_status_ok();
 }

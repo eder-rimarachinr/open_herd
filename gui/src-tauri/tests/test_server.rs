@@ -4,7 +4,7 @@ use tempfile::TempDir;
 
 mod common;
 use common::make_server;
-use phpenv_gui_lib::daemon::{config::Config, server::build_router, state::AppState};
+// infrastructure imports available via make_server/make_state from common
 
 // ── Port binding ──────────────────────────────────────────────────────────────
 
