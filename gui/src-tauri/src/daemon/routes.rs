@@ -564,6 +564,18 @@ pub async fn update_php_ini(
         .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
         .unwrap_or_default();
 
+    // Validate all inputs before touching the file
+    for ext in &updates {
+        if let Err(e) = validate_extension_name(&ext.name) {
+            return err(StatusCode::BAD_REQUEST, &e).into_response();
+        }
+    }
+    for setting in &setting_updates {
+        if let Err(e) = validate_php_setting(&setting.key, &setting.value) {
+            return err(StatusCode::BAD_REQUEST, &e).into_response();
+        }
+    }
+
     let content = match std::fs::read_to_string(&ini_path) {
         Ok(c) => c,
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
@@ -766,11 +778,86 @@ fn parse_php_settings(content: &str) -> Vec<PhpSetting> {
     }).collect()
 }
 
+/// Validate a php.ini setting key and value before writing.
+/// Returns Err with a human-readable message if the value is rejected.
+fn validate_php_setting(key: &str, value: &str) -> Result<(), String> {
+    // Key must be in the known whitelist — prevents injection of arbitrary directives
+    let allowed_keys: Vec<&str> = known_settings().iter().map(|(k, _, _)| *k).collect();
+    if !allowed_keys.contains(&key) {
+        return Err(format!("Setting '{}' is not allowed", key));
+    }
+
+    // Empty value = revert to default (always allowed)
+    if value.is_empty() { return Ok(()); }
+
+    // Reject values that contain newlines or null bytes — would break the ini file
+    if value.contains('\n') || value.contains('\r') || value.contains('\0') {
+        return Err(format!("Value for '{}' contains illegal characters", key));
+    }
+
+    match key {
+        // Integer-only settings
+        "max_input_vars" | "max_execution_time" | "max_input_time" => {
+            if !value.chars().all(|c| c.is_ascii_digit()) {
+                return Err(format!("'{}' must be a non-negative integer (got '{}')", key, value));
+            }
+        }
+        // Byte-size settings: digits followed by optional K/M/G
+        "post_max_size" | "upload_max_filesize" | "memory_limit" => {
+            let upper = value.to_uppercase();
+            let (digits, suffix) = match upper.chars().last() {
+                Some('K') | Some('M') | Some('G') => (&value[..value.len()-1], true),
+                _ => (value, false),
+            };
+            let _ = suffix; // suffix is valid, we just need to check the digits part
+            if !digits.chars().all(|c| c.is_ascii_digit()) || digits.is_empty() {
+                return Err(format!("'{}' must be a size like 128M, 1G, 2048K (got '{}')", key, value));
+            }
+        }
+        // Boolean settings
+        "display_errors" | "log_errors" => {
+            match value.to_lowercase().as_str() {
+                "on" | "off" | "1" | "0" | "true" | "false" => {}
+                _ => return Err(format!("'{}' must be On or Off (got '{}')", key, value)),
+            }
+        }
+        // Timezone: letters, digits, slash, underscore, hyphen, dot only
+        "date.timezone" => {
+            if !value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.')) {
+                return Err(format!("'{}' contains invalid characters for a timezone (got '{}')", key, value));
+            }
+        }
+        // Error reporting: PHP constant expression — allow alphanumeric, spaces, and safe operators
+        "error_reporting" => {
+            let allowed: fn(char) -> bool = |c: char| {
+                c.is_ascii_alphanumeric() || matches!(c, ' ' | '|' | '&' | '~' | '^' | '_')
+            };
+            if !value.chars().all(allowed) {
+                return Err(format!("'{}' contains invalid characters (got '{}')", key, value));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Validate an extension name against the known whitelist.
+fn validate_extension_name(name: &str) -> Result<(), String> {
+    // Extension names: lowercase letters, digits, underscores only
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("Extension name '{}' contains invalid characters", name));
+    }
+    Ok(())
+}
+
 /// Write setting changes into php.ini content.
 fn apply_setting_changes(content: &str, updates: &[PhpSetting]) -> String {
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
     for setting in updates {
+        // Skip settings that fail validation — they were already checked in the handler
+        if validate_php_setting(&setting.key, &setting.value).is_err() { continue; }
+
         let new_line = format!("{} = {}", setting.key, setting.value);
 
         // Find an existing line (commented or not) for this key

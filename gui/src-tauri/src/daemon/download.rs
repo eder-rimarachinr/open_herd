@@ -2,9 +2,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use parking_lot::Mutex;
+use sha2::{Digest, Sha256};
 
 const NGINX_VERSION: &str = "1.26.3";
-const NGINX_URL: &str = "https://nginx.org/download/nginx-1.26.3.zip";
+const NGINX_URL:     &str = "https://nginx.org/download/nginx-1.26.3.zip";
+const NGINX_SHA256:  &str = "39ca13277b361910f9e463a7e958e11566f7ede8a6f0df08a21b659ca92f3662";
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 
@@ -50,13 +52,58 @@ fn url_exists(client: &reqwest::blocking::Client, url: &str) -> bool {
     client.head(url).send().map(|r| r.status().is_success()).unwrap_or(false)
 }
 
+// ── SHA-256 verification ──────────────────────────────────────────────────────
+
+/// Compute SHA-256 of a file and return lowercase hex.
+fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Verify a downloaded file against an expected SHA-256 hex string.
+/// Deletes the file and returns Err if the hash does not match.
+fn verify_sha256(path: &Path, expected: &str) -> anyhow::Result<()> {
+    let actual = sha256_file(path)?;
+    if actual != expected {
+        let _ = std::fs::remove_file(path);
+        return Err(anyhow::anyhow!(
+            "SHA-256 mismatch — download may be corrupted or tampered.\n  expected: {}\n  actual:   {}",
+            expected, actual
+        ));
+    }
+    Ok(())
+}
+
+// ── Known PHP hashes (NTS x64, keyed by filename) ────────────────────────────
+
+fn known_php_hash(filename: &str) -> Option<&'static str> {
+    match filename {
+        "php-7.4.33-nts-Win32-vc15-x64.zip" => Some("14ae3250d4447c8ccfc4c45a70d90adfbcd61e728d85f0be56a7ddf8f9c8aace"),
+        "php-8.0.30-nts-Win32-vs16-x64.zip" => Some("dfb70498ffa2c617f2f655a155564697e3c9cca41709938fd1a5997d1d5b0785"),
+        "php-8.1.34-nts-Win32-vs16-x64.zip" => Some("9cfe246cb144076c16f5913a3ef88a474c3dd7e60f0f0c8bb95faf68674016cc"),
+        "php-8.2.31-nts-Win32-vs16-x64.zip" => Some("941bd3b87683eb16d5ffa7f5997de9a5e07ef08ba875048e5c4d95b4fc778162"),
+        "php-8.3.31-nts-Win32-vs16-x64.zip" => Some("389c1327d325f6b6b3b892a5b2e1484ca5b5df775b6c4ddf5d1b5dc3b34ac761"),
+        "php-8.4.21-nts-Win32-vs17-x64.zip" => Some("2cb57d0d3a17b1248c6a53b600719d4b051e1c374373404d5031409c0725031d"),
+        "php-8.5.6-nts-Win32-vs17-x64.zip"  => Some("e25cc9400a7d176f18074f677ef0159d6b04aecfb255c924d808b7144075092f"),
+        _ => None,
+    }
+}
+
 // ── Nginx ─────────────────────────────────────────────────────────────────────
 
 pub fn download_nginx(dest_dir: &Path, progress: Arc<DownloadState>) {
     let dest_dir = dest_dir.to_path_buf();
     std::thread::spawn(move || {
         set_nginx(&progress, "downloading", &format!("Downloading nginx {}…", NGINX_VERSION), 5);
-        match fetch_zip(NGINX_URL, &dest_dir, &format!("nginx-{}/", NGINX_VERSION), &progress, |p, pct, msg| {
+        match fetch_zip(NGINX_URL, &dest_dir, &format!("nginx-{}/", NGINX_VERSION), Some(NGINX_SHA256), &progress, |p, pct, msg| {
             set_nginx(p, "downloading", msg, pct);
         }) {
             Ok(()) => set_nginx(&progress, "done", "Nginx ready", 100),
@@ -107,17 +154,18 @@ fn compiler_variants(major: &str) -> &'static [&'static str] {
     }
 }
 
-/// Try main releases/ then archives/ for each compiler variant — same as Go's resolveDownloadURL
-fn resolve_php_url(client: &reqwest::blocking::Client, major: &str, version: &str) -> Option<String> {
+/// Try main releases/ then archives/ for each compiler variant.
+/// Returns (url, filename) so the caller can look up the expected hash.
+fn resolve_php_url(client: &reqwest::blocking::Client, major: &str, version: &str) -> Option<(String, String)> {
     let base     = "https://windows.php.net/downloads/releases";
     let archives = "https://windows.php.net/downloads/releases/archives";
 
     for vs in compiler_variants(major) {
         let filename = format!("php-{}-nts-Win32-{}-x64.zip", version, vs);
         let url = format!("{}/{}", base, filename);
-        if url_exists(client, &url) { return Some(url); }
+        if url_exists(client, &url) { return Some((url, filename)); }
         let archive_url = format!("{}/{}", archives, filename);
-        if url_exists(client, &archive_url) { return Some(archive_url); }
+        if url_exists(client, &archive_url) { return Some((archive_url, filename)); }
     }
     None
 }
@@ -126,7 +174,6 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     let major    = major.to_string();
     let php_dir  = php_dir.to_path_buf();
 
-    // Find the release entry
     let release = match php_releases().into_iter().find(|r| r.major == major) {
         Some(r) => r,
         None => {
@@ -140,12 +187,12 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
         let dest    = php_dir.join(&release.major);
         std::fs::create_dir_all(&dest).ok();
 
-        // 1. Resolve download URL (HEAD requests like Go does)
+        // 1. Resolve download URL (HEAD requests)
         set_php(&progress, &major, "downloading",
             &format!("Locating PHP {} on windows.php.net…", release.version), 3);
 
-        let url = match resolve_php_url(&client, &release.major, &release.version) {
-            Some(u) => u,
+        let (url, filename) = match resolve_php_url(&client, &release.major, &release.version) {
+            Some(pair) => pair,
             None => {
                 let msg = format!(
                     "PHP {} not found on windows.php.net. Check https://windows.php.net/download",
@@ -156,18 +203,20 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
             }
         };
 
-        // 2. Download
+        let expected_hash = known_php_hash(&filename);
+
+        // 2. Download + verify
         set_php(&progress, &major, "downloading",
             &format!("Downloading PHP {}…", release.version), 8);
 
         let major2 = major.clone();
-        let result = fetch_zip(&url, &dest, "", &progress, move |p, pct, msg| {
+        let result = fetch_zip(&url, &dest, "", expected_hash, &progress, move |p, pct, msg| {
             set_php(p, &major2, "downloading", msg, pct);
         });
 
         match result {
             Ok(()) => {
-                // 3. Configure php.ini (copy from php.ini-production, enable common extensions)
+                // 3. Configure php.ini
                 set_php(&progress, &major, "configuring", "Configuring php.ini…", 92);
                 configure_ini(&dest);
                 set_php(&progress, &major, "done",
@@ -184,7 +233,7 @@ fn set_php(progress: &Arc<DownloadState>, major: &str, state: &str, msg: &str, p
     });
 }
 
-/// Copy php.ini-production → php.ini and enable common extensions (matches Go's configureINI)
+/// Copy php.ini-production → php.ini and enable common extensions
 fn configure_ini(dest_dir: &Path) {
     let src = dest_dir.join("php.ini-production");
     let dst = dest_dir.join("php.ini");
@@ -196,13 +245,11 @@ fn configure_ini(dest_dir: &Path) {
         minimal_php_ini().to_string()
     };
 
-    // Enable the most commonly needed extensions (same as Go)
     let mut out = content;
     for ext in &["curl", "mbstring", "openssl", "pdo_mysql", "pdo_sqlite", "fileinfo", "intl", "zip"] {
         out = out.replace(&format!(";extension={}", ext), &format!("extension={}", ext));
     }
     out = out.replace(";extension_dir = \"ext\"", "extension_dir = \"ext\"");
-    // Enable CGI
     out = out.replace(";cgi.force_redirect = 1", "cgi.force_redirect = 0");
     out = out.replace(";cgi.fix_pathinfo=1", "cgi.fix_pathinfo=1");
 
@@ -230,6 +277,7 @@ fn fetch_zip<F>(
     url: &str,
     dest_dir: &PathBuf,
     strip_prefix: &str,
+    expected_sha256: Option<&str>,
     progress: &Arc<DownloadState>,
     mut on_progress: F,
 ) -> anyhow::Result<()>
@@ -258,7 +306,6 @@ where
         file.write_all(&buf[..n])?;
         downloaded += n as u64;
         if total > 0 {
-            // 8..72 range — matches Go: pct = 8 + int(downloaded*60/total)
             let pct = (8 + (downloaded * 60 / total).min(60)) as u8;
             let msg = format!("Downloading… {:.1} / {:.1} MB",
                 downloaded as f64 / 1_048_576.0,
@@ -268,9 +315,14 @@ where
     }
     drop(file);
 
-    on_progress(progress, 72, "Extracting…");
+    // Verify SHA-256 before extraction
+    if let Some(expected) = expected_sha256 {
+        on_progress(progress, 72, "Verifying integrity…");
+        verify_sha256(&zip_path, expected)?;
+    }
 
-    // Extract — with zip-slip guard (same as Go)
+    on_progress(progress, 73, "Extracting…");
+
     let file = std::fs::File::open(&zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
@@ -284,10 +336,7 @@ where
         };
         if name.is_empty() { continue; }
 
-        // Zip-slip guard: reject any entry that contains a parent-directory component
-        // (`..`). This check is purely lexical so it works even before the directory
-        // exists — unlike canonicalize() which silently skips the check when the path
-        // doesn't exist yet.
+        // Zip-slip guard
         let has_traversal = std::path::Path::new(name)
             .components()
             .any(|c| c == std::path::Component::ParentDir);
