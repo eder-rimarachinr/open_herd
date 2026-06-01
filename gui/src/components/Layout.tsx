@@ -1,20 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import {
+  Globe, Cpu, Server, ShieldCheck, Terminal,
+  Database, Settings, Sun, Moon, Play, Square, Power,
+  Circle,
+} from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
+import { useTheme } from "../hooks/useTheme";
 import styles from "./Layout.module.css";
 
-const nav = [
-  { to: "/", label: "Sites", icon: "🌐" },
-  { to: "/php", label: "PHP", icon: "🐘" },
-  { to: "/nginx", label: "Nginx", icon: "⚙️" },
-  { to: "/ssl", label: "SSL", icon: "🔒" },
-  { to: "/logs", label: "Logs", icon: "📝" },
+const NAV = [
+  { to: "/",         label: "Sites",    Icon: Globe },
+  { to: "/php",      label: "PHP",      Icon: Cpu },
+  { to: "/nginx",    label: "Nginx",    Icon: Server },
+  { to: "/ssl",      label: "SSL",      Icon: ShieldCheck },
+  { to: "/database", label: "Database", Icon: Database },
+  { to: "/logs",     label: "Logs",     Icon: Terminal },
 ];
 
 const POLL_INTERVAL = 4000;
-const OFFLINE_THRESHOLD = 3; // consecutive failures before showing "offline"
+const OFFLINE_THRESHOLD = 3;
 
 export default function Layout() {
+  const { theme, toggle } = useTheme();
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -31,10 +39,7 @@ export default function Layout() {
     } catch {
       setFailCount((n) => {
         const next = n + 1;
-        if (next >= OFFLINE_THRESHOLD) {
-          setStatus(null);
-          setInitialized(true);
-        }
+        if (next >= OFFLINE_THRESHOLD) { setStatus(null); setInitialized(true); }
         return next;
       });
     }
@@ -50,7 +55,6 @@ export default function Layout() {
     setBusy(true);
     setStartError(null);
     try {
-      // Start may take longer on first run (nginx download ~15 MB).
       const s = await api.services.start();
       setStatus(s);
     } catch (e: any) {
@@ -67,7 +71,7 @@ export default function Layout() {
       const s = await api.services.stop();
       setStatus(s);
     } catch {
-      // ignore stop errors
+      // ignore
     } finally {
       setBusy(false);
     }
@@ -83,96 +87,129 @@ export default function Layout() {
     }
   }
 
-  const daemonUp = status !== null;
+  const daemonUp  = status !== null;
   const allRunning = status?.all_running ?? false;
 
   return (
     <div className={styles.shell}>
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className={styles.sidebar}>
+
         {/* Logo */}
         <div className={styles.logo}>
-          <span className={styles.logoIcon}>🐃</span>
-          <span className={styles.logoText}>Open Herd</span>
+          <div className={styles.logoMark}>
+            <span>OH</span>
+          </div>
+          <div className={styles.logoText}>
+            <span className={styles.logoName}>Open Herd</span>
+            <span className={styles.logoSub}>Local PHP</span>
+          </div>
         </div>
 
         {/* Navigation */}
         <nav className={styles.nav}>
-          {nav.map((item) => (
+          <p className={styles.navLabel}>Workspace</p>
+          {NAV.map(({ to, label, Icon }) => (
             <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
+              key={to}
+              to={to}
+              end={to === "/"}
               className={({ isActive }) =>
-                [styles.navItem, isActive ? styles.active : ""].join(" ")
+                [styles.navItem, isActive ? styles.navActive : ""].join(" ")
               }
             >
-              <span className={styles.navIcon}>{item.icon}</span>
-              {item.label}
+              <Icon size={15} strokeWidth={1.8} className={styles.navIcon} />
+              {label}
             </NavLink>
           ))}
+
+          <p className={styles.navLabel} style={{ marginTop: 12 }}>System</p>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              [styles.navItem, isActive ? styles.navActive : ""].join(" ")
+            }
+          >
+            <Settings size={15} strokeWidth={1.8} className={styles.navIcon} />
+            Settings
+          </NavLink>
         </nav>
 
-        {/* Service status + controls */}
-        <div className={styles.servicePanel}>
-          <div className={styles.serviceTitle}>Services</div>
+        {/* ── Service status ────────────────────────────────────────────── */}
+        <div className={styles.services}>
+          <p className={styles.navLabel}>Services</p>
 
           {!daemonUp ? (
-            <div className={styles.daemonDown}>
+            <div className={styles.offline}>
+              <Circle size={7} fill="currentColor" />
               {!initialized ? "Connecting…" : "Daemon offline"}
             </div>
           ) : (
             <ul className={styles.serviceList}>
-              <li className={styles.serviceItem}>
-                <span className={status?.nginx ? styles.dotGreen : styles.dotRed} />
-                nginx
-              </li>
+              <ServiceRow label="Nginx" running={status?.nginx ?? false} />
               {status?.php_versions.map((v) => (
-                <li key={v.major} className={styles.serviceItem}>
-                  <span className={v.running ? styles.dotGreen : styles.dotRed} />
-                  PHP {v.major}
-                </li>
+                <ServiceRow key={v.major} label={`PHP ${v.major}`} running={v.running} />
               ))}
             </ul>
           )}
 
           {startError && (
             <div className={styles.startError} title={startError}>
-              ✕ {startError}
+              {startError}
             </div>
           )}
 
-          <div className={styles.controls}>
+          <div className={styles.serviceActions}>
             {allRunning ? (
-              <button
-                className={styles.btnStop}
-                onClick={handleStop}
-                disabled={busy || !daemonUp}
-              >
-                {busy ? "…" : "Stop all"}
+              <button className={styles.btnStop} onClick={handleStop} disabled={busy || !daemonUp}>
+                <Square size={11} strokeWidth={2.5} />
+                {busy ? "Stopping…" : "Stop all"}
               </button>
             ) : (
-              <button
-                className={styles.btnStart}
-                onClick={handleStart}
-                disabled={busy || !daemonUp}
-              >
-                {busy ? "Setting up…" : "Start all"}
+              <button className={styles.btnStart} onClick={handleStart} disabled={busy || !daemonUp}>
+                <Play size={11} strokeWidth={2.5} fill="currentColor" />
+                {busy ? "Starting…" : "Start all"}
               </button>
             )}
-            <button
-              className={styles.btnQuit}
-              onClick={handleQuit}
-              disabled={busy}
-            >
-              Quit
-            </button>
           </div>
+        </div>
+
+        {/* ── Bottom bar ───────────────────────────────────────────────── */}
+        <div className={styles.bottomBar}>
+          <button
+            className={styles.themeToggle}
+            onClick={toggle}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          >
+            {theme === "dark"
+              ? <Sun size={15} strokeWidth={1.8} />
+              : <Moon size={15} strokeWidth={1.8} />
+            }
+          </button>
+
+          <button className={styles.btnQuit} onClick={handleQuit} disabled={busy}>
+            <Power size={13} strokeWidth={1.8} />
+            Quit
+          </button>
         </div>
       </aside>
 
+      {/* ── Main content ─────────────────────────────────────────────────── */}
       <main className={styles.content}>
         <Outlet />
       </main>
     </div>
+  );
+}
+
+function ServiceRow({ label, running }: { label: string; running: boolean }) {
+  return (
+    <li className={styles.serviceRow}>
+      <span className={running ? styles.dotGreen : styles.dotAmber} />
+      <span>{label}</span>
+      <span className={[styles.serviceStatus, running ? styles.statusRunning : styles.statusStopped].join(" ")}>
+        {running ? "running" : "stopped"}
+      </span>
+    </li>
   );
 }

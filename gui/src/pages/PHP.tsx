@@ -1,59 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw, Check, Download, AlertCircle, X, Plus } from "lucide-react";
 import { api, AppConfig, CatalogEntry, InstallProgress } from "../api/client";
 import styles from "./PHP.module.css";
 
 export default function PHP() {
-  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [catalog,    setCatalog]    = useState<CatalogEntry[]>([]);
+  const [loading,    setLoading]    = useState(true);
   const [rescanning, setRescanning] = useState(false);
-  const [installs, setInstalls] = useState<Record<string, InstallProgress>>({});
-  const [customDir, setCustomDir] = useState("");
-  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [installs,   setInstalls]   = useState<Record<string, InstallProgress>>({});
+  const [customDir,  setCustomDir]  = useState("");
+  const [config,     setConfig]     = useState<AppConfig | null>(null);
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchCatalog = useCallback(async () => {
-    try {
-      const data = await api.php.catalog();
-      setCatalog(data);
-    } catch {
-      // daemon unreachable — keep showing last state
-    }
+    try { setCatalog(await api.php.catalog()); } catch {}
   }, []);
 
   const fetchConfig = useCallback(async () => {
-    try {
-      const cfg = await api.config.get();
-      setConfig(cfg);
-    } catch {}
+    try { setConfig(await api.config.get()); } catch {}
   }, []);
 
   useEffect(() => {
     fetchCatalog().finally(() => setLoading(false));
     fetchConfig();
     const iv = setInterval(fetchCatalog, 5000);
-    return () => {
-      clearInterval(iv);
-      Object.values(pollRefs.current).forEach(clearInterval);
-    };
+    return () => { clearInterval(iv); Object.values(pollRefs.current).forEach(clearInterval); };
   }, [fetchCatalog, fetchConfig]);
 
   async function handleRescan() {
     setRescanning(true);
-    try {
-      const data = await api.php.detect();
-      setCatalog(data);
-    } finally {
-      setRescanning(false);
-    }
+    try { setCatalog(await api.php.detect()); }
+    finally { setRescanning(false); }
   }
 
   async function handleAddCustomDir() {
     const dir = customDir.trim();
     if (!dir) return;
     const cfg = await api.config.get();
-    const updated = await api.config.update({
-      custom_php_dirs: [...(cfg.custom_php_dirs ?? []), dir],
-    });
+    const updated = await api.config.update({ custom_php_dirs: [...(cfg.custom_php_dirs ?? []), dir] });
     setConfig(updated);
     setCustomDir("");
     handleRescan();
@@ -61,9 +45,7 @@ export default function PHP() {
 
   async function handleRemoveCustomDir(path: string) {
     if (!config) return;
-    const updated = await api.config.update({
-      custom_php_dirs: config.custom_php_dirs.filter((p: string) => p !== path),
-    });
+    const updated = await api.config.update({ custom_php_dirs: config.custom_php_dirs.filter((p: string) => p !== path) });
     setConfig(updated);
     handleRescan();
   }
@@ -87,18 +69,12 @@ export default function PHP() {
   }
 
   async function handleInstall(major: string) {
-    setInstalls((prev) => ({
-      ...prev,
-      [major]: { major, state: "pending", message: "Starting…", percent: 0 },
-    }));
+    setInstalls((prev) => ({ ...prev, [major]: { major, state: "pending", message: "Starting…", percent: 0 } }));
     try {
       await api.php.install(major);
       startPollingInstall(major);
     } catch (e: any) {
-      setInstalls((prev) => ({
-        ...prev,
-        [major]: { major, state: "error", message: "", percent: 0, error: e.message },
-      }));
+      setInstalls((prev) => ({ ...prev, [major]: { major, state: "error", message: "", percent: 0, error: e.message } }));
     }
   }
 
@@ -107,10 +83,8 @@ export default function PHP() {
     try {
       const updated = await api.config.update({ default_php: major });
       setConfig(updated);
-      await api.services.start(); // restart services to apply new default
-    } catch (e) {
-      console.error("Failed to set active PHP", e);
-    }
+      await api.services.start();
+    } catch (e) { console.error(e); }
   }
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
@@ -118,21 +92,27 @@ export default function PHP() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1 className={styles.title}>PHP</h1>
-        <button className={styles.btnRescan} onClick={handleRescan} disabled={rescanning}>
-          {rescanning ? "Scanning…" : "↺ Rescan"}
+        <h1 className="page-title">PHP</h1>
+        <button
+          className="btn-ghost"
+          onClick={handleRescan}
+          disabled={rescanning}
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
+        >
+          <RefreshCw size={13} style={{ animation: rescanning ? "spin 0.6s linear infinite" : "none" }} />
+          {rescanning ? "Scanning…" : "Rescan"}
         </button>
       </div>
 
+      {/* ── Version catalog ──────────────────────────────────────────────── */}
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Versions</h2>
-
+        <div className={styles.sectionTitle}>PHP Versions</div>
         <div className={styles.table}>
           <div className={styles.thead}>
-            <span>Version</span>
-            <span>Installed</span>
-            <span>Active</span>
-            <span></span>
+            <div className={styles.theadCell}>Version</div>
+            <div className={styles.theadCell}>Installed</div>
+            <div className={styles.theadCell}>Active</div>
+            <div className={styles.theadCell} style={{ textAlign: "right" }}>Action</div>
           </div>
 
           {catalog.map((entry) => {
@@ -148,39 +128,32 @@ export default function PHP() {
                   installing ? styles.rowInstalling : "",
                 ].join(" ")}
               >
-                {/* Progress bar overlay during install */}
                 {installing && prog && (
                   <div className={styles.progressOverlay}>
-                    <div
-                      className={styles.progressFill}
-                      style={{ width: `${prog.percent}%` }}
-                    />
+                    <div className={styles.progressFill} style={{ width: `${prog.percent}%` }} />
                     <span className={styles.progressLabel}>{prog.message}</span>
                   </div>
                 )}
 
-                {/* Version label */}
                 <div className={styles.versionCell}>
                   <span className={styles.major}>
-                    {entry.major}
+                    PHP {entry.major}
                     {entry.installed_patch ? ` (${entry.installed_patch})` : ""}
                   </span>
                   {entry.security_only && (
-                    <span className={styles.tag + " " + styles.tagSecurity}>security</span>
+                    <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>
                   )}
                   {entry.end_of_life && (
-                    <span className={styles.tag + " " + styles.tagEol}>EOL</span>
+                    <span className={`${styles.tag} ${styles.tagEol}`}>EOL</span>
                   )}
                 </div>
 
-                {/* Installed checkmark */}
                 <div className={styles.statusCell}>
                   {entry.installed && (
-                    <span className={styles.checkmark}>✓</span>
+                    <span className={styles.checkmark}><Check size={15} strokeWidth={2.5} /></span>
                   )}
                 </div>
 
-                {/* Active Radio Button */}
                 <div className={styles.activeCell}>
                   {entry.installed && (
                     <input
@@ -188,29 +161,24 @@ export default function PHP() {
                       name="active_php"
                       checked={config?.default_php === entry.major}
                       onChange={() => handleSetActive(entry.major)}
-                      style={{ cursor: "pointer" }}
+                      style={{ cursor: "pointer", accentColor: "var(--accent)" }}
                     />
                   )}
                 </div>
 
-                {/* Action buttons — only Install / Update */}
                 <div className={styles.actionCell}>
                   {prog?.state === "error" && (
                     <button
                       className={styles.btnError}
                       title="Click to dismiss"
-                      onClick={() => setInstalls((prev) => {
-                        const next = { ...prev };
-                        delete next[entry.major];
-                        return next;
-                      })}
+                      onClick={() => setInstalls((prev) => { const n = { ...prev }; delete n[entry.major]; return n; })}
                     >
-                      ✕ {prog.error ?? "Install failed"}
+                      <AlertCircle size={11} /> {prog.error ?? "Install failed"}
                     </button>
                   )}
                   {!installing && prog?.state !== "error" && !entry.installed && (
                     <button className={styles.btnInstall} onClick={() => handleInstall(entry.major)}>
-                      Install
+                      <Download size={12} /> Install
                     </button>
                   )}
                   {!installing && prog?.state !== "error" && entry.installed && entry.has_update && (
@@ -225,25 +193,20 @@ export default function PHP() {
         </div>
       </section>
 
-      {/* Custom PHP paths */}
+      {/* ── Custom PHP paths ─────────────────────────────────────────────── */}
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Custom PHP paths</h2>
+        <div className={styles.sectionTitle}>Custom PHP paths</div>
         <p className={styles.hint}>
-          phpenv auto-detects XAMPP, WAMP and Laragon. Add a directory here if your PHP is
+          Open Herd auto-detects XAMPP, WAMP, and Laragon. Add a directory here if your PHP is
           installed elsewhere (e.g. <code>C:\my-tools\php83</code>).
         </p>
 
-        {/* List of existing custom paths */}
         <div className={styles.pathList}>
           {config?.custom_php_dirs?.map((path: string) => (
             <div key={path} className={styles.pathItem}>
               <code className={styles.pathLabel}>{path}</code>
-              <button
-                className={styles.btnRemovePath}
-                onClick={() => handleRemoveCustomDir(path)}
-                title="Remove path"
-              >
-                ✕
+              <button className={styles.btnRemovePath} onClick={() => handleRemoveCustomDir(path)}>
+                <X size={13} />
               </button>
             </div>
           ))}
@@ -259,7 +222,7 @@ export default function PHP() {
             onKeyDown={(e) => e.key === "Enter" && handleAddCustomDir()}
           />
           <button className={styles.btnAdd} onClick={handleAddCustomDir}>
-            Add &amp; Rescan
+            <Plus size={13} /> Add &amp; Rescan
           </button>
         </div>
       </section>

@@ -1,166 +1,104 @@
-.page { max-width: 860px; }
+.page { max-width: 720px; }
+.loading { color: var(--text-3); padding: 48px 0; text-align: center; }
 
-.loading { color: var(--text-muted); padding: 48px 0; text-align: center; }
-
-.title {
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 24px;
-}
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 20px 24px;
-  margin-bottom: 20px;
-}
-
-.sectionTitle {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
-
-/* ── Status row ──────────────────────────────────────────────────────────────── */
-
-.statusRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 24px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
-.statusGroup {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.sectionTitle { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
 
-.dotGreen,
-.dotRed {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.dotGreen { background: #22c55e; }
-.dotRed   { background: #ef4444; }
+/* Status row */
+.statusRow { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 18px; }
 
-.statusLabel {
-  font-size: 14px;
-  color: var(--text);
+.statusGroup { display: flex; align-items: center; gap: 8px; }
+
+.dotGreen, .dotRed {
+  width: 8px; height: 8px;
+  border-radius: 50%; flex-shrink: 0;
 }
+.dotGreen { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dotRed   { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+.statusLabel { font-size: 13px; color: var(--text); font-weight: 500; }
 
 .version {
-  font-size: 12px;
-  color: var(--text-muted);
-  background: var(--border);
-  padding: 2px 7px;
-  border-radius: 4px;
+  font-size: 11px; color: var(--text-3);
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 2px 7px; border-radius: var(--radius-xs);
   font-family: monospace;
 }
 
-/* ── Error banner ────────────────────────────────────────────────────────────── */
-
+/* Error banner */
 .error {
-  border: 1px solid var(--danger);
-  border-radius: 6px;
-  color: var(--danger);
-  font-size: 13px;
+  border: 1px solid var(--red-border);
+  background: var(--red-surface);
+  border-radius: var(--radius-sm);
+  color: var(--red);
+  font-size: 12px;
   padding: 8px 12px;
   margin-bottom: 14px;
 }
 
-/* ── Action buttons ──────────────────────────────────────────────────────────── */
+/* Actions */
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.btnDownload,
-.btnStart,
-.btnReload,
-.btnStop {
-  padding: 7px 18px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  transition: filter 0.15s;
-  white-space: nowrap;
-}
-
-.btnDownload:disabled,
-.btnStart:disabled,
-.btnReload:disabled,
-.btnStop:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btnDownload { background: var(--accent); color: #fff; }
-.btnStart    { background: #22c55e; color: #fff; }
-.btnReload   { background: var(--border); color: var(--text); }
-.btnStop     { background: var(--danger); color: #fff; }
-
-.btnDownload:hover:not(:disabled) { filter: brightness(1.1); }
-.btnStart:hover:not(:disabled)    { filter: brightness(1.1); }
-.btnReload:hover:not(:disabled)   { filter: brightness(1.1); }
-.btnStop:hover:not(:disabled)     { filter: brightness(1.1); }
-
-/* ── Config error / log ──────────────────────────────────────────────────────── */
-
-.log {
-  background: #0d0d0d;
+.actionBtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px 14px;
+  background: var(--surface-2); color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.actionBtn:not(:disabled):hover { color: var(--text); border-color: var(--border-2); background: var(--border); }
+.actionBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btnDownload { background: var(--accent-surface); color: var(--accent); border-color: var(--accent-border); }
+.btnDownload:not(:disabled):hover { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+
+.btnStart { background: var(--green-surface); color: var(--green); border-color: var(--green-border); }
+.btnStart:not(:disabled):hover { background: var(--green) !important; color: #fff !important; }
+
+.btnStop  { background: var(--red-surface); color: var(--red); border-color: var(--red-border); }
+.btnStop:not(:disabled):hover  { background: var(--red) !important; color: #fff !important; }
+
+.btnReload { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+.btnReload:not(:disabled):hover { background: var(--border); color: var(--text); }
+
+.installHint { font-size: 12px; color: var(--text-2); line-height: 1.6; }
+.installHint code {
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 3px;
+  font-family: monospace; font-size: 11px; color: var(--text);
+}
+
+.downloadSection { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.installDesc { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+/* Log */
+.log {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
   font-size: 12px;
-  font-family: monospace;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
   white-space: pre-wrap;
   word-break: break-all;
-  color: #f87171;
-  max-height: 340px;
+  color: var(--red);
+  max-height: 320px;
   overflow-y: auto;
   margin: 0;
+  line-height: 1.6;
 }
 
-.empty {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 0;
-}
-
-.installHint {
-  font-size: 13px;
-  color: var(--text-muted);
-  align-self: center;
-}
-.installHint code {
-  background: var(--border);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--text);
-}
-
-.downloadSection {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-}
-
-.installDesc {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin: 0;
-  line-height: 1.5;
-}
+.empty { color: var(--text-3); font-size: 12px; }

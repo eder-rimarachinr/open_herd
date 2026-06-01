@@ -1,159 +1,267 @@
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+
 .shell {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background: var(--bg);
 }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
 
 .sidebar {
-  width: 200px;
+  width: 216px;
   flex-shrink: 0;
-  background: var(--surface);
+  background: var(--sidebar);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 16px 0 0;
+  overflow: hidden;
 }
+
+/* ── Logo ──────────────────────────────────────────────────────────────────── */
 
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 20px 18px;
+  padding: 18px 16px 16px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
 }
-.logoIcon { font-size: 20px; }
-.logoText { font-size: 16px; font-weight: 700; color: var(--text); }
 
-/* ── Nav links ───────────────────────────────────────────────────────────── */
-
-.nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; flex: 1; }
-
-.navItem {
+.logoMark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-weight: 500;
-  transition: background 0.15s, color 0.15s;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #fff;
 }
-.navItem:hover { background: var(--border); color: var(--text); }
-.active { background: var(--border); color: var(--text) !important; }
-.navIcon { font-size: 16px; width: 20px; text-align: center; }
 
-/* ── Service panel ───────────────────────────────────────────────────────── */
-
-.servicePanel {
-  border-top: 1px solid var(--border);
-  padding: 14px 12px 16px;
+.logoText {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 1px;
+  min-width: 0;
 }
 
-.serviceTitle {
+.logoName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.2px;
+  line-height: 1;
+}
+
+.logoSub {
+  font-size: 10px;
+  color: var(--text-3);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+/* ── Navigation ────────────────────────────────────────────────────────────── */
+
+.nav {
+  flex: 1;
+  padding: 12px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.navLabel {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
-  padding: 0 4px;
+  color: var(--text-3);
+  padding: 6px 8px 4px;
 }
 
-.daemonDown {
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: background var(--transition), color var(--transition);
+  text-decoration: none;
+}
+
+.navItem:hover {
+  background: var(--sidebar-item);
+  color: var(--text);
+}
+
+.navActive {
+  background: var(--accent-surface) !important;
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.navIcon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ── Services panel ────────────────────────────────────────────────────────── */
+
+.services {
+  border-top: 1px solid var(--border);
+  padding: 12px 10px 10px;
+}
+
+.offline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 12px;
-  color: var(--danger);
-  padding: 0 4px;
-}
-
-.startError {
-  font-size: 11px;
-  color: var(--danger);
-  padding: 4px 6px;
-  background: rgba(239,68,68,0.08);
-  border: 1px solid rgba(239,68,68,0.25);
-  border-radius: 5px;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  cursor: help;
+  color: var(--red);
+  padding: 4px 8px;
+  margin-bottom: 8px;
 }
 
 .serviceList {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
+  margin-bottom: 10px;
 }
 
-.serviceItem {
+.serviceRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   font-size: 12px;
-  color: var(--text-muted);
-  padding: 0 4px;
+  color: var(--text-2);
+  padding: 3px 8px;
 }
 
-/* Status dots */
-.dotGreen,
-.dotRed {
-  width: 7px;
-  height: 7px;
+.dotGreen, .dotAmber {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.dotGreen { background: var(--success); box-shadow: 0 0 5px var(--success); }
-.dotRed   { background: var(--danger);  box-shadow: 0 0 5px var(--danger);  }
+.dotGreen { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dotAmber { background: var(--border-2); }
 
-/* ── Control buttons ─────────────────────────────────────────────────────── */
+.serviceStatus {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.statusRunning { color: var(--green); }
+.statusStopped { color: var(--text-3); }
 
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 2px;
+.startError {
+  font-size: 11px;
+  color: var(--red);
+  padding: 6px 8px;
+  background: var(--red-surface);
+  border: 1px solid var(--red-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.btnStart,
-.btnStop,
-.btnQuit {
+.serviceActions { display: flex; flex-direction: column; gap: 5px; }
+
+.btnStart, .btnStop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
   padding: 7px 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.15s, filter 0.15s;
+  border: 1px solid;
+  transition: opacity var(--transition), filter var(--transition);
 }
-.btnStart:disabled,
-.btnStop:disabled,
-.btnQuit:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+.btnStart:disabled, .btnStop:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.btnStart { background: #14532d; color: var(--success); }
+.btnStart {
+  background: var(--green-surface);
+  color: var(--green);
+  border-color: var(--green-border);
+}
 .btnStart:not(:disabled):hover { filter: brightness(1.15); }
 
-.btnStop  { background: #450a0a; color: var(--danger); }
-.btnStop:not(:disabled):hover  { filter: brightness(1.15); }
+.btnStop {
+  background: var(--red-surface);
+  color: var(--red);
+  border-color: var(--red-border);
+}
+.btnStop:not(:disabled):hover { filter: brightness(1.15); }
 
-.btnQuit  { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
-.btnQuit:not(:disabled):hover  { color: var(--text); border-color: var(--text-muted); }
+/* ── Bottom bar ────────────────────────────────────────────────────────────── */
 
-/* ── Main content ────────────────────────────────────────────────────────── */
+.bottomBar {
+  border-top: 1px solid var(--border);
+  padding: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.themeToggle {
+  width: 34px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  flex-shrink: 0;
+  padding: 0;
+}
+.themeToggle:hover { background: var(--sidebar-item); color: var(--text); }
+
+.btnQuit {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 0;
+}
+.btnQuit:not(:disabled):hover { color: var(--text); border-color: var(--border-2); }
+.btnQuit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Main content ──────────────────────────────────────────────────────────── */
 
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 32px;
+  padding: 32px 36px;
+  background: var(--bg);
 }

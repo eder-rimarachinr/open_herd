@@ -1,4 +1,9 @@
-.page { max-width: 900px; display: flex; flex-direction: column; height: calc(100vh - 80px); }
+.page {
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 
 .header {
   display: flex;
@@ -8,8 +13,6 @@
   flex-shrink: 0;
 }
 
-.title { font-size: 22px; font-weight: 700; }
-
 .tabs {
   display: flex;
   gap: 4px;
@@ -17,57 +20,63 @@
   flex-shrink: 0;
 }
 
-.tab,
-.tabActive {
-  padding: 6px 16px;
-  border-radius: 6px;
-  font-size: 13px;
+.tab, .tabActive {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
   font-weight: 500;
   border: 1px solid var(--border);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: all var(--transition);
 }
 
-.tab { background: transparent; color: var(--text-muted); }
-.tab:hover { color: var(--text); background: rgba(255,255,255,0.04); }
-
-.tabActive { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.tab { background: transparent; color: var(--text-2); }
+.tab:hover { color: var(--text); background: var(--surface-2); }
+.tabActive { background: var(--surface); color: var(--text); border-color: var(--border-2); font-weight: 600; }
 
 .logBox {
   flex: 1;
-  background: #0d0f16;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow-y: auto;
   padding: 16px;
   min-height: 0;
+  box-shadow: var(--shadow-sm) inset;
 }
 
 .log {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   font-size: 12px;
-  line-height: 1.7;
-  color: #94a3b8;
+  line-height: 1.75;
+  color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
 }
 
 .empty {
-  color: var(--text-muted);
+  color: var(--text-3);
   text-align: center;
   padding: 48px 0;
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  flex-shrink: 0;
 }
 
 .autoScroll {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-3);
   cursor: pointer;
-  flex-shrink: 0;
+  user-select: none;
 }
 .autoScroll input { cursor: pointer; accent-color: var(--accent); }

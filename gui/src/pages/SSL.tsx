@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ShieldCheck, ShieldOff, ShieldAlert, Circle } from "lucide-react";
 import { api, AsyncTask, Site } from "../api/client";
 import styles from "./SSL.module.css";
 
 type SslOp = { state: AsyncTask["state"]; message: string; error?: string };
 
 export default function SSL() {
-  const [sites, setSites] = useState<Site[]>([]);
+  const [sites,   setSites]   = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
-  const [ops, setOps] = useState<Record<string, SslOp>>({});
+  const [ops,     setOps]     = useState<Record<string, SslOp>>({});
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchSites = useCallback(async () => {
@@ -26,13 +27,13 @@ export default function SSL() {
     pollRefs.current[id] = setInterval(async () => {
       try {
         const task = await api.sites.sslProgress(id);
-        setOps(prev => ({ ...prev, [id]: { state: task.state, message: task.message, error: task.error } }));
+        setOps((prev) => ({ ...prev, [id]: { state: task.state, message: task.message, error: task.error } }));
         if (task.state === "done" || task.state === "error") {
           clearInterval(pollRefs.current[id]);
           delete pollRefs.current[id];
           if (task.state === "done") {
             await fetchSites();
-            setOps(prev => { const next = { ...prev }; delete next[id]; return next; });
+            setOps((prev) => { const n = { ...prev }; delete n[id]; return n; });
           }
         }
       } catch {
@@ -43,54 +44,57 @@ export default function SSL() {
   }
 
   async function handleEnable(id: string) {
-    setOps(prev => ({ ...prev, [id]: { state: "pending", message: "Starting…" } }));
+    setOps((prev) => ({ ...prev, [id]: { state: "pending", message: "Starting…" } }));
     try {
       const task = await api.sites.enableSSL(id);
-      setOps(prev => ({ ...prev, [id]: { state: task.state, message: task.message } }));
+      setOps((prev) => ({ ...prev, [id]: { state: task.state, message: task.message } }));
       startPolling(id);
     } catch (e: any) {
-      setOps(prev => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
+      setOps((prev) => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
     }
   }
 
   async function handleDisable(id: string) {
-    setOps(prev => ({ ...prev, [id]: { state: "pending", message: "Disabling…" } }));
+    setOps((prev) => ({ ...prev, [id]: { state: "pending", message: "Disabling…" } }));
     try {
       await api.sites.disableSSL(id);
       await fetchSites();
-      setOps(prev => { const next = { ...prev }; delete next[id]; return next; });
+      setOps((prev) => { const n = { ...prev }; delete n[id]; return n; });
     } catch (e: any) {
-      setOps(prev => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
+      setOps((prev) => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
     }
   }
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
-  const active = sites.filter(s => s.ssl_enabled).length;
+  const active = sites.filter((s) => s.ssl_enabled).length;
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1 className={styles.title}>SSL Certificates</h1>
+        <h1 className="page-title">SSL Certificates</h1>
         <span className={styles.count}>{active} active</span>
       </div>
 
       {sites.length === 0 ? (
         <div className={styles.empty}>
+          <ShieldAlert size={32} style={{ color: "var(--border-2)", marginBottom: 12 }} />
           No sites registered yet.<br />
-          <span>Add a site from the Sites page first.</span>
+          Add a site from the Sites page first.
         </div>
       ) : (
         <div className={styles.list}>
-          {sites.map(site => {
-            const op = ops[site.id];
+          {sites.map((site) => {
+            const op   = ops[site.id];
             const busy = op && op.state !== "done" && op.state !== "error";
 
             return (
               <div key={site.id} className={styles.row}>
                 <div className={styles.info}>
                   <span className={styles.domain}>{site.domain}</span>
-                  <span className={styles.type + " badge badge-gray"}>{site.project_type}</span>
+                  <span className="badge badge-gray" style={{ fontSize: 10 }}>
+                    {site.project_type}
+                  </span>
                 </div>
 
                 <div className={styles.statusCol}>
@@ -100,12 +104,18 @@ export default function SSL() {
                     <span
                       className={styles.errorBadge}
                       title="Click to dismiss"
-                      onClick={() => setOps(prev => { const next = { ...prev }; delete next[site.id]; return next; })}
+                      onClick={() => setOps((prev) => { const n = { ...prev }; delete n[site.id]; return n; })}
                     >
-                      ✕ {op.error ?? "Failed"}
+                      {op.error ?? "Failed"}
+                    </span>
+                  ) : site.ssl_enabled ? (
+                    <span className={styles.dotActive}>
+                      <Circle size={7} fill="currentColor" /> Active
                     </span>
                   ) : (
-                    <span className={site.ssl_enabled ? styles.dotGreen : styles.dotRed} />
+                    <span className={styles.dotInactive}>
+                      <Circle size={7} fill="currentColor" /> Off
+                    </span>
                   )}
                 </div>
 
@@ -113,11 +123,11 @@ export default function SSL() {
                   {!busy && op?.state !== "error" && (
                     site.ssl_enabled ? (
                       <button className={styles.btnDisable} onClick={() => handleDisable(site.id)}>
-                        Disable
+                        <ShieldOff size={12} /> Disable
                       </button>
                     ) : (
                       <button className={styles.btnEnable} onClick={() => handleEnable(site.id)}>
-                        Enable SSL
+                        <ShieldCheck size={12} /> Enable
                       </button>
                     )
                   )}
@@ -129,8 +139,8 @@ export default function SSL() {
       )}
 
       <p className={styles.hint}>
-        Certificates are issued by a local mkcert CA.
-        On first use, the CA is installed into the system trust store (requires admin/sudo).
+        Certificates are issued by a local mkcert CA. On first use the CA is installed into the
+        system trust store (requires admin/sudo).
       </p>
     </div>
   );
