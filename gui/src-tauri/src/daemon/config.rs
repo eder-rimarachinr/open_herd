@@ -31,9 +31,15 @@ impl Config {
     pub fn save(&self, base_dir: &PathBuf) -> anyhow::Result<()> {
         let path = base_dir.join("config.json");
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        let result = (|| -> anyhow::Result<()> {
+            std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
     }
 
     fn default_with_base(base_dir: &PathBuf) -> Self {

@@ -21,6 +21,9 @@ pub struct AppState {
     pub downloads: Arc<DownloadState>,
     pub started_at: Instant,
     pub daemon_log: RwLock<Vec<String>>,
+    /// Serializes all atomic writes to disk (sites.json, config.json).
+    /// Prevents concurrent tmp-file collisions on the same path.
+    write_lock: parking_lot::Mutex<()>,
 }
 
 impl AppState {
@@ -37,6 +40,7 @@ impl AppState {
             downloads: DownloadState::new(),
             started_at: Instant::now(),
             daemon_log: RwLock::new(vec![]),
+            write_lock: parking_lot::Mutex::new(()),
         })
     }
 
@@ -45,7 +49,28 @@ impl AppState {
         let entry = format!("[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
         eprintln!("{}", entry);
         log.push(entry);
-        if log.len() > 500 { log.drain(0..100); }
+        // Keep the last 200 entries — drop oldest when we overflow
+        if log.len() > 200 {
+            let excess = log.len() - 200;
+            log.drain(0..excess);
+        }
+    }
+
+    /// Write `data` to `path` atomically: write to a `.tmp` sibling, then rename.
+    /// The `write_lock` mutex serialises concurrent callers so they never collide
+    /// on the same tmp file. The tmp file is cleaned up on any failure.
+    pub fn atomic_write(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+        let _guard = self.write_lock.lock();
+        let tmp = path.with_extension("json.tmp");
+        let result = (|| -> anyhow::Result<()> {
+            std::fs::write(&tmp, data)?;
+            std::fs::rename(&tmp, path)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
     }
 }
 
@@ -64,8 +89,6 @@ pub fn save_sites(state: &AppState) -> anyhow::Result<()> {
     let mut sorted = sites;
     sorted.sort_by(|a, b| a.domain.cmp(&b.domain));
     let path = state.base_dir.join("sites.json");
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string_pretty(&sorted)?)?;
-    std::fs::rename(tmp, path)?;
-    Ok(())
+    let data = serde_json::to_vec_pretty(&sorted)?;
+    state.atomic_write(&path, &data)
 }
