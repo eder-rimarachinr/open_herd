@@ -85,7 +85,7 @@ export default function PHP() {
         value: settingEdits[s.key] ?? s.value,
       }));
       await api.php.updateIni(iniPanel, extensions, settings);
-      toast(`PHP ${iniPanel} extensions saved — PHP-CGI restarted`);
+      toast(`PHP ${iniPanel} restarted + Nginx reloaded — settings active`);
       setIniPanel(null);
       fetchCatalog();
     } catch (e: any) {
@@ -387,7 +387,7 @@ export default function PHP() {
                   disabled={iniSaving}
                 >
                   {iniSaving ? <span className="spinner" /> : null}
-                  {iniSaving ? "Saving & restarting…" : "Save & restart PHP"}
+                  {iniSaving ? "Saving & restarting…" : "Save & restart services"}
                 </button>
                 <button className={styles.iniCancel} onClick={() => setIniPanel(null)}>
                   Cancel

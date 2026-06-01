@@ -574,16 +574,31 @@ pub async fn update_php_ini(
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
     }
 
-    // Restart PHP-CGI if it's running so changes take effect immediately
-    if php_mgr::is_running(&state.php_proc, &major) {
+    // Stop PHP-CGI, reload nginx, then restart PHP-CGI so all changes take effect.
+    // Order matters: stop PHP first → reload nginx (clears FastCGI connection cache) →
+    // restart PHP so it picks up the new php.ini on startup.
+    let php_was_running = php_mgr::is_running(&state.php_proc, &major);
+
+    if php_was_running {
         let php_proc = state.php_proc.clone();
         let _ = php_mgr::stop(&state, &php_proc, &major);
-        // Re-detect versions to get an updated PhpVersion struct for restart
+        state.log(format!("PHP {} stopped for php.ini reload", major));
+    }
+
+    // Reload nginx to drop any cached FastCGI connections to the old php-cgi process
+    if nginx_mgr::is_running(&state.nginx_proc) {
+        let _ = nginx_mgr::reload(&state);
+        state.log("Nginx reloaded after php.ini change".into());
+    }
+
+    // Restart PHP-CGI with the new php.ini
+    if php_was_running {
         let versions = detect_php_versions();
         *state.php_versions.write() = versions.clone();
         if let Some(v) = versions.iter().find(|v| v.major == major) {
             let php_proc2 = state.php_proc.clone();
             let _ = php_mgr::start(&state, &php_proc2, v);
+            state.log(format!("PHP {} restarted with new php.ini", major));
         }
     }
 
