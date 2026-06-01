@@ -57,23 +57,66 @@ pub async fn start(state: Arc<AppState>) {
     let addr = state.config.read().api_addr.clone();
     let router = build_router(state);
 
-    // Retry binding — port may still be held briefly after a hot-reload
-    let listener = {
-        let mut last_err = String::new();
-        let mut listener = None;
-        for attempt in 0..10 {
-            match tokio::net::TcpListener::bind(&addr).await {
-                Ok(l) => { listener = Some(l); break; }
-                Err(e) => {
-                    last_err = e.to_string();
-                    eprintln!("Port {} busy (attempt {}), retrying…", addr, attempt + 1);
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                }
-            }
-        }
-        listener.unwrap_or_else(|| panic!("Cannot bind {}: {}", addr, last_err))
-    };
+    let listener = bind_with_retry(&addr).await;
 
     println!("Daemon API listening on http://{}", addr);
     axum::serve(listener, router).await.expect("Server error");
+}
+
+/// Bind the TCP listener with SO_REUSEADDR and automatic retry.
+///
+/// Strategy (matches what Herd / Laravel Valet do):
+///   1. Set SO_REUSEADDR so the OS allows re-using a port in TIME_WAIT state.
+///   2. Retry up to 30 times × 300 ms = 9 s total — enough to survive a hot-
+///      reload cycle where the previous process takes a moment to fully exit.
+///   3. Panic only after all retries are exhausted, with a clear error message.
+async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
+    let socket_addr: std::net::SocketAddr = addr
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:7878".parse().unwrap());
+
+    let mut last_err = String::new();
+
+    for attempt in 0..30 {
+        // Build a raw socket so we can set SO_REUSEADDR before binding
+        let socket = if socket_addr.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()
+        } else {
+            tokio::net::TcpSocket::new_v6()
+        };
+
+        match socket {
+            Ok(sock) => {
+                // SO_REUSEADDR lets us bind even if the port is in TIME_WAIT
+                let _ = sock.set_reuseaddr(true);
+                match sock.bind(socket_addr) {
+                    Ok(()) => {
+                        match sock.listen(1024) {
+                            Ok(listener) => return listener,
+                            Err(e) => last_err = e.to_string(),
+                        }
+                    }
+                    Err(e) => last_err = e.to_string(),
+                }
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+
+        if attempt < 9 {
+            // Only log the first 10 attempts to avoid log spam
+            eprintln!("Port {} busy (attempt {}), retrying…", addr, attempt + 1);
+        } else if attempt == 9 {
+            eprintln!("Port {} still busy after 10 attempts, continuing silently…", addr);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    }
+
+    panic!(
+        "Cannot bind {} after 30 attempts: {}\n\
+         \nTroubleshooting:\
+         \n  • Kill any running Open Herd process: taskkill /F /IM phpenv-gui.exe\
+         \n  • Check what is using the port: netstat -ano | findstr :7878",
+        addr, last_err
+    )
 }

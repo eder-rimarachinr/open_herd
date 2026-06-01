@@ -4,9 +4,9 @@
     {
       "name": "Frontend (Vite)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev", "--", "--port", "1421"],
       "cwd": "gui",
-      "port": 1420
+      "port": 1421
     },
     {
       "name": "Tauri dev (GUI + daemon)",
