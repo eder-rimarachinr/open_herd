@@ -510,6 +510,276 @@ pub async fn install_php_progress(
     }
 }
 
+/// GET /api/v1/php/versions/:major/ini
+/// Returns the list of known extensions and their enabled state from php.ini.
+pub async fn get_php_ini(
+    State(state): State<AppStateRef>,
+    Path(major): Path<String>,
+) -> impl IntoResponse {
+    let php_dir = state.config.read().php_dir.clone();
+    let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
+
+    if !ini_path.exists() {
+        return err(StatusCode::NOT_FOUND, "php.ini not found — install this PHP version first").into_response();
+    }
+
+    let content = match std::fs::read_to_string(&ini_path) {
+        Ok(c) => c,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+    };
+
+    let extensions = parse_php_extensions(&content);
+    let settings   = parse_php_settings(&content);
+
+    Json(PhpIniConfig {
+        major: major.clone(),
+        ini_path: ini_path.to_string_lossy().to_string(),
+        extensions,
+        settings,
+    }).into_response()
+}
+
+/// PUT /api/v1/php/versions/:major/ini
+/// Body: { "extensions": [{ "name": "mysqli", "enabled": true }, ...] }
+pub async fn update_php_ini(
+    State(state): State<AppStateRef>,
+    Path(major): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let php_dir = state.config.read().php_dir.clone();
+    let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
+
+    if !ini_path.exists() {
+        return err(StatusCode::NOT_FOUND, "php.ini not found").into_response();
+    }
+
+    let updates: Vec<PhpExtension> = body["extensions"].as_array()
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let setting_updates: Vec<PhpSetting> = body["settings"].as_array()
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let content = match std::fs::read_to_string(&ini_path) {
+        Ok(c) => c,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+    };
+
+    let after_ext      = apply_extension_changes(&content, &updates);
+    let new_content    = apply_setting_changes(&after_ext, &setting_updates);
+
+    match std::fs::write(&ini_path, &new_content) {
+        Ok(()) => {},
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+    }
+
+    // Restart PHP-CGI if it's running so changes take effect immediately
+    if php_mgr::is_running(&state.php_proc, &major) {
+        let php_proc = state.php_proc.clone();
+        let _ = php_mgr::stop(&state, &php_proc, &major);
+        // Re-detect versions to get an updated PhpVersion struct for restart
+        let versions = detect_php_versions();
+        *state.php_versions.write() = versions.clone();
+        if let Some(v) = versions.iter().find(|v| v.major == major) {
+            let php_proc2 = state.php_proc.clone();
+            let _ = php_mgr::start(&state, &php_proc2, v);
+        }
+    }
+
+    state.log(format!("php.ini updated for PHP {}", major));
+
+    // Return updated config
+    let updated_content = std::fs::read_to_string(&ini_path).unwrap_or_default();
+    let extensions = parse_php_extensions(&updated_content);
+    let settings   = parse_php_settings(&updated_content);
+    Json(PhpIniConfig {
+        major,
+        ini_path: ini_path.to_string_lossy().to_string(),
+        extensions,
+        settings,
+    }).into_response()
+}
+
+/// Parse extension lines from php.ini content.
+/// Returns all known extensions with their enabled state.
+fn parse_php_extensions(content: &str) -> Vec<PhpExtension> {
+    // Canonical list of extensions we track, with categories
+    let known: &[(&str, &str)] = &[
+        // Database
+        ("mysqli",     "database"),
+        ("pdo_mysql",  "database"),
+        ("pdo_pgsql",  "database"),
+        ("pdo_sqlite", "database"),
+        ("pdo_oci",    "database"),
+        ("oci8_12c",   "database"),
+        ("sqlite3",    "database"),
+        // String / encoding
+        ("mbstring",   "string"),
+        ("iconv",      "string"),
+        ("intl",       "string"),
+        ("gettext",    "string"),
+        // Image
+        ("gd",         "image"),
+        ("exif",       "image"),
+        ("imagick",    "image"),
+        // Network / mail
+        ("curl",       "network"),
+        ("soap",       "network"),
+        ("ldap",       "network"),
+        ("sockets",    "network"),
+        ("ftp",        "network"),
+        // Files / compression
+        ("zip",        "files"),
+        ("zlib",       "files"),
+        ("bz2",        "files"),
+        ("fileinfo",   "files"),
+        // Security / crypto
+        ("openssl",    "security"),
+        ("sodium",     "security"),
+        ("hash",       "security"),
+        // Math / misc
+        ("bcmath",     "math"),
+        ("gmp",        "math"),
+        ("calendar",   "misc"),
+        ("pcntl",      "misc"),
+        ("shmop",      "misc"),
+        ("sysvmsg",    "misc"),
+        ("sysvsem",    "misc"),
+        ("sysvshm",    "misc"),
+        ("xml",        "misc"),
+        ("xmlrpc",     "misc"),
+        ("xsl",        "misc"),
+    ];
+
+    known.iter().map(|(name, category)| {
+        // An extension is enabled if there's an uncommented `extension=name` line
+        let enabled = content.lines().any(|line| {
+            let t = line.trim();
+            !t.starts_with(';') && (
+                t == format!("extension={}", name) ||
+                t.starts_with(&format!("extension={} ", name)) ||
+                t.starts_with(&format!("extension={};", name))
+            )
+        });
+        PhpExtension {
+            name: name.to_string(),
+            enabled,
+            category: category.to_string(),
+        }
+    }).collect()
+}
+
+/// Apply enable/disable changes to php.ini content.
+fn apply_extension_changes(content: &str, updates: &[PhpExtension]) -> String {
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+
+    for ext in updates {
+        let ext_line  = format!("extension={}", ext.name);
+        let commented = format!(";extension={}", ext.name);
+
+        // Find existing line for this extension
+        let pos = lines.iter().position(|l| {
+            let t = l.trim();
+            t == ext_line || t.starts_with(&format!("{}=", "extension")) && t.contains(&ext.name) ||
+            t == commented || t.starts_with(&format!(";extension={}", ext.name))
+        });
+
+        if let Some(idx) = pos {
+            if ext.enabled {
+                lines[idx] = ext_line.clone();
+            } else {
+                lines[idx] = format!(";{}", ext_line);
+            }
+        } else if ext.enabled {
+            // Extension not present at all — add it at the end of the [extensions] section
+            // or just at the end of the file
+            lines.push(ext_line.clone());
+        }
+    }
+
+    let mut result = lines.join("\n");
+    if content.ends_with('\n') { result.push('\n'); }
+    result
+}
+
+/// The php.ini settings we expose in the UI, with labels and hints.
+fn known_settings() -> &'static [(&'static str, &'static str, &'static str)] {
+    &[
+        ("max_input_vars",      "Max Input Vars",       "Max number of form fields (default 1000). Increase for pages with many checkboxes/permissions."),
+        ("post_max_size",       "Max POST Size",        "Max size of POST data, e.g. 8M, 64M. Must be >= upload_max_filesize."),
+        ("upload_max_filesize", "Max Upload Size",      "Max size of a single uploaded file, e.g. 2M, 64M."),
+        ("memory_limit",        "Memory Limit",         "PHP memory limit per request, e.g. 128M, 512M."),
+        ("max_execution_time",  "Max Execution Time",   "Max time (seconds) a script can run. 0 = unlimited."),
+        ("max_input_time",      "Max Input Time",       "Max time (seconds) to parse request data."),
+        ("error_reporting",     "Error Reporting",      "PHP error reporting level, e.g. E_ALL, E_ALL & ~E_NOTICE."),
+        ("display_errors",      "Display Errors",       "Show errors in browser output: On | Off."),
+        ("log_errors",          "Log Errors",           "Write errors to log file: On | Off."),
+        ("date.timezone",       "Timezone",             "PHP timezone, e.g. America/Lima, UTC, Europe/Madrid."),
+    ]
+}
+
+/// Parse known settings from php.ini content, returning their current value.
+fn parse_php_settings(content: &str) -> Vec<PhpSetting> {
+    known_settings().iter().map(|(key, label, hint)| {
+        // Match both `key = value` and `;key = value` (commented)
+        let value = content.lines()
+            .filter(|l| !l.trim().starts_with(';'))
+            .find_map(|line| {
+                let t = line.trim();
+                let prefix = format!("{} =", key);
+                let prefix2 = format!("{}=", key);
+                if t.starts_with(&prefix) {
+                    Some(t[prefix.len()..].trim().to_string())
+                } else if t.starts_with(&prefix2) {
+                    Some(t[prefix2.len()..].trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        PhpSetting {
+            key: key.to_string(),
+            value,
+            label: label.to_string(),
+            hint: hint.to_string(),
+        }
+    }).collect()
+}
+
+/// Write setting changes into php.ini content.
+fn apply_setting_changes(content: &str, updates: &[PhpSetting]) -> String {
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+
+    for setting in updates {
+        let new_line = format!("{} = {}", setting.key, setting.value);
+
+        // Find an existing line (commented or not) for this key
+        let pos = lines.iter().position(|l| {
+            let t = l.trim().trim_start_matches(';').trim();
+            t.starts_with(&format!("{} =", setting.key)) ||
+            t.starts_with(&format!("{}=", setting.key))
+        });
+
+        if let Some(idx) = pos {
+            if setting.value.is_empty() {
+                // Empty value = comment out (revert to default)
+                lines[idx] = format!(";{}", new_line);
+            } else {
+                lines[idx] = new_line;
+            }
+        } else if !setting.value.is_empty() {
+            // Not found — append at end of file
+            lines.push(new_line);
+        }
+    }
+
+    let mut result = lines.join("\n");
+    if content.ends_with('\n') { result.push('\n'); }
+    result
+}
+
 pub async fn start_php_fpm(
     State(state): State<AppStateRef>,
     Path(version): Path<String>,

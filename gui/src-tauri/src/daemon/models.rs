@@ -104,3 +104,26 @@ pub struct AsyncTask {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhpExtension {
+    pub name: String,
+    pub enabled: bool,
+    pub category: String,  // "database" | "string" | "image" | "network" | "other"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhpSetting {
+    pub key: String,
+    pub value: String,
+    pub label: String,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhpIniConfig {
+    pub major: String,
+    pub ini_path: String,
+    pub extensions: Vec<PhpExtension>,
+    pub settings: Vec<PhpSetting>,
+}

@@ -228,6 +228,224 @@
   word-break: break-all;
 }
 
+/* ── Configure button ─────────────────────────────────────────────────────── */
+
+.btnConfigure {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btnConfigure:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
+.btnConfigureActive { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
+.rowSelected { background: var(--accent-surface) !important; }
+
+/* ── php.ini panel ─────────────────────────────────────────────────────────── */
+
+.iniPanel {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 140px);
+  position: sticky;
+  top: 0;
+  animation: fadeIn 0.15s ease both;
+}
+
+.iniPanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.iniPanelTitle {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.iniPanelPath {
+  display: block;
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: monospace;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.iniClose {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: color var(--transition);
+}
+.iniClose:hover { color: var(--text); }
+
+.iniLoading { padding: 32px; text-align: center; color: var(--text-3); font-size: 12px; }
+
+.iniDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* ── Setting rows ─────────────── */
+.iniSettingRow {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background var(--transition);
+}
+.iniSettingRow:hover { background: var(--surface-2); }
+
+.iniSettingMeta { display: flex; flex-direction: column; gap: 1px; }
+
+.iniSettingLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.iniSettingHint {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+.iniSettingInput {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.iniSettingInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-surface);
+}
+
+.iniScroll { flex: 1; overflow-y: auto; padding: 8px 0; }
+
+.iniGroup { margin-bottom: 4px; }
+
+.iniGroupLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  padding: 8px 16px 4px;
+}
+
+.iniRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background var(--transition);
+  user-select: none;
+}
+.iniRow:hover { background: var(--surface-2); }
+
+.iniExtName {
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+
+.toggle {
+  width: 32px;
+  height: 18px;
+  border-radius: 99px;
+  background: var(--border-2);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggleOn { background: var(--accent); }
+.toggleThumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.toggleOn .toggleThumb { transform: translateX(14px); }
+
+.iniFooter {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.iniSave {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.iniSave:hover:not(:disabled) { background: var(--accent-2); }
+.iniSave:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.iniCancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.iniCancel:hover { color: var(--text); border-color: var(--border-2); }
+
 .btnRemovePath {
   background: transparent;
   border: none;

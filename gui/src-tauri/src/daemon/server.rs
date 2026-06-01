@@ -32,6 +32,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/php/install/:major/progress", get(install_php_progress))
         .route("/api/v1/php/versions/:version/start", post(start_php_fpm))
         .route("/api/v1/php/versions/:version/stop", post(stop_php_fpm))
+        .route("/api/v1/php/versions/:version/ini", get(get_php_ini).put(update_php_ini))
         // Nginx
         .route("/api/v1/nginx/status", get(nginx_status))
         .route("/api/v1/nginx/info", get(nginx_info))

@@ -98,6 +98,26 @@ export interface InstallProgress {
   error?: string;
 }
 
+export interface PhpExtension {
+  name: string;
+  enabled: boolean;
+  category: string;
+}
+
+export interface PhpSetting {
+  key: string;
+  value: string;
+  label: string;
+  hint: string;
+}
+
+export interface PhpIniConfig {
+  major: string;
+  ini_path: string;
+  extensions: PhpExtension[];
+  settings: PhpSetting[];
+}
+
 export interface AsyncTask {
   state: "pending" | "running" | "done" | "error";
   message: string;
@@ -193,6 +213,12 @@ export const api = {
       request<InstallProgress>(`/php/install/${major}/progress`),
     start: (v: string) => request<unknown>(`/php/versions/${v}/start`, { method: "POST" }),
     stop: (v: string) => request<unknown>(`/php/versions/${v}/stop`, { method: "POST" }),
+    getIni: (major: string) => request<PhpIniConfig>(`/php/versions/${major}/ini`),
+    updateIni: (major: string, extensions: PhpExtension[], settings: PhpSetting[]) =>
+      request<PhpIniConfig>(`/php/versions/${major}/ini`, {
+        method: "PUT",
+        body: JSON.stringify({ extensions, settings }),
+      }),
   },
 
   config: {
