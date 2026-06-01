@@ -7,5 +7,6 @@ pub mod php;
 pub mod site_config;
 pub mod site_info;
 pub mod state;
+pub mod validate;
 pub mod routes;
 pub mod server;

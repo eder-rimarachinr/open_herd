@@ -378,18 +378,17 @@ pub async fn refresh_site_config(
     };
     let _ = save_sites(&state);
 
-    let nginx_dir = state.config.read().nginx_dir.clone();
-    let http_port = state.config.read().http_port;
+    let (nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.nginx_dir.clone(), cfg.http_port)
+    };
     if let Err(e) = site_config::generate(&updated, &nginx_dir, http_port) {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response();
     }
     if let Err(e) = dns::add_entry(&updated.domain) {
         state.log(format!("hosts entry error: {}", e));
     }
-    if nginx_mgr::is_running(&state.nginx_proc) {
-        let state2 = state.clone();
-        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
-    }
+    reload_nginx_if_running(&state);
     state.log(format!("Config refreshed: {} (type: {})", updated.domain, updated.project_type));
     Json(updated).into_response()
 }
@@ -602,8 +601,13 @@ pub async fn nginx_download_progress(State(state): State<AppStateRef>) -> impl I
 }
 
 pub async fn start_nginx(State(state): State<AppStateRef>) -> impl IntoResponse {
+    // nginx::start contains std::thread::sleep — must run on a blocking thread
     let nginx_proc = state.nginx_proc.clone();
-    match nginx_mgr::start(&state, &nginx_proc) {
+    let s = state.clone();
+    let result = tokio::task::spawn_blocking(move || nginx_mgr::start(&s, &nginx_proc))
+        .await
+        .unwrap_or_else(|_| Err("internal error".into()));
+    match result {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => {
             state.log(format!("Nginx start failed: {}", e));
@@ -613,8 +617,13 @@ pub async fn start_nginx(State(state): State<AppStateRef>) -> impl IntoResponse 
 }
 
 pub async fn stop_nginx(State(state): State<AppStateRef>) -> impl IntoResponse {
+    // nginx::stop contains std::thread::sleep — must run on a blocking thread
     let nginx_proc = state.nginx_proc.clone();
-    match nginx_mgr::stop(&state, &nginx_proc) {
+    let s = state.clone();
+    let result = tokio::task::spawn_blocking(move || nginx_mgr::stop(&s, &nginx_proc))
+        .await
+        .unwrap_or_else(|_| Err("internal error".into()));
+    match result {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
     }
@@ -633,42 +642,46 @@ pub async fn services_status(State(state): State<AppStateRef>) -> impl IntoRespo
     build_service_status(&state)
 }
 
-pub async fn start_services(State(state): State<AppStateRef>) -> impl IntoResponse {
-    // Detect PHP versions if not cached
-    {
-        let mut versions = state.php_versions.write();
-        if versions.is_empty() {
-            *versions = detect_php_versions();
+pub async fn start_services(State(state): State<AppStateRef>) -> axum::response::Response {
+    // All blocking work (detect_php_versions spawns child processes; nginx::start has sleeps)
+    // goes into a single spawn_blocking so the Tokio worker thread is never stalled.
+    let s = state.clone();
+    tokio::task::spawn_blocking(move || {
+        if s.php_versions.read().is_empty() {
+            *s.php_versions.write() = detect_php_versions();
         }
-    }
-
-    // Start default PHP version
-    let default_php = state.config.read().default_php.clone();
-    let versions = state.php_versions.read().clone();
-    if let Some(v) = versions.iter().find(|v| v.major == default_php || v.version.starts_with(&default_php)) {
-        let php_proc = state.php_proc.clone();
-        if let Err(e) = php_mgr::start(&state, &php_proc, v) {
-            state.log(format!("PHP start warning: {}", e));
+        let default_php = s.config.read().default_php.clone();
+        let maybe_v = s.php_versions.read()
+            .iter()
+            .find(|v| v.major == default_php || v.version.starts_with(&default_php))
+            .cloned();
+        if let Some(v) = maybe_v {
+            let php_proc = s.php_proc.clone();
+            if let Err(e) = php_mgr::start(&s, &php_proc, &v) {
+                s.log(format!("PHP start warning: {}", e));
+            }
         }
-    }
+        let nginx_proc = s.nginx_proc.clone();
+        if let Err(e) = nginx_mgr::start(&s, &nginx_proc) {
+            s.log(format!("Nginx start warning: {}", e));
+        }
+    }).await.ok();
 
-    // Start nginx
-    let nginx_proc = state.nginx_proc.clone();
-    if let Err(e) = nginx_mgr::start(&state, &nginx_proc) {
-        state.log(format!("Nginx start warning: {}", e));
-    }
-
-    build_service_status(&state)
+    build_service_status(&state).into_response()
 }
 
-pub async fn stop_services(State(state): State<AppStateRef>) -> impl IntoResponse {
-    let php_proc = state.php_proc.clone();
-    php_mgr::stop_all(&state, &php_proc);
+pub async fn stop_services(State(state): State<AppStateRef>) -> axum::response::Response {
+    // php::stop_all calls child.wait(); nginx::stop has a blocking sleep — both must be
+    // on a blocking thread so the Tokio worker is not stalled.
+    let s = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let php_proc = s.php_proc.clone();
+        php_mgr::stop_all(&s, &php_proc);
+        let nginx_proc = s.nginx_proc.clone();
+        let _ = nginx_mgr::stop(&s, &nginx_proc);
+    }).await.ok();
 
-    let nginx_proc = state.nginx_proc.clone();
-    let _ = nginx_mgr::stop(&state, &nginx_proc);
-
-    build_service_status(&state)
+    build_service_status(&state).into_response()
 }
 
 fn build_service_status(state: &AppStateRef) -> impl IntoResponse {
