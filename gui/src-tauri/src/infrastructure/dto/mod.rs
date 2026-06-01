@@ -1,3 +1,5 @@
+/// DTOs de serialización JSON — estructuras legacy para compatibilidad con la GUI.
+/// No son entidades de dominio; son representaciones de respuesta HTTP.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,9 +71,7 @@ pub struct DaemonStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NginxRunning {
-    pub running: bool,
-}
+pub struct NginxRunning { pub running: bool }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceStatus {
@@ -109,7 +109,7 @@ pub struct AsyncTask {
 pub struct PhpExtension {
     pub name: String,
     pub enabled: bool,
-    pub category: String,  // "database" | "string" | "image" | "network" | "other"
+    pub category: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

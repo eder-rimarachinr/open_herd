@@ -1,5 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
-use crate::daemon::download::DownloadState;
+use crate::infrastructure::download::DownloadState;
 use crate::domain::errors::ApplicationError;
 
 pub struct DownloadNginxUseCase {
@@ -19,7 +19,7 @@ impl DownloadNginxUseCase {
             }
         }
         let dir = PathBuf::from(nginx_dir);
-        crate::daemon::download::download_nginx(&dir, self.downloads.clone());
+        crate::infrastructure::download::download_nginx(&dir, self.downloads.clone());
         Ok("pending".into())
     }
 }

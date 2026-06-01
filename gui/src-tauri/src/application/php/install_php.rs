@@ -1,5 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
-use crate::daemon::download::DownloadState;
+use crate::infrastructure::download::DownloadState;
 use crate::domain::errors::ApplicationError;
 
 pub struct InstallPhpUseCase {
@@ -17,7 +17,7 @@ impl InstallPhpUseCase {
             }
         }
         let dir = PathBuf::from(php_dir);
-        crate::daemon::download::download_php(major, &dir, self.downloads.clone());
+        crate::infrastructure::download::download_php(major, &dir, self.downloads.clone());
         Ok("pending".into())
     }
 }

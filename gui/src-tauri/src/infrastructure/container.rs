@@ -30,7 +30,7 @@ use crate::{
             update_site::UpdateSiteUseCase,
         },
     },
-    daemon::state::AppState,
+    infrastructure::state::AppState,
     domain::ports::{
         dns::DnsPort,
         process_manager::{PhpDetectorPort, PhpProcessPort},
@@ -40,7 +40,7 @@ use crate::{
     domain::site::repository::SiteRepository,
 };
 
-use super::{
+use crate::infrastructure::{
     dns::hosts_adapter::HostsAdapter,
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,

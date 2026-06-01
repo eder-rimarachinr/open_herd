@@ -2,8 +2,7 @@ use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoRespons
 use std::sync::Arc;
 use crate::{
     application::php::ini_parser,
-    daemon::models::{InstallProgress, PhpExtension, PhpIniConfig, PhpSetting},
-    infrastructure::container::AppContainer,
+    infrastructure::{container::AppContainer, dto::{InstallProgress, PhpExtension, PhpIniConfig, PhpSetting}},
 };
 
 pub type ContainerRef = Arc<AppContainer>;
@@ -26,8 +25,8 @@ pub async fn list_php_versions(State(container): State<ContainerRef>) -> impl In
 pub async fn php_catalog(State(container): State<ContainerRef>) -> impl IntoResponse {
     container.detect_php_uc.execute().await.ok();
     let versions = container.legacy.php_versions.read().clone();
-    let running  = crate::daemon::php::running_versions(&container.legacy.php_proc);
-    Json(crate::daemon::routes::build_catalog_pub(&versions, &running))
+    let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
+    Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
 
 // ── POST /api/v1/php/detect ───────────────────────────────────────────────────
@@ -36,8 +35,8 @@ pub async fn detect_php(State(container): State<ContainerRef>) -> impl IntoRespo
     let installs = container.detect_php_uc.execute().await.unwrap_or_default();
     container.legacy.log(format!("PHP detect: found {} version(s)", installs.len()));
     let versions = container.legacy.php_versions.read().clone();
-    let running  = crate::daemon::php::running_versions(&container.legacy.php_proc);
-    Json(crate::daemon::routes::build_catalog_pub(&versions, &running))
+    let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
+    Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
 
 // ── POST /api/v1/php/install ──────────────────────────────────────────────────

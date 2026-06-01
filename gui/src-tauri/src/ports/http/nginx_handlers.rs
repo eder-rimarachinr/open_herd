@@ -1,8 +1,12 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
 use crate::{
-    daemon::{models::{AsyncTask, NginxInfo, PhpVersionStatus, ServiceStatus}, nginx as nginx_mgr, php},
-    infrastructure::container::AppContainer,
+    infrastructure::{
+        container::AppContainer,
+        dto::{AsyncTask, NginxInfo, PhpVersionStatus, ServiceStatus},
+        nginx::process as nginx_mgr,
+        php::process as php,
+    },
 };
 
 pub type ContainerRef = Arc<AppContainer>;

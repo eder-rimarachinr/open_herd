@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 use crate::{
-    daemon::models::{PhpExtension, PhpSetting},
+    infrastructure::dto::{PhpExtension, PhpSetting},
     domain::{
         errors::ApplicationError,
         ports::{process_manager::{PhpDetectorPort, PhpProcessPort}, web_server::WebServerPort},

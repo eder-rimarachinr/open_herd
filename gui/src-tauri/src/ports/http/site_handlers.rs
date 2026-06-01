@@ -135,8 +135,8 @@ pub async fn enable_ssl(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    use crate::daemon::{models::AsyncTask, ssl as ssl_mgr};
-    ssl_mgr::set_task(&container.legacy.ssl_tasks, &id, "pending", "Starting SSL issuance…", None);
+    use crate::infrastructure::{dto::AsyncTask, ssl::mkcert as ssl_mgr};
+    ssl_mgr::set_task(&container.legacy.ssl_tasks, &id, "pending", "Starting SSL issuance\u{2026}", None);
     let container2 = container.clone();
     let site_id    = id.clone();
     tokio::task::spawn_blocking(move || {
@@ -186,7 +186,7 @@ pub async fn ssl_progress(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    use crate::daemon::models::AsyncTask;
+    use crate::infrastructure::dto::AsyncTask;
     if let Some(task) = container.legacy.ssl_tasks.lock().get(&id).cloned() {
         return Json(task).into_response();
     }
@@ -198,6 +198,7 @@ pub async fn ssl_progress(
         }).into_response(),
         None => not_found("site not found").into_response(),
     }
+
 }
 
 // ── POST /api/v1/sites/scan ───────────────────────────────────────────────────
@@ -270,7 +271,7 @@ pub async fn get_site_info(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     match container.legacy.sites.read().get(&id).cloned() {
-        Some(site) => Json(crate::daemon::site_info::read(&site)).into_response(),
+        Some(site) => Json(crate::infrastructure::site_info::read(&site)).into_response(),
         None => not_found("site not found").into_response(),
     }
 }

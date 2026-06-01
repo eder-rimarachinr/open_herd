@@ -1,13 +1,13 @@
 use axum::{Json, extract::State, response::IntoResponse};
 use std::sync::Arc;
-use crate::{daemon::models::DaemonStatus, infrastructure::container::AppContainer};
+use crate::infrastructure::{container::AppContainer, dto::DaemonStatus};
 
 pub type ContainerRef = Arc<AppContainer>;
 
 // ── GET /api/v1/status ────────────────────────────────────────────────────────
 
 pub async fn get_status(State(container): State<ContainerRef>) -> impl IntoResponse {
-    use crate::daemon::{models::NginxRunning, php as php_mgr};
+    use crate::infrastructure::{dto::NginxRunning, php::process as php_mgr};
     let uptime   = container.legacy.started_at.elapsed().as_secs();
     let nginx    = container.legacy.nginx.read();
     let php_vers = php_mgr::running_versions(&container.legacy.php_proc);

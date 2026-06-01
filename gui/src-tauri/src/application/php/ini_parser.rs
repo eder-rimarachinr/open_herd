@@ -1,6 +1,6 @@
 /// Parsing y edición de php.ini — extraído de `daemon/routes.rs`.
 /// Funciones puras: sin I/O, sin dependencias externas.
-use crate::daemon::models::{PhpExtension, PhpSetting};
+use crate::infrastructure::dto::{PhpExtension, PhpSetting};
 
 // ── Extensiones ───────────────────────────────────────────────────────────────
 
