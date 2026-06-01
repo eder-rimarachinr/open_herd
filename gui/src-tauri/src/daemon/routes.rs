@@ -425,18 +425,59 @@ pub async fn detect_php(State(state): State<AppStateRef>) -> impl IntoResponse {
     Json(build_catalog(&versions))
 }
 
-pub async fn install_php(Json(_body): Json<serde_json::Value>) -> impl IntoResponse {
-    (StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({ "error": "PHP install not yet implemented in Rust daemon" })))
+pub async fn install_php(
+    State(state): State<AppStateRef>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let major = match body["major"].as_str() {
+        Some(m) => m.to_string(),
+        None => return err(StatusCode::BAD_REQUEST, "major required").into_response(),
+    };
+
+    // Check if already downloading
+    if let Some(prog) = state.downloads.php.lock().get(&major) {
+        if prog.state == "downloading" || prog.state == "extracting" {
+            return Json(serde_json::json!({ "ok": true, "state": prog.state })).into_response();
+        }
+    }
+
+    let php_dir = std::path::PathBuf::from(state.config.read().php_dir.clone());
+    state.log(format!("Starting PHP {} download", major));
+    dl::download_php(&major, &php_dir, state.downloads.clone());
+
+    Json(serde_json::json!({ "ok": true, "state": "pending" })).into_response()
 }
 
-pub async fn install_php_progress(Path(major): Path<String>) -> impl IntoResponse {
-    Json(InstallProgress {
-        major,
-        state: "done".into(),
-        message: "Not available".into(),
-        percent: 100,
-        error: None,
-    })
+pub async fn install_php_progress(
+    State(state): State<AppStateRef>,
+    Path(major): Path<String>,
+) -> impl IntoResponse {
+    let prog = state.downloads.php.lock().get(&major).cloned();
+    match prog {
+        Some(p) => {
+            let error = if p.state == "error" { Some(p.message.clone()) } else { p.error.clone() };
+            Json(InstallProgress {
+                major,
+                state: p.state,
+                message: p.message,
+                percent: p.percent,
+                error,
+            }).into_response()
+        }
+        None => {
+            // Check if already installed on disk
+            let php_dir = state.config.read().php_dir.clone();
+            let installed = std::path::Path::new(&php_dir).join(&major).join("php-cgi.exe").exists()
+                || std::path::Path::new(&php_dir).join(&major).join("php.exe").exists();
+            Json(InstallProgress {
+                major,
+                state: if installed { "done".into() } else { "idle".into() },
+                message: String::new(),
+                percent: if installed { 100 } else { 0 },
+                error: None,
+            }).into_response()
+        }
+    }
 }
 
 pub async fn start_php_fpm(
@@ -677,43 +718,70 @@ struct PhpInstall { major: String, version: String, binary: String }
 
 fn find_php_binaries() -> Vec<PhpInstall> {
     let mut found = Vec::new();
-    let candidates: &[&str] = if cfg!(target_os = "windows") {
-        &[
-            "C:/xampp/php", "C:/wamp64/bin/php", "C:/laragon/bin/php",
-            "C:/Program Files/PHP",
-        ]
-    } else {
-        &["/usr/bin", "/usr/local/bin"]
-    };
+    let mut search_dirs: Vec<std::path::PathBuf> = vec![];
 
-    for dir in candidates {
-        let p = std::path::Path::new(dir);
-        if !p.exists() { continue; }
-        if let Ok(entries) = std::fs::read_dir(p) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let binary = if cfg!(target_os = "windows") { "php.exe" } else { "php" };
-                if name == binary || name.starts_with("php") {
-                    let binary_path = entry.path().to_string_lossy().to_string();
-                    if let Ok(out) = std::process::Command::new(&binary_path).arg("--version").output() {
-                        let ver_str = String::from_utf8_lossy(&out.stdout);
-                        if let Some(ver) = parse_php_version(&ver_str) {
-                            let major = ver.split('.').take(2).collect::<Vec<_>>().join(".");
-                            found.push(PhpInstall { major, version: ver, binary: binary_path });
-                        }
+    // App-managed PHP directory (~/.phpenv/php/{major}/)
+    if let Some(home) = dirs_next::home_dir() {
+        let app_php = home.join(".phpenv").join("php");
+        if app_php.exists() {
+            if let Ok(entries) = std::fs::read_dir(&app_php) {
+                for e in entries.flatten() {
+                    if e.path().is_dir() {
+                        search_dirs.push(e.path());
                     }
                 }
             }
         }
     }
 
-    // Also check PATH
+    // Common Windows PHP locations
+    #[cfg(target_os = "windows")]
+    {
+        for dir in &["C:/xampp/php", "C:/wamp64/bin/php", "C:/laragon/bin/php"] {
+            search_dirs.push(std::path::PathBuf::from(dir));
+        }
+        // wamp multiple versions: C:/wamp64/bin/php/php8.2.x/
+        let wamp = std::path::Path::new("C:/wamp64/bin/php");
+        if wamp.exists() {
+            if let Ok(entries) = std::fs::read_dir(wamp) {
+                for e in entries.flatten() {
+                    if e.path().is_dir() { search_dirs.push(e.path()); }
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for dir in &["/usr/bin", "/usr/local/bin"] {
+            search_dirs.push(std::path::PathBuf::from(dir));
+        }
+    }
+
+    let binary_name = if cfg!(target_os = "windows") { "php.exe" } else { "php" };
+
+    for dir in &search_dirs {
+        let bin = dir.join(binary_name);
+        if !bin.exists() { continue; }
+        let binary_path = bin.to_string_lossy().to_string();
+        if let Ok(out) = std::process::Command::new(&binary_path).arg("--version").output() {
+            let ver_str = String::from_utf8_lossy(&out.stdout);
+            if let Some(ver) = parse_php_version(&ver_str) {
+                let major = ver.split('.').take(2).collect::<Vec<_>>().join(".");
+                let already = found.iter().any(|f: &PhpInstall| f.major == major);
+                if !already {
+                    found.push(PhpInstall { major, version: ver, binary: binary_path });
+                }
+            }
+        }
+    }
+
+    // PATH fallback
     if let Ok(out) = std::process::Command::new("php").arg("--version").output() {
         let ver_str = String::from_utf8_lossy(&out.stdout);
         if let Some(ver) = parse_php_version(&ver_str) {
             let major = ver.split('.').take(2).collect::<Vec<_>>().join(".");
-            let already = found.iter().any(|f| f.major == major);
-            if !already {
+            if !found.iter().any(|f: &PhpInstall| f.major == major) {
                 found.push(PhpInstall { major, version: ver, binary: "php".into() });
             }
         }
@@ -749,13 +817,13 @@ fn detect_php_versions() -> Vec<super::models::PhpVersion> {
 
 fn build_catalog(versions: &[super::models::PhpVersion]) -> Vec<CatalogEntry> {
     let known: &[(&str, &str, bool, bool)] = &[
-        ("8.4", "8.4.8",  false, false),
-        ("8.3", "8.3.22", false, false),
-        ("8.2", "8.2.29", false, false),
-        ("8.1", "8.1.32", true,  false),
+        ("8.5", "8.5.6",  false, false),
+        ("8.4", "8.4.21", false, false),
+        ("8.3", "8.3.31", false, false),
+        ("8.2", "8.2.31", false, false),
+        ("8.1", "8.1.34", true,  false),
         ("8.0", "8.0.30", false, true),
         ("7.4", "7.4.33", false, true),
-        ("7.3", "7.3.33", false, true),
     ];
     known.iter().map(|(major, latest, security_only, eol)| {
         let installed_ver = versions.iter().find(|v| v.major == *major);
