@@ -34,8 +34,8 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/sites",
             get(routes::list_sites)
             .post(site_handlers::create_site))
-        .route("/api/v1/sites/scan",  post(routes::scan_sites))
-        .route("/api/v1/sites/bulk",  post(routes::bulk_add_sites))
+        .route("/api/v1/sites/scan",  post(site_handlers::scan_sites))
+        .route("/api/v1/sites/bulk",  post(site_handlers::bulk_add_sites))
         .route("/api/v1/sites/:id",
             get(routes::get_site)
             .put(site_handlers::update_site)
@@ -44,7 +44,7 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
             post(site_handlers::enable_ssl)
             .delete(site_handlers::disable_ssl))
         .route("/api/v1/sites/:id/ssl/progress",    get(routes::ssl_progress))
-        .route("/api/v1/sites/:id/refresh-config",  post(routes::refresh_site_config))
+        .route("/api/v1/sites/:id/refresh-config",  post(site_handlers::refresh_site_config))
         .route("/api/v1/sites/:id/info",            get(routes::get_site_info))
         .route("/api/v1/sites/:id/open-folder",     post(routes::open_site_folder))
         // PHP

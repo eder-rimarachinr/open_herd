@@ -2,10 +2,13 @@ use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     application::site::{
+        bulk_add_sites::BulkAddSitesUseCase,
         create_site::CreateSiteUseCase,
         delete_site::DeleteSiteUseCase,
         disable_ssl::DisableSslUseCase,
         enable_ssl::EnableSslUseCase,
+        refresh_site_config::RefreshSiteConfigUseCase,
+        scan_sites::ScanSitesUseCase,
         update_site::UpdateSiteUseCase,
     },
     daemon::state::AppState,
@@ -38,11 +41,14 @@ pub struct AppContainer {
     pub ssl:        Arc<dyn SslPort>,
 
     // ── Casos de uso pre-construidos ─────────────────────────────────────────
-    pub create_site_uc:  CreateSiteUseCase,
-    pub delete_site_uc:  DeleteSiteUseCase,
-    pub update_site_uc:  UpdateSiteUseCase,
-    pub enable_ssl_uc:   EnableSslUseCase,
-    pub disable_ssl_uc:  DisableSslUseCase,
+    pub create_site_uc:        CreateSiteUseCase,
+    pub delete_site_uc:        DeleteSiteUseCase,
+    pub update_site_uc:        UpdateSiteUseCase,
+    pub enable_ssl_uc:         EnableSslUseCase,
+    pub disable_ssl_uc:        DisableSslUseCase,
+    pub scan_sites_uc:         ScanSitesUseCase,
+    pub bulk_add_sites_uc:     BulkAddSitesUseCase,
+    pub refresh_site_config_uc: RefreshSiteConfigUseCase,
 }
 
 impl AppContainer {
@@ -76,6 +82,15 @@ impl AppContainer {
         let disable_ssl_uc = DisableSslUseCase::new(
             site_repo.clone(), ssl.clone(), web_server.clone(),
         );
+        let scan_sites_uc = ScanSitesUseCase::new(
+            site_repo.clone(), web_server.clone(), dns.clone(),
+        );
+        let bulk_add_sites_uc = BulkAddSitesUseCase::new(
+            site_repo.clone(), web_server.clone(), dns.clone(),
+        );
+        let refresh_site_config_uc = RefreshSiteConfigUseCase::new(
+            site_repo.clone(), web_server.clone(), dns.clone(),
+        );
 
         Arc::new(Self {
             legacy: state,
@@ -88,6 +103,9 @@ impl AppContainer {
             update_site_uc,
             enable_ssl_uc,
             disable_ssl_uc,
+            scan_sites_uc,
+            bulk_add_sites_uc,
+            refresh_site_config_uc,
         })
     }
 }

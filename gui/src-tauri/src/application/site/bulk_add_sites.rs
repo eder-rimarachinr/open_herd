@@ -1,0 +1,91 @@
+use std::sync::Arc;
+
+use crate::domain::{
+    errors::ApplicationError,
+    ports::{dns::DnsPort, web_server::WebServerPort},
+    site::{entity::Site, repository::SiteRepository, value_objects::{DomainName, SitePath}},
+};
+use super::project_type_detector;
+
+pub struct BulkSiteItem {
+    pub domain: String,
+    pub path:   String,
+}
+
+/// Añade múltiples sitios en una sola operación. Los items inválidos o duplicados
+/// se saltan silenciosamente — el caller recibe la lista completa de sitios resultante.
+pub struct BulkAddSitesUseCase {
+    site_repo:  Arc<dyn SiteRepository>,
+    web_server: Arc<dyn WebServerPort>,
+    dns:        Arc<dyn DnsPort>,
+}
+
+impl BulkAddSitesUseCase {
+    pub fn new(
+        site_repo:  Arc<dyn SiteRepository>,
+        web_server: Arc<dyn WebServerPort>,
+        dns:        Arc<dyn DnsPort>,
+    ) -> Self {
+        Self { site_repo, web_server, dns }
+    }
+
+    pub async fn execute(
+        &self,
+        items: Vec<BulkSiteItem>,
+        default_php: Option<String>,
+    ) -> Result<Vec<Site>, ApplicationError> {
+        let existing = self.site_repo.list_all().await?;
+        let existing_domains: std::collections::HashSet<String> =
+            existing.iter().map(|s| s.domain.to_string()).collect();
+
+        let mut any_added = false;
+
+        for item in items {
+            if item.domain.is_empty() || item.path.is_empty() { continue; }
+
+            // Validación silenciosa — bulk no aborta por inputs malos
+            let domain = match DomainName::new(&item.domain) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let site_path = match SitePath::new(&item.path) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            if existing_domains.contains(item.domain.as_str()) { continue; }
+
+            let mut site = crate::domain::site::entity::Site::new(
+                item.domain.clone(), domain, site_path,
+            );
+            site.project_type = project_type_detector::detect(&item.path);
+            if let Some(ref ver) = default_php {
+                if let Some(v) = crate::domain::site::value_objects::PhpVersion::parse(ver) {
+                    site.php_version = Some(v);
+                }
+            }
+
+            if let Err(e) = self.web_server.create_vhost(&site).await {
+                eprintln!("[bulk] vhost error for {}: {}", site.domain, e);
+                continue;
+            }
+            if let Err(e) = self.dns.add_entry(site.domain.as_str()).await {
+                eprintln!("[bulk] DNS error for {}: {}", site.domain, e);
+            }
+            if let Err(e) = self.site_repo.save(&site).await {
+                eprintln!("[bulk] persist error for {}: {}", site.domain, e);
+                continue;
+            }
+
+            any_added = true;
+        }
+
+        if any_added {
+            if let Err(e) = self.web_server.reload().await {
+                eprintln!("[bulk] nginx reload error: {}", e);
+            }
+        }
+
+        self.site_repo.list_all().await.map_err(ApplicationError::from)
+    }
+}

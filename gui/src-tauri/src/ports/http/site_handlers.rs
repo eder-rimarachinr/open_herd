@@ -10,8 +10,12 @@ use axum::{
 use std::sync::Arc;
 
 use crate::{
-    application::site::create_site::CreateSiteCommand,
-    application::site::update_site::UpdateSiteCommand,
+    application::site::{
+        bulk_add_sites::BulkSiteItem,
+        create_site::CreateSiteCommand,
+        scan_sites::ScanSitesCommand,
+        update_site::UpdateSiteCommand,
+    },
     domain::errors::ApplicationError,
     infrastructure::{
         container::AppContainer,
@@ -155,16 +159,104 @@ pub async fn disable_ssl(
 ) -> impl IntoResponse {
     match container.disable_ssl_uc.execute(&id).await {
         Ok(()) => {
-            // Limpiar el task de SSL progress si lo había
             container.legacy.ssl_tasks.lock().remove(&id);
             container.legacy.log(format!("SSL disabled: {}", id));
 
-            // Devolver el sitio actualizado en formato legacy para compatibilidad con la GUI
             let site_opt = container.legacy.sites.read().get(&id).cloned();
             match site_opt {
                 Some(s) => Json(s).into_response(),
                 None    => Json(serde_json::json!({ "ok": true })).into_response(),
             }
+        }
+        Err(e) => domain_err(e).into_response(),
+    }
+}
+
+// ── POST /api/v1/sites/scan ───────────────────────────────────────────────────
+
+pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoResponse {
+    let (scan_dirs, default_php) = {
+        let cfg = container.legacy.config.read();
+        (cfg.scanned_dirs.clone(), cfg.default_php.clone())
+    };
+
+    if scan_dirs.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "No scanned directories configured. Add a directory first."
+            })),
+        ).into_response();
+    }
+
+    let cmd = ScanSitesCommand { dirs: scan_dirs, default_php: Some(default_php) };
+    match container.scan_sites_uc.execute(cmd).await {
+        Ok(result) => {
+            container.legacy.log(format!("Scan complete: {} new site(s) found", result.added.len()));
+
+            if !result.not_found.is_empty() && result.added.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!(
+                            "Directory not found: {}. Check the path and try again.",
+                            result.not_found.join(", ")
+                        )
+                    })),
+                ).into_response();
+            }
+
+            match container.site_repo.list_all().await {
+                Ok(sites) => {
+                    let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
+                    Json(legacy).into_response()
+                }
+                Err(e) => domain_err(ApplicationError::Domain(e)).into_response(),
+            }
+        }
+        Err(e) => domain_err(e).into_response(),
+    }
+}
+
+// ── POST /api/v1/sites/bulk ───────────────────────────────────────────────────
+
+pub async fn bulk_add_sites(
+    State(container): State<ContainerRef>,
+    Json(body): Json<Vec<serde_json::Value>>,
+) -> impl IntoResponse {
+    let default_php = container.legacy.config.read().default_php.clone();
+
+    let items: Vec<BulkSiteItem> = body
+        .iter()
+        .filter_map(|item| {
+            let domain = item["domain"].as_str()?.to_string();
+            let path   = item["path"].as_str()?.to_string();
+            Some(BulkSiteItem { domain, path })
+        })
+        .collect();
+
+    match container.bulk_add_sites_uc.execute(items, Some(default_php)).await {
+        Ok(sites) => {
+            let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
+            Json(legacy).into_response()
+        }
+        Err(e) => domain_err(e).into_response(),
+    }
+}
+
+// ── POST /api/v1/sites/:id/refresh-config ────────────────────────────────────
+
+pub async fn refresh_site_config(
+    State(container): State<ContainerRef>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match container.refresh_site_config_uc.execute(&id).await {
+        Ok(site) => {
+            container.legacy.log(format!(
+                "Config refreshed: {} (type: {})",
+                site.domain, site.project_type
+            ));
+            Json(site_mapper::to_legacy(&site)).into_response()
         }
         Err(e) => domain_err(e).into_response(),
     }
