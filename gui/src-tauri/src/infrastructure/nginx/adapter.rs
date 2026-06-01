@@ -29,6 +29,12 @@ impl WebServerPort for NginxAdapter {
     }
 
     async fn reload(&self) -> Result<(), InfrastructureError> {
+        // En Windows, `nginx -s reload` abre un named event basado en el PID
+        // del proceso maestro. Si nginx no está corriendo, el evento no existe
+        // y el comando falla con "OpenEvent failed". Skip reload si no está activo.
+        if !ng::is_running(&self.state.nginx_proc) {
+            return Ok(());
+        }
         ng::reload(&self.state).map_err(|e| InfrastructureError::ProcessFailed(e))
     }
 

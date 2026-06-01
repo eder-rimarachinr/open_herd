@@ -89,8 +89,10 @@ pub fn parse_settings(content: &str) -> Vec<PhpSetting> {
                 let t = line.trim();
                 let p1 = format!("{} =", key);
                 let p2 = format!("{}=", key);
-                if t.starts_with(&p1)      { Some(t[p1.len()..].trim().to_string()) }
-                else if t.starts_with(&p2) { Some(t[p2.len()..].trim().to_string()) }
+                // Strip surrounding quotes — php.ini puede tener: default_charset = "UTF-8"
+                let strip_quotes = |s: &str| s.trim().trim_matches('"').trim_matches('\'').to_string();
+                if t.starts_with(&p1)      { Some(strip_quotes(&t[p1.len()..])) }
+                else if t.starts_with(&p2) { Some(strip_quotes(&t[p2.len()..])) }
                 else                       { None }
             })
             .unwrap_or_default();
