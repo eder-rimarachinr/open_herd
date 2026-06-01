@@ -36,14 +36,20 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Str
     let http_port     = config.http_port;
     let https_port    = config.https_port;
     let nginx_dir     = config.nginx_dir.clone();
+    let certs_dir     = config.certs_dir.clone();
     drop(config);
 
     test_binary(&binary)?;
 
+    // Regenerar configs de todos los sitios antes de arrancar.
+    // Se usa generate_with_certs para TODOS para que los sitios con SSL
+    // apunten a certs_dir (~/.phpenv/certs/) en lugar de nginx_dir.
     {
         let sites = state.sites.read().values().cloned().collect::<Vec<_>>();
         vhost_config::ensure_fastcgi_params(&nginx_dir);
-        for site in &sites { let _ = vhost_config::generate(site, &nginx_dir, http_port); }
+        for site in &sites {
+            let _ = vhost_config::generate_with_certs(site, &nginx_dir, http_port, Some(&certs_dir));
+        }
     }
 
     ensure_config(&nginx_dir, &binary, http_port, https_port)?;
