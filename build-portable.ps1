@@ -1,4 +1,4 @@
-# build.ps1
+# build-portable.ps1
 # Produces two distributions for open_herd:
 #   - Full installer : NSIS setup exe, installs to Program Files, data in ~/.phpenv
 #   - Portable ZIP   : extract anywhere and run, data stored in data/ next to the exe
@@ -6,7 +6,6 @@
 $ErrorActionPreference = "Stop"
 $root      = $PSScriptRoot
 $version   = "0.1.0"   # keep in sync with tauri.conf.json
-$triple    = "x86_64-pc-windows-msvc"
 $appExe    = "phpenv-gui.exe"
 $distDir   = Join-Path $root "dist"
 
@@ -15,7 +14,7 @@ Write-Host "  open_herd build — installer + portable"    -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 
 # ── 1. Icons ──────────────────────────────────────────────────────────────────
-Write-Host "`n[1/5] Generating icons from logo.png..." -ForegroundColor Yellow
+Write-Host "`n[1/4] Generating icons from logo.png..." -ForegroundColor Yellow
 $logoSrc = Join-Path $root "logo.png"
 if (-not (Test-Path $logoSrc)) {
     Write-Host "ERROR: logo.png not found at project root." -ForegroundColor Red
@@ -25,33 +24,21 @@ Set-Location (Join-Path $root "gui")
 npx tauri icon "..\logo.png"
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: tauri icon failed." -ForegroundColor Red; exit 1 }
 
-# ── 2. Build Go daemon sidecar ────────────────────────────────────────────────
-Write-Host "`n[2/5] Building Go daemon..." -ForegroundColor Yellow
-Set-Location (Join-Path $root "daemon")
-$binDir = Join-Path $root "gui\src-tauri\bin"
-if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
-$sidecarDest = Join-Path $binDir "phpenv-daemon-$triple.exe"
-go build -ldflags="-H windowsgui" -o $sidecarDest .
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $sidecarDest)) {
-    Write-Host "ERROR: Go build failed." -ForegroundColor Red
-    exit 1
-}
-
-# ── 3. Clean stale Tauri build cache ─────────────────────────────────────────
-Write-Host "`n[3/5] Cleaning stale build cache..." -ForegroundColor Yellow
+# ── 2. Clean stale Tauri build cache ─────────────────────────────────────────
+Write-Host "`n[2/4] Cleaning stale build cache..." -ForegroundColor Yellow
 $stale = Join-Path $root "gui\src-tauri\target\release\build\phpenv-gui-*"
 if (Test-Path $stale) { Remove-Item -Path $stale -Recurse -Force -ErrorAction SilentlyContinue }
 
-# ── 4. Frontend deps + Tauri build ───────────────────────────────────────────
-Write-Host "`n[4/5] Building frontend + Tauri app..." -ForegroundColor Yellow
+# ── 3. Frontend deps + Tauri build ───────────────────────────────────────────
+Write-Host "`n[3/4] Building frontend + Tauri app..." -ForegroundColor Yellow
 Set-Location (Join-Path $root "gui")
 npm install
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: npm install failed." -ForegroundColor Red; exit 1 }
 npm run tauri build
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Tauri build failed." -ForegroundColor Red; exit 1 }
 
-# ── 5. Package outputs ────────────────────────────────────────────────────────
-Write-Host "`n[5/5] Packaging outputs..." -ForegroundColor Yellow
+# ── 4. Package outputs ────────────────────────────────────────────────────────
+Write-Host "`n[4/4] Packaging outputs..." -ForegroundColor Yellow
 
 $releaseDir  = Join-Path $root "gui\src-tauri\target\release"
 $builtExe    = Join-Path $releaseDir $appExe
@@ -80,17 +67,10 @@ $portableStage = Join-Path $distDir "portable"
 New-Item -ItemType Directory -Path $portableStage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
 
-# Copy main exe and daemon sidecar
 Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
-$builtSidecar = Join-Path $root "gui\src-tauri\bin\phpenv-daemon-$triple.exe"
-if (Test-Path $builtSidecar) {
-    Copy-Item $builtSidecar (Join-Path $portableStage "phpenv-daemon.exe")
-} else {
-    Write-Host "  WARNING: phpenv-daemon sidecar not found, portable mode won't have daemon." -ForegroundColor DarkYellow
-}
 
 # Seed data/config.json — empty object is enough; the daemon fills in defaults.
-# Its presence is what signals "portable mode" to both the GUI and the daemon.
+# Its presence signals "portable mode": data stored in ./data/ instead of ~/.phpenv.
 Set-Content -Path (Join-Path $portableStage "data\config.json") -Value "{}" -Encoding utf8
 
 # Compress
