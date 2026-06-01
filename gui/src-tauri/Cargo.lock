@@ -3082,6 +3082,7 @@ name = "phpenv-gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "axum-test",
  "chrono",
@@ -3097,6 +3098,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
  "tower-http 0.5.2",
  "uuid",

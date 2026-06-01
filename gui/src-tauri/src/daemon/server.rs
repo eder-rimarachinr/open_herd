@@ -2,10 +2,11 @@ use axum::{Router, routing::{get, post}, http::{HeaderValue, Method}};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-use super::routes::*;
-use super::state::AppState;
+use super::routes;
+use crate::infrastructure::container::AppContainer;
+use crate::ports::http::site_handlers;
 
-pub fn build_router(state: Arc<AppState>) -> Router {
+pub fn build_router(container: Arc<AppContainer>) -> Router {
     // Restrict CORS to the origins that legitimately call the daemon:
     //   - tauri://localhost          → Tauri webview on Windows
     //   - https://tauri.localhost    → Tauri webview (some configs)
@@ -28,50 +29,59 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     Router::new()
         // Status
-        .route("/api/v1/status", get(get_status))
-        // Sites
-        .route("/api/v1/sites", get(list_sites).post(create_site))
-        .route("/api/v1/sites/scan", post(scan_sites))
-        .route("/api/v1/sites/bulk", post(bulk_add_sites))
-        .route("/api/v1/sites/:id", get(get_site).put(update_site).delete(delete_site))
-        .route("/api/v1/sites/:id/ssl", post(enable_ssl).delete(disable_ssl))
-        .route("/api/v1/sites/:id/ssl/progress", get(ssl_progress))
-        .route("/api/v1/sites/:id/refresh-config", post(refresh_site_config))
-        .route("/api/v1/sites/:id/info", get(get_site_info))
-        .route("/api/v1/sites/:id/open-folder", post(open_site_folder))
+        .route("/api/v1/status", get(routes::get_status))
+        // Sites — mutaciones usan los nuevos handlers; lecturas usan el legacy
+        .route("/api/v1/sites",
+            get(routes::list_sites)
+            .post(site_handlers::create_site))
+        .route("/api/v1/sites/scan",  post(routes::scan_sites))
+        .route("/api/v1/sites/bulk",  post(routes::bulk_add_sites))
+        .route("/api/v1/sites/:id",
+            get(routes::get_site)
+            .put(site_handlers::update_site)
+            .delete(site_handlers::delete_site))
+        .route("/api/v1/sites/:id/ssl",
+            post(site_handlers::enable_ssl)
+            .delete(site_handlers::disable_ssl))
+        .route("/api/v1/sites/:id/ssl/progress",    get(routes::ssl_progress))
+        .route("/api/v1/sites/:id/refresh-config",  post(routes::refresh_site_config))
+        .route("/api/v1/sites/:id/info",            get(routes::get_site_info))
+        .route("/api/v1/sites/:id/open-folder",     post(routes::open_site_folder))
         // PHP
-        .route("/api/v1/php/versions", get(list_php_versions))
-        .route("/api/v1/php/catalog", get(php_catalog))
-        .route("/api/v1/php/detect", post(detect_php))
-        .route("/api/v1/php/install", post(install_php))
-        .route("/api/v1/php/install/:major/progress", get(install_php_progress))
-        .route("/api/v1/php/versions/:version/start", post(start_php_fpm))
-        .route("/api/v1/php/versions/:version/stop", post(stop_php_fpm))
-        .route("/api/v1/php/versions/:version/ini", get(get_php_ini).put(update_php_ini))
+        .route("/api/v1/php/versions",              get(routes::list_php_versions))
+        .route("/api/v1/php/catalog",               get(routes::php_catalog))
+        .route("/api/v1/php/detect",                post(routes::detect_php))
+        .route("/api/v1/php/install",               post(routes::install_php))
+        .route("/api/v1/php/install/:major/progress", get(routes::install_php_progress))
+        .route("/api/v1/php/versions/:version/start", post(routes::start_php_fpm))
+        .route("/api/v1/php/versions/:version/stop",  post(routes::stop_php_fpm))
+        .route("/api/v1/php/versions/:version/ini",
+            get(routes::get_php_ini).put(routes::update_php_ini))
         // Nginx
-        .route("/api/v1/nginx/status", get(nginx_status))
-        .route("/api/v1/nginx/info", get(nginx_info))
-        .route("/api/v1/nginx/download", post(download_nginx))
-        .route("/api/v1/nginx/download/progress", get(nginx_download_progress))
-        .route("/api/v1/nginx/start", post(start_nginx))
-        .route("/api/v1/nginx/stop", post(stop_nginx))
-        .route("/api/v1/nginx/reload", post(reload_nginx))
+        .route("/api/v1/nginx/status",              get(routes::nginx_status))
+        .route("/api/v1/nginx/info",                get(routes::nginx_info))
+        .route("/api/v1/nginx/download",            post(routes::download_nginx))
+        .route("/api/v1/nginx/download/progress",   get(routes::nginx_download_progress))
+        .route("/api/v1/nginx/start",               post(routes::start_nginx))
+        .route("/api/v1/nginx/stop",                post(routes::stop_nginx))
+        .route("/api/v1/nginx/reload",              post(routes::reload_nginx))
         // Services
-        .route("/api/v1/services/status", get(services_status))
-        .route("/api/v1/services/start", post(start_services))
-        .route("/api/v1/services/stop", post(stop_services))
+        .route("/api/v1/services/status",           get(routes::services_status))
+        .route("/api/v1/services/start",            post(routes::start_services))
+        .route("/api/v1/services/stop",             post(routes::stop_services))
         // Config
-        .route("/api/v1/config", get(get_config).put(update_config))
+        .route("/api/v1/config",
+            get(routes::get_config).put(routes::update_config))
         // Daemon
-        .route("/api/v1/daemon/logs", get(daemon_logs))
-        .route("/api/v1/daemon/quit", post(quit_daemon))
+        .route("/api/v1/daemon/logs",               get(routes::daemon_logs))
+        .route("/api/v1/daemon/quit",               post(routes::quit_daemon))
         .layer(cors)
-        .with_state(state)
+        .with_state(container)
 }
 
-pub async fn start(state: Arc<AppState>) {
-    let addr = state.config.read().api_addr.clone();
-    let router = build_router(state);
+pub async fn start(container: Arc<AppContainer>) {
+    let addr = container.legacy.config.read().api_addr.clone();
+    let router = build_router(container);
 
     let listener = bind_with_retry(&addr).await;
 

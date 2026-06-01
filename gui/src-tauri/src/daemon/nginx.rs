@@ -54,7 +54,7 @@ pub fn get_nginx_version(binary: &Path) -> Option<String> {
     Some(line.split('/').nth(1)?.trim().to_string())
 }
 
-pub fn start(state: &Arc<AppState>, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
+pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
     let config = state.config.read();
     let binary = find_nginx_binary(&config.nginx_dir)
         .ok_or_else(|| "nginx binary not found".to_string())?;
@@ -133,7 +133,7 @@ pub fn start(state: &Arc<AppState>, nginx_proc: &Arc<NginxProcess>) -> Result<()
     Ok(())
 }
 
-pub fn stop(state: &Arc<AppState>, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
+pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
     let config = state.config.read();
     let binary = find_nginx_binary(&config.nginx_dir);
     drop(config);
@@ -158,7 +158,7 @@ pub fn stop(state: &Arc<AppState>, nginx_proc: &Arc<NginxProcess>) -> Result<(),
     Ok(())
 }
 
-pub fn reload(state: &Arc<AppState>) -> Result<(), String> {
+pub fn reload(state: &AppState) -> Result<(), String> {
     let config = state.config.read();
     let binary = find_nginx_binary(&config.nginx_dir)
         .ok_or_else(|| "nginx binary not found".to_string())?;

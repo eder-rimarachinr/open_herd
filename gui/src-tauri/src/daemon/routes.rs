@@ -15,10 +15,13 @@ use super::php as php_mgr;
 use super::site_config;
 use super::ssl as ssl_mgr;
 use super::site_info;
-use super::state::{AppState, save_sites};
+use super::state::save_sites;
 use super::validate;
 
-pub type AppStateRef = Arc<AppState>;
+/// Alias del estado del router axum — ahora es `AppContainer` en lugar de
+/// `AppState`. Los handlers existentes usan `state.sites`, `state.config`, etc.
+/// directamente gracias al `Deref<Target=AppState>` implementado en `AppContainer`.
+pub type AppStateRef = Arc<crate::infrastructure::container::AppContainer>;
 
 fn err(status: StatusCode, msg: &str) -> impl IntoResponse {
     (status, Json(serde_json::json!({ "error": msg })))

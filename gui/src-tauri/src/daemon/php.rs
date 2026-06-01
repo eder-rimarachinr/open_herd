@@ -19,7 +19,7 @@ impl PhpProcesses {
 }
 
 /// Start php-cgi for a given PHP version on its designated port.
-pub fn start(state: &Arc<AppState>, php_proc: &Arc<PhpProcesses>, version: &PhpVersion) -> Result<(), String> {
+pub fn start(state: &AppState, php_proc: &Arc<PhpProcesses>, version: &PhpVersion) -> Result<(), String> {
     let port = fastcgi_port(&version.major);
     let mut children = php_proc.children.lock();
 
@@ -43,7 +43,7 @@ pub fn start(state: &Arc<AppState>, php_proc: &Arc<PhpProcesses>, version: &PhpV
     Ok(())
 }
 
-pub fn stop(state: &Arc<AppState>, php_proc: &Arc<PhpProcesses>, major: &str) -> Result<(), String> {
+pub fn stop(state: &AppState, php_proc: &Arc<PhpProcesses>, major: &str) -> Result<(), String> {
     let mut children = php_proc.children.lock();
     if let Some(mut child) = children.remove(major) {
         let _ = child.kill();
@@ -53,7 +53,7 @@ pub fn stop(state: &Arc<AppState>, php_proc: &Arc<PhpProcesses>, major: &str) ->
     Ok(())
 }
 
-pub fn stop_all(state: &Arc<AppState>, php_proc: &Arc<PhpProcesses>) {
+pub fn stop_all(state: &AppState, php_proc: &Arc<PhpProcesses>) {
     let mut children = php_proc.children.lock();
     for (major, mut child) in children.drain() {
         let _ = child.kill();

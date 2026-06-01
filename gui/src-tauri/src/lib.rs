@@ -1,10 +1,15 @@
+pub mod application;
 pub mod daemon;
+pub mod domain;
+pub mod infrastructure;
+pub mod ports;
 
 use daemon::{
     config::{resolve_base_dir, Config},
     server,
     state::AppState,
 };
+use infrastructure::container::AppContainer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,13 +27,14 @@ pub fn run() {
     try_shutdown_previous(&api_addr);
 
     let state = AppState::new(base_dir, config);
+    let container = AppContainer::new(state);
 
     // Start HTTP API in a background Tokio runtime
-    let state_for_api = state.clone();
+    let container_for_api = container.clone();
     std::thread::spawn(move || {
         tokio::runtime::Runtime::new()
             .expect("Failed to create Tokio runtime")
-            .block_on(server::start(state_for_api));
+            .block_on(server::start(container_for_api));
     });
 
     // Launch Tauri
