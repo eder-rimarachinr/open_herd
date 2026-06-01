@@ -343,6 +343,98 @@ describe("Information tab", () => {
     });
 });
 
+// ── Project type badges ───────────────────────────────────────────────────────
+
+describe("Project type badges", () => {
+    const types = [
+        { type: "laravel",      label: "Laravel" },
+        { type: "wordpress",    label: "WordPress" },
+        { type: "codeigniter4", label: "CodeIgniter 4" },
+        { type: "codeigniter3", label: "CodeIgniter 3" },
+        { type: "spa",          label: "SPA" },
+        { type: "static",       label: "Static" },
+        { type: "generic",      label: "Generic" },
+    ];
+
+    for (const { type, label } of types) {
+        it(`shows "${label}" badge for ${type} project`, async () => {
+            await renderAndSelect(mockSite({ project_type: type as any }));
+            expect(screen.getByText(label)).toBeInTheDocument();
+        });
+    }
+});
+
+// ── Refresh config re-detects project type ────────────────────────────────────
+
+describe("Refresh config", () => {
+    it("updates site in list after refreshConfig", async () => {
+        const updated = mockSite({ project_type: "codeigniter3" });
+        m.sites.refreshConfig.mockResolvedValue(updated);
+        await renderAndSelect(mockSite({ project_type: "generic" }));
+
+        expect(screen.getByText("Generic")).toBeInTheDocument();
+        await userEvent.click(screen.getByText("↺ Refresh config"));
+
+        await waitFor(() => {
+            expect(m.sites.refreshConfig).toHaveBeenCalledWith("site-1");
+        });
+    });
+
+    it("disables Refresh config button while in progress", async () => {
+        m.sites.refreshConfig.mockReturnValue(new Promise(() => {}));
+        await renderAndSelect();
+        const btn = screen.getByText("↺ Refresh config").closest("button")!;
+        await userEvent.click(btn);
+        // Button is disabled while loading (shows spinner, text gone)
+        await waitFor(() => expect(btn).toBeDisabled());
+    });
+
+    it("shows error if refreshConfig fails", async () => {
+        m.sites.refreshConfig.mockRejectedValue(new Error("nginx error"));
+        await renderAndSelect();
+        await userEvent.click(screen.getByText("↺ Refresh config"));
+        await waitFor(() => expect(screen.getByText("nginx error")).toBeInTheDocument());
+    });
+});
+
+// ── PHP version per site ──────────────────────────────────────────────────────
+
+describe("PHP version per site", () => {
+    it("disables dropdown when no PHP versions detected", async () => {
+        setupDefaults({ phpVersions: [] });
+        renderSites();
+        await waitFor(() => screen.getByText("myapp.test"));
+        await userEvent.click(screen.getByText("myapp.test"));
+        await waitFor(() => screen.getByRole("combobox"));
+        expect(screen.getByRole("combobox")).toBeDisabled();
+    });
+
+    it("shows current php_version as fallback option when no versions detected", async () => {
+        setupDefaults({ phpVersions: [], sites: [mockSite({ php_version: "7.4" })] });
+        renderSites();
+        await waitFor(() => screen.getByText("myapp.test"));
+        await userEvent.click(screen.getByText("myapp.test"));
+        await waitFor(() => screen.getByRole("combobox"));
+        expect(screen.getByRole("combobox")).toHaveValue("7.4");
+    });
+
+    it("refreshes config after PHP version change", async () => {
+        setupDefaults({
+            phpVersions: [
+                mockPhpVersion({ version: "8.2.0", major: "8.2" }),
+                mockPhpVersion({ version: "8.1.0", major: "8.1" }),
+            ],
+        });
+        m.sites.update.mockResolvedValue(mockSite({ php_version: "8.1" }));
+        renderSites();
+        await waitFor(() => screen.getByText("myapp.test"));
+        await userEvent.click(screen.getByText("myapp.test"));
+        await waitFor(() => screen.getByRole("combobox"));
+        await userEvent.selectOptions(screen.getByRole("combobox"), "8.1");
+        await waitFor(() => expect(m.sites.refreshConfig).toHaveBeenCalled());
+    });
+});
+
 // ── Error handling ────────────────────────────────────────────────────────────
 
 describe("Error handling", () => {
