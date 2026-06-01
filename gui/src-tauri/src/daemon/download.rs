@@ -284,13 +284,16 @@ where
         };
         if name.is_empty() { continue; }
 
-        let out_path = dest_dir.join(name);
+        // Zip-slip guard: reject any entry that contains a parent-directory component
+        // (`..`). This check is purely lexical so it works even before the directory
+        // exists — unlike canonicalize() which silently skips the check when the path
+        // doesn't exist yet.
+        let has_traversal = std::path::Path::new(name)
+            .components()
+            .any(|c| c == std::path::Component::ParentDir);
+        if has_traversal { continue; }
 
-        // Zip-slip guard
-        let canonical_dest = dest_dir.canonicalize().unwrap_or_else(|_| dest_dir.clone());
-        if let Ok(canonical_out) = out_path.parent().map(|p| p.to_path_buf()).unwrap_or_default().canonicalize() {
-            if !canonical_out.starts_with(&canonical_dest) { continue; }
-        }
+        let out_path = dest_dir.join(name);
 
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;

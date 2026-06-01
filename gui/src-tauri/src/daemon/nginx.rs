@@ -195,9 +195,10 @@ pub fn is_running(nginx_proc: &Arc<NginxProcess>) -> bool {
 fn test_binary(binary: &Path) -> Result<(), String> {
     let out = Command::new(binary).arg("-v").output()
         .map_err(|e| format!("Cannot run nginx: {}", e))?;
-    // nginx -v writes to stderr, exit 0
-    if out.stderr.is_empty() && !out.status.success() {
-        return Err("nginx binary did not respond".into());
+    // nginx -v writes its version to stderr and exits 0; any non-zero exit is an error.
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("nginx binary error: {}", msg.trim()));
     }
     Ok(())
 }

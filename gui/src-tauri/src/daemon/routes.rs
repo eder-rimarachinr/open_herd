@@ -15,11 +15,20 @@ use super::php as php_mgr;
 use super::site_config;
 use super::site_info;
 use super::state::{AppState, save_sites};
+use super::validate;
 
 pub type AppStateRef = Arc<AppState>;
 
 fn err(status: StatusCode, msg: &str) -> impl IntoResponse {
     (status, Json(serde_json::json!({ "error": msg })))
+}
+
+/// Fire-and-forget nginx reload on a blocking thread so async handlers don't stall.
+fn reload_nginx_if_running(state: &AppStateRef) {
+    if nginx_mgr::is_running(&state.nginx_proc) {
+        let s = state.clone();
+        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&s); });
+    }
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -58,9 +67,24 @@ pub async fn create_site(
         Some(p) => p.to_string(),
         None => return err(StatusCode::BAD_REQUEST, "path required").into_response(),
     };
+
+    // Validate inputs before touching nginx config or /etc/hosts
+    if let Err(e) = validate::domain(&domain) {
+        return err(StatusCode::BAD_REQUEST, &format!("Invalid domain: {}", e)).into_response();
+    }
+    if let Err(e) = validate::site_path(&path) {
+        return err(StatusCode::BAD_REQUEST, &format!("Invalid path: {}", e)).into_response();
+    }
+
     let now = chrono::Utc::now().to_rfc3339();
     let project_type = detect_project_type(&path);
-    let php_version = state.config.read().default_php.clone();
+
+    // Single config read — prevents inconsistency if config is updated concurrently
+    let (php_version, nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.default_php.clone(), cfg.nginx_dir.clone(), cfg.http_port)
+    };
+
     let site = Site {
         id: Uuid::new_v4().to_string(),
         name: domain.clone(),
@@ -77,8 +101,6 @@ pub async fn create_site(
     let _ = save_sites(&state);
 
     // Generate nginx config + DNS entry
-    let nginx_dir = state.config.read().nginx_dir.clone();
-    let http_port = state.config.read().http_port;
     site_config::ensure_fastcgi_params(&nginx_dir);
     if let Err(e) = site_config::generate(&site, &nginx_dir, http_port) {
         state.log(format!("nginx config error for {}: {}", site.domain, e));
@@ -86,11 +108,7 @@ pub async fn create_site(
     if let Err(e) = dns::add_entry(&site.domain) {
         state.log(format!("hosts entry error for {}: {}", site.domain, e));
     }
-    // Reload nginx if running
-    if nginx_mgr::is_running(&state.nginx_proc) {
-        let state2 = state.clone();
-        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
-    }
+    reload_nginx_if_running(&state);
 
     state.log(format!("Site created: {}", site.domain));
     (StatusCode::CREATED, Json(site)).into_response()
@@ -125,16 +143,15 @@ pub async fn update_site(
     let _ = save_sites(&state);
 
     // Regenerate nginx config (PHP version or active flag may have changed)
-    let nginx_dir = state.config.read().nginx_dir.clone();
-    let http_port = state.config.read().http_port;
+    let (nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.nginx_dir.clone(), cfg.http_port)
+    };
     site_config::ensure_fastcgi_params(&nginx_dir);
     if let Err(e) = site_config::generate(&updated, &nginx_dir, http_port) {
         state.log(format!("nginx config error for {}: {}", updated.domain, e));
     }
-    if nginx_mgr::is_running(&state.nginx_proc) {
-        let state2 = state.clone();
-        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
-    }
+    reload_nginx_if_running(&state);
 
     Json(updated).into_response()
 }
@@ -152,13 +169,7 @@ pub async fn delete_site(
             if let Err(e) = dns::remove_entry(&s.domain) {
                 state.log(format!("hosts remove error for {}: {}", s.domain, e));
             }
-            // Reload nginx in a blocking thread so we don't stall the async runtime
-            if nginx_mgr::is_running(&state.nginx_proc) {
-                let state2 = state.clone();
-                tokio::task::spawn_blocking(move || {
-                    let _ = nginx_mgr::reload(&state2);
-                });
-            }
+            reload_nginx_if_running(&state);
             state.log(format!("Site deleted: {}", s.domain));
             Json(serde_json::json!({ "ok": true })).into_response()
         }
@@ -172,6 +183,12 @@ pub async fn scan_sites(State(state): State<AppStateRef>) -> impl IntoResponse {
     if scan_dirs.is_empty() {
         return err(StatusCode::BAD_REQUEST, "No scanned directories configured. Add a directory first.").into_response();
     }
+
+    // Read config once outside the loop — prevents inconsistency across iterations
+    let (php_version_default, nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.default_php.clone(), cfg.nginx_dir.clone(), cfg.http_port)
+    };
 
     let mut added = 0u32;
     let mut not_found: Vec<String> = vec![];
@@ -195,9 +212,7 @@ pub async fn scan_sites(State(state): State<AppStateRef>) -> impl IntoResponse {
                 let now = chrono::Utc::now().to_rfc3339();
                 let path_str = path.to_string_lossy().to_string();
                 let project_type = detect_project_type(&path_str);
-                let php_version = state.config.read().default_php.clone();
-                let nginx_dir = state.config.read().nginx_dir.clone();
-                let http_port = state.config.read().http_port;
+                let php_version = php_version_default.clone();
                 let site = Site {
                     id: Uuid::new_v4().to_string(),
                     name: domain.clone(),
@@ -216,18 +231,14 @@ pub async fn scan_sites(State(state): State<AppStateRef>) -> impl IntoResponse {
                 if let Err(e) = dns::add_entry(&site.domain) {
                     state.log(format!("hosts error for {}: {}", site.domain, e));
                 }
-                state.sites.write().insert(site.id.clone(), site);
+                state.sites.write().insert(site.id.clone(), site.clone());
                 added += 1;
             }
         }
     }
 
     let _ = save_sites(&state);
-
-    if nginx_mgr::is_running(&state.nginx_proc) {
-        let state2 = state.clone();
-        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
-    }
+    reload_nginx_if_running(&state);
 
     if !not_found.is_empty() {
         state.log(format!("Scan: directories not found: {}", not_found.join(", ")));
@@ -251,30 +262,50 @@ pub async fn bulk_add_sites(
     State(state): State<AppStateRef>,
     Json(body): Json<Vec<serde_json::Value>>,
 ) -> impl IntoResponse {
+    // Read config once for the whole batch
+    let (php_version_default, nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.default_php.clone(), cfg.nginx_dir.clone(), cfg.http_port)
+    };
+    site_config::ensure_fastcgi_params(&nginx_dir);
+
     for item in body {
         let domain = item["domain"].as_str().unwrap_or("").to_string();
-        let path = item["path"].as_str().unwrap_or("").to_string();
+        let path   = item["path"].as_str().unwrap_or("").to_string();
         if domain.is_empty() || path.is_empty() { continue; }
+
+        // Skip invalid inputs silently (bulk callers may pass mixed data)
+        if validate::domain(&domain).is_err() || validate::site_path(&path).is_err() { continue; }
+
         let already = state.sites.read().values().any(|s| s.domain == domain);
         if already { continue; }
+
         let now = chrono::Utc::now().to_rfc3339();
         let project_type = detect_project_type(&path);
-        let php_version = state.config.read().default_php.clone();
         let site = Site {
             id: Uuid::new_v4().to_string(),
             name: domain.clone(),
             domain,
             path,
             project_type,
-            php_version,
+            php_version: php_version_default.clone(),
             ssl_enabled: false,
             active: false,
             created_at: now.clone(),
             updated_at: now,
         };
+
+        // Generate nginx config and DNS entry — same as create_site and scan_sites
+        let _ = site_config::generate(&site, &nginx_dir, http_port);
+        if let Err(e) = dns::add_entry(&site.domain) {
+            state.log(format!("hosts entry error for {}: {}", site.domain, e));
+        }
         state.sites.write().insert(site.id.clone(), site);
     }
+
     let _ = save_sites(&state);
+    reload_nginx_if_running(&state);
+
     let sites = state.sites.read();
     let mut list: Vec<Site> = sites.values().cloned().collect();
     list.sort_by(|a, b| a.domain.cmp(&b.domain));
