@@ -517,7 +517,8 @@ pub async fn start_php_fpm(
     let versions = state.php_versions.read().clone();
     let v = match versions.iter().find(|v| v.major == version || v.version == version) {
         Some(v) => v.clone(),
-        None => return err(StatusCode::NOT_FOUND, "PHP version not found").into_response(),
+        // 422 not 404: the route exists; the version just isn't installed/detected yet.
+        None => return err(StatusCode::UNPROCESSABLE_ENTITY, "PHP version not detected — run detect first").into_response(),
     };
     let php_proc = state.php_proc.clone();
     match php_mgr::start(&state, &php_proc, &v) {

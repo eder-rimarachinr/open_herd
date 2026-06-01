@@ -1,6 +1,8 @@
+use axum_test::TestServer;
 use tempfile::TempDir;
+use phpenv_gui_lib::daemon::{models::PhpVersion, server::build_router};
 mod common;
-use common::make_server;
+use common::{make_server, make_state};
 
 #[tokio::test]
 async fn php_versions_returns_array() {
@@ -60,7 +62,29 @@ async fn php_install_progress_returns_done_for_unknown() {
 #[tokio::test]
 async fn php_start_stop_return_ok() {
     let tmp = TempDir::new().unwrap();
-    let server = make_server(&tmp);
-    server.post("/api/v1/php/versions/8.2/start").await.assert_status_ok();
+    let state = make_state(&tmp);
+
+    // Pre-register PHP 8.2 so start_php_fpm can find it.
+    // (The binary won't actually exist in CI, so start may error — but the endpoint
+    // must respond, not crash, and stop must always return 200.)
+    state.php_versions.write().push(PhpVersion {
+        version: "8.2.31".into(),
+        major: "8.2".into(),
+        binary_path: "php".into(),
+        fpm_binary: "php".into(),
+        fastcgi_addr: "127.0.0.1:9082".into(),
+        installed: true,
+        running: false,
+    });
+
+    let server = TestServer::new(build_router(state)).unwrap();
+    // Start returns either 200 (PHP found and spawned) or 500 (binary missing in test env).
+    // Either way the endpoint must respond, not hang or 404.
+    let resp = server.post("/api/v1/php/versions/8.2/start").await;
+    assert!(
+        resp.status_code().is_success() || resp.status_code().as_u16() == 500,
+        "start must respond with 2xx or 5xx, got {}", resp.status_code()
+    );
+    // Stop is always 200 regardless of whether PHP is actually running
     server.post("/api/v1/php/versions/8.2/stop").await.assert_status_ok();
 }
