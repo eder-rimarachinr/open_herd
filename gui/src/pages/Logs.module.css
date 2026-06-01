@@ -41,8 +41,9 @@
   border-radius: var(--radius-lg);
   overflow-y: auto;
   padding: 16px;
-  min-height: 0;
-  box-shadow: var(--shadow-sm) inset;
+  min-height: 280px;
+  max-height: calc(100vh - 230px);
+  box-shadow: inset 0 1px 4px rgba(0,0,0,0.06);
 }
 
 .log {

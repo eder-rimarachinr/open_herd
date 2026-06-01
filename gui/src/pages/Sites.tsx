@@ -4,8 +4,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   RefreshCw, FolderOpen, Lock, Unlock, Trash2,
   ExternalLink, RotateCcw, FolderPlus, X, ShieldCheck,
+  Plus, Globe,
 } from "lucide-react";
 import { api, Site, PHPVersion, SiteInfo } from "../api/client";
+import { useToast } from "../context/ToastContext";
 import s from "./Sites.module.css";
 
 const sortSites = (arr: Site[]) => [...arr].sort((a, b) => a.domain.localeCompare(b.domain));
@@ -20,14 +22,28 @@ const TYPE_LABELS: Record<string, string> = {
   generic:      "Generic",
 };
 
-type Tab = "general" | "info";
+// Avatar color per project type — rgba so they work in both themes
+const TYPE_AVATAR: Record<string, { bg: string; color: string }> = {
+  laravel:      { bg: "rgba(220,38,38,0.12)",   color: "#DC2626" },
+  wordpress:    { bg: "rgba(37,99,235,0.12)",   color: "#3B82F6" },
+  codeigniter4: { bg: "rgba(234,88,12,0.12)",   color: "#EA580C" },
+  codeigniter3: { bg: "rgba(180,65,0,0.12)",    color: "#C2410C" },
+  spa:          { bg: "rgba(124,58,237,0.12)",  color: "#8B5CF6" },
+  static:       { bg: "rgba(100,116,139,0.12)", color: "#64748B" },
+  generic:      { bg: "rgba(5,150,105,0.12)",   color: "#059669" },
+};
+
+type Tab    = "general" | "info";
+type View   = "detail" | "new";
 
 export default function Sites() {
+  const { toast } = useToast();
   const [sites,          setSites]          = useState<Site[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [scanning,       setScanning]       = useState(false);
   const [error,          setError]          = useState<string | null>(null);
   const [selectedId,     setSelectedId]     = useState<string | null>(null);
+  const [view,           setView]           = useState<View>("detail");
   const [tab,            setTab]            = useState<Tab>("general");
   const [phpVersions,    setPhpVersions]    = useState<PHPVersion[]>([]);
   const [siteInfo,       setSiteInfo]       = useState<SiteInfo | null>(null);
@@ -41,6 +57,12 @@ export default function Sites() {
   const [config,         setConfig]         = useState<any>(null);
   const [newDir,         setNewDir]         = useState("");
   const [search,         setSearch]         = useState("");
+
+  // New site form
+  const [newDomain,     setNewDomain]     = useState("");
+  const [newPath,       setNewPath]       = useState("");
+  const [newPhp,        setNewPhp]        = useState("");
+  const [addingLoading, setAddingLoading] = useState(false);
 
   const selected = sites.find((s) => s.id === selectedId) ?? null;
   const siteUrl  = selected
@@ -56,6 +78,7 @@ export default function Sites() {
         setSites(sortSites(s));
         setPhpVersions(php);
         setConfig(cfg);
+        setNewPhp(cfg.default_php ?? "");
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -73,28 +96,57 @@ export default function Sites() {
 
   function selectSite(id: string) {
     setSelectedId(id);
+    setView("detail");
     setTab("general");
     setSiteInfo(null);
     setError(null);
     setConfirmDelete(false);
   }
 
-  async function scan() {
-    setScanning(true);
+  function showNewForm() {
+    setSelectedId(null);
+    setView("new");
     setError(null);
-    try { setSites(sortSites(await api.sites.scan())); }
+    setNewDomain("");
+    setNewPath("");
+    setNewPhp(config?.default_php ?? "");
+  }
+
+  async function scan() {
+    setScanning(true); setError(null);
+    try {
+      const result = sortSites(await api.sites.scan());
+      setSites(result);
+      toast(`Found ${result.length} site(s)`);
+    }
     catch (e: any) { setError(e.message); }
     finally { setScanning(false); }
   }
 
+  async function handleAddSite() {
+    let domain = newDomain.trim();
+    const path = newPath.trim();
+    if (!domain || !path) { setError("Domain and path are required."); return; }
+    if (!domain.endsWith(".test")) domain = `${domain}.test`;
+    setAddingLoading(true); setError(null);
+    try {
+      const site = await api.sites.create({ domain, path, php_version: newPhp || config?.default_php });
+      setSites((prev) => sortSites([...prev, site]));
+      selectSite(site.id);
+      toast(`${site.domain} added`);
+    }
+    catch (e: any) { setError(e.message); }
+    finally { setAddingLoading(false); }
+  }
+
   async function toggleSSL() {
     if (!selected) return;
-    setSslLoading(true);
-    setError(null);
+    setSslLoading(true); setError(null);
     try {
       if (selected.ssl_enabled) {
         const updated = await api.sites.disableSSL(selected.id);
         setSites((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        toast("HTTPS disabled");
       } else {
         await api.sites.enableSSL(selected.id);
         let task;
@@ -105,31 +157,36 @@ export default function Sites() {
         if (task.state === "error") throw new Error(task.error ?? task.message);
         api.sites.invalidate();
         setSites(sortSites(await api.sites.list()));
+        toast("HTTPS enabled");
       }
-    } catch (e: any) { setError(e.message); }
+    }
+    catch (e: any) { setError(e.message); toast(e.message, "error"); }
     finally { setSslLoading(false); }
   }
 
   async function refreshConfig() {
     if (!selected) return;
-    setRefreshLoading(true);
-    setError(null);
+    setRefreshLoading(true); setError(null);
     try {
       const updated = await api.sites.refreshConfig(selected.id);
       setSites((prev) => prev.map((s) => s.id === updated.id ? updated : s));
-    } catch (e: any) { setError(e.message); }
+      toast("Config refreshed");
+    }
+    catch (e: any) { setError(e.message); toast(e.message, "error"); }
     finally { setRefreshLoading(false); }
   }
 
   async function deleteSite() {
     if (!selected) return;
-    setDeleteLoading(true);
-    setError(null);
+    setDeleteLoading(true); setError(null);
     try {
       await api.sites.delete(selected.id);
+      const domain = selected.domain;
       setSites((prev) => prev.filter((s) => s.id !== selected.id));
       setSelectedId(null);
-    } catch (e: any) { setError(e.message); }
+      toast(`${domain} removed`);
+    }
+    catch (e: any) { setError(e.message); toast(e.message, "error"); }
     finally { setDeleteLoading(false); setConfirmDelete(false); }
   }
 
@@ -148,8 +205,18 @@ export default function Sites() {
       const updated = await api.sites.update(selected.id, { php_version: version });
       setSites((prev) => prev.map((s) => s.id === updated.id ? updated : s));
       await api.sites.refreshConfig(updated.id);
-    } catch (e: any) { setError(e.message); }
+      toast(`Switched to PHP ${version}`);
+    }
+    catch (e: any) { setError(e.message); }
     finally { setChangingPhp(false); }
+  }
+
+  async function pickPath(setter: (p: string) => void) {
+    try {
+      const picked = await open({ directory: true, multiple: false });
+      if (!picked) return;
+      setter(typeof picked === "string" ? picked : picked[0]);
+    } catch {}
   }
 
   async function pickAndAddDir() {
@@ -160,6 +227,7 @@ export default function Sites() {
       if (!dir || (config.scanned_dirs ?? []).includes(dir)) return;
       const updated = await api.config.update({ scanned_dirs: [...(config.scanned_dirs ?? []), dir] });
       setConfig(updated);
+      toast("Directory added");
     } catch (e: any) { setError(e.message); }
   }
 
@@ -185,14 +253,21 @@ export default function Sites() {
 
   return (
     <div className={s.root}>
-      {/* ── Left: site list ─────────────────────────────────────────────── */}
+      {/* ── Left: site list ──────────────────────────────────────────── */}
       <div className={s.listPanel}>
         <div className={s.listHeader}>
-          <span className={s.listTitle}>Sites <span style={{ color: "var(--text-3)", fontWeight: 400 }}>({sites.length})</span></span>
-          <button className={s.scanBtn} onClick={scan} disabled={scanning}>
-            <RefreshCw size={11} className={scanning ? "spinner" : ""} style={{ animation: scanning ? "spin 0.6s linear infinite" : "none" }} />
-            {scanning ? "Scanning…" : "Scan"}
-          </button>
+          <span className={s.listTitle}>
+            Sites <span style={{ color: "var(--text-3)", fontWeight: 400 }}>({sites.length})</span>
+          </span>
+          <div style={{ display: "flex", gap: 5 }}>
+            <button className={s.scanBtn} onClick={showNewForm} title="Add site">
+              <Plus size={11} />
+            </button>
+            <button className={s.scanBtn} onClick={scan} disabled={scanning}>
+              <RefreshCw size={11} style={{ animation: scanning ? "spin 0.6s linear infinite" : "none" }} />
+              {scanning ? "…" : "Scan"}
+            </button>
+          </div>
         </div>
 
         <div className={s.listSearch}>
@@ -208,29 +283,33 @@ export default function Sites() {
           {filtered.length === 0 ? (
             <div className={s.emptyList}>
               {sites.length === 0
-                ? "No sites yet.\nAdd a directory below and scan."
+                ? "No sites yet.\nClick + to add one or Scan a directory."
                 : "No matches."}
             </div>
-          ) : filtered.map((site) => (
-            <button
-              key={site.id}
-              className={[s.siteRow, selectedId === site.id ? s.siteRowActive : ""].join(" ")}
-              onClick={() => selectSite(site.id)}
-            >
-              <div className={s.siteFavicon}>
-                {site.domain.slice(0, 2)}
-              </div>
-              <div className={s.siteMeta}>
-                <span className={s.siteDomain}>{site.domain}</span>
-                <span className={s.siteType}>{TYPE_LABELS[site.project_type] ?? site.project_type}</span>
-              </div>
-              <div className={s.siteIcons}>
-                {site.ssl_enabled && (
-                  <ShieldCheck size={12} className={s.siteSSL} />
-                )}
-              </div>
-            </button>
-          ))}
+          ) : filtered.map((site) => {
+            const av = TYPE_AVATAR[site.project_type] ?? TYPE_AVATAR.generic;
+            return (
+              <button
+                key={site.id}
+                className={[s.siteRow, selectedId === site.id && view === "detail" ? s.siteRowActive : ""].join(" ")}
+                onClick={() => selectSite(site.id)}
+              >
+                <div
+                  className={s.siteFavicon}
+                  style={{ background: av.bg, color: av.color, borderColor: "transparent" }}
+                >
+                  {site.domain.slice(0, 2).toUpperCase()}
+                </div>
+                <div className={s.siteMeta}>
+                  <span className={s.siteDomain}>{site.domain}</span>
+                  <span className={s.siteType}>{TYPE_LABELS[site.project_type] ?? site.project_type}</span>
+                </div>
+                <div className={s.siteIcons}>
+                  {site.ssl_enabled && <ShieldCheck size={12} className={s.siteSSL} />}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Scanned directories */}
@@ -259,39 +338,118 @@ export default function Sites() {
         </div>
       </div>
 
-      {/* ── Right: detail panel ─────────────────────────────────────────── */}
+      {/* ── Right: detail / new-site panel ──────────────────────────── */}
       <div className={s.detailPanel}>
-        {!selected ? (
+        {/* ── New site form ─────────────────────────────────────────── */}
+        {view === "new" && (
+          <div className="fade-in">
+            <div className={s.detailHeader}>
+              <div>
+                <h1 className={s.detailTitle}>New site</h1>
+                <span style={{ fontSize: 13, color: "var(--text-3)" }}>
+                  Register a local project as a .test domain
+                </span>
+              </div>
+              <button className={s.actionBtn} onClick={() => setView("detail")} style={{ padding: "5px 10px" }}>
+                <X size={13} /> Cancel
+              </button>
+            </div>
+
+            {error && <div className={s.error}>{error}</div>}
+
+            <div className={s.propGrid} style={{ marginBottom: 20 }}>
+              <PropRow label="Domain">
+                <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                  <input
+                    style={{ flex: 1, padding: "6px 10px", borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, outline: "none" }}
+                    placeholder="myapp  →  myapp.test"
+                    value={newDomain}
+                    onChange={(e) => setNewDomain(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddSite()}
+                    autoFocus
+                  />
+                  <span style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>
+                    {newDomain && !newDomain.endsWith(".test") ? `→ ${newDomain}.test` : ""}
+                  </span>
+                </div>
+              </PropRow>
+              <PropRow label="Path">
+                <div style={{ display: "flex", gap: 6, flex: 1 }}>
+                  <input
+                    style={{ flex: 1, padding: "6px 10px", borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, fontFamily: "monospace", outline: "none" }}
+                    placeholder="C:\Projects\myapp"
+                    value={newPath}
+                    onChange={(e) => setNewPath(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddSite()}
+                  />
+                  <button className={s.actionBtn} style={{ padding: "5px 10px" }} onClick={() => pickPath(setNewPath)}>
+                    <FolderOpen size={13} />
+                  </button>
+                </div>
+              </PropRow>
+              {phpVersions.length > 0 && (
+                <PropRow label="PHP">
+                  <select
+                    className={s.phpSelect}
+                    value={newPhp}
+                    onChange={(e) => setNewPhp(e.target.value)}
+                  >
+                    {phpVersions.map((v) => (
+                      <option key={v.major} value={v.major}>{v.version}</option>
+                    ))}
+                  </select>
+                </PropRow>
+              )}
+            </div>
+
+            <button
+              className={[s.actionBtn, s.actionBtnPrimary].join(" ")}
+              onClick={handleAddSite}
+              disabled={addingLoading}
+            >
+              {addingLoading ? <span className="spinner" /> : <Globe size={13} />}
+              {addingLoading ? "Adding…" : "Add site"}
+            </button>
+          </div>
+        )}
+
+        {/* ── Site detail ───────────────────────────────────────────── */}
+        {view === "detail" && !selected && (
           <div className={s.empty}>
             <ShieldCheck size={32} style={{ color: "var(--border-2)", marginBottom: 8 }} />
-            Select a site to view details
+            Select a site or <button
+              onClick={showNewForm}
+              style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "inherit", padding: 0, fontWeight: 600 }}
+            >add a new one</button>
           </div>
-        ) : (
+        )}
+
+        {view === "detail" && selected && (
           <div className="fade-in">
             {error && <div className={s.error}>{error}</div>}
 
-            {/* Header */}
             <div className={s.detailHeader}>
               <div>
                 <h1 className={s.detailTitle}>{selected.name || selected.domain}</h1>
-                <a href={siteUrl} className={s.detailUrl}>{siteUrl}</a>
+                <button
+                  onClick={() => openUrl(siteUrl)}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, color: "var(--text-3)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 4 }}
+                >
+                  {siteUrl}
+                  <ExternalLink size={11} />
+                </button>
               </div>
               <div className={s.detailBadges}>
                 {selected.ssl_enabled && (
-                  <span className="badge badge-green">
-                    <ShieldCheck size={10} /> HTTPS
-                  </span>
+                  <span className="badge badge-green"><ShieldCheck size={10} /> HTTPS</span>
                 )}
                 <span className="badge badge-gray">
                   {TYPE_LABELS[selected.project_type] ?? selected.project_type}
                 </span>
-                <span className="badge badge-accent">
-                  PHP {selected.php_version}
-                </span>
+                <span className="badge badge-accent">PHP {selected.php_version}</span>
               </div>
             </div>
 
-            {/* Tabs */}
             <div className={s.tabs}>
               {(["general", "info"] as Tab[]).map((t) => (
                 <button
@@ -304,17 +462,19 @@ export default function Sites() {
               ))}
             </div>
 
-            {/* General tab */}
             {tab === "general" && (
               <>
                 <div className={s.propGrid}>
                   <PropRow label="Path">
-                    <code style={{ fontFamily: "monospace", fontSize: 12 }}>{selected.path}</code>
+                    <code style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>{selected.path}</code>
                   </PropRow>
                   <PropRow label="URL">
-                    <a href={siteUrl} className={s.detailUrl} style={{ color: "var(--accent)" }}>
-                      {siteUrl} <ExternalLink size={11} style={{ display: "inline", verticalAlign: "middle" }} />
-                    </a>
+                    <button
+                      onClick={() => openUrl(siteUrl)}
+                      style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}
+                    >
+                      {siteUrl} <ExternalLink size={11} />
+                    </button>
                   </PropRow>
                   <PropRow label="PHP Version">
                     <select
@@ -353,7 +513,6 @@ export default function Sites() {
                     {refreshLoading ? <span className="spinner" /> : <RotateCcw size={13} />}
                     Refresh config
                   </button>
-
                   {!confirmDelete ? (
                     <button className={[s.actionBtn, s.actionBtnDanger].join(" ")} onClick={() => setConfirmDelete(true)}>
                       <Trash2 size={13} /> Remove
@@ -362,7 +521,7 @@ export default function Sites() {
                     <div className={s.deleteConfirm}>
                       <span className={s.deleteConfirmText}>Remove {selected.domain}?</span>
                       <button className={[s.actionBtn, s.actionBtnDanger].join(" ")} onClick={deleteSite} disabled={deleteLoading} style={{ padding: "4px 10px" }}>
-                        {deleteLoading ? <span className="spinner" /> : "Yes, remove"}
+                        {deleteLoading ? <span className="spinner" /> : "Yes"}
                       </button>
                       <button className={s.actionBtn} onClick={() => setConfirmDelete(false)} style={{ padding: "4px 10px" }}>
                         Cancel
@@ -373,7 +532,6 @@ export default function Sites() {
               </>
             )}
 
-            {/* Info tab */}
             {tab === "info" && (
               infoLoading ? (
                 <div style={{ color: "var(--text-3)", padding: "32px 0" }}>Loading…</div>
@@ -383,21 +541,17 @@ export default function Sites() {
                 </div>
               ) : (
                 <div className={s.infoGrid}>
-                  {siteInfo.app_name && <PropRow label="App Name"><span>{siteInfo.app_name}</span></PropRow>}
-                  {siteInfo.framework_name && (
-                    <PropRow label={`${siteInfo.framework_name}`}>
-                      <span>{siteInfo.framework_version}</span>
-                    </PropRow>
-                  )}
-                  {siteInfo.app_env && <PropRow label="Environment"><span className="badge badge-gray">{siteInfo.app_env}</span></PropRow>}
-                  {siteInfo.app_env && (
+                  {siteInfo.app_name      && <PropRow label="App Name"><span>{siteInfo.app_name}</span></PropRow>}
+                  {siteInfo.framework_name && <PropRow label={siteInfo.framework_name}><span>{siteInfo.framework_version}</span></PropRow>}
+                  {siteInfo.app_env       && <PropRow label="Environment"><span className="badge badge-gray">{siteInfo.app_env}</span></PropRow>}
+                  {siteInfo.app_env       && (
                     <PropRow label="Debug Mode">
                       <span className={siteInfo.app_debug ? "badge badge-amber" : "badge badge-green"}>
                         {siteInfo.app_debug ? "Enabled" : "Disabled"}
                       </span>
                     </PropRow>
                   )}
-                  {siteInfo.app_url && <PropRow label="App URL"><span style={{ fontFamily: "monospace", fontSize: 12 }}>{siteInfo.app_url}</span></PropRow>}
+                  {siteInfo.app_url && <PropRow label="App URL"><code style={{ fontFamily: "monospace", fontSize: 12 }}>{siteInfo.app_url}</code></PropRow>}
                   <PropRow label="Maintenance">
                     <span className={siteInfo.maintenance_mode ? "badge badge-red" : "badge badge-green"}>
                       {siteInfo.maintenance_mode ? "On" : "Off"}
@@ -423,24 +577,17 @@ function PropRow({ label, children }: { label: string; children: React.ReactNode
         borderBottom: "1px solid var(--border)",
         borderRight: "1px solid var(--border)",
         background: "var(--surface-2)",
-        fontSize: 11,
-        fontWeight: 700,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        color: "var(--text-3)",
-        display: "flex",
-        alignItems: "center",
+        fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const,
+        letterSpacing: "0.05em", color: "var(--text-3)",
+        display: "flex", alignItems: "center",
       }}>
         {label}
       </div>
       <div style={{
         padding: "11px 16px",
         borderBottom: "1px solid var(--border)",
-        fontSize: 13,
-        color: "var(--text)",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
+        fontSize: 13, color: "var(--text)",
+        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const,
       }}>
         {children}
       </div>

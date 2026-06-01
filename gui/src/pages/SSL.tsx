@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ShieldCheck, ShieldOff, ShieldAlert, Circle } from "lucide-react";
 import { api, AsyncTask, Site } from "../api/client";
+import { useToast } from "../context/ToastContext";
 import styles from "./SSL.module.css";
 
 type SslOp = { state: AsyncTask["state"]; message: string; error?: string };
 
 export default function SSL() {
+  const { toast } = useToast();
   const [sites,   setSites]   = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [ops,     setOps]     = useState<Record<string, SslOp>>({});
@@ -32,8 +34,11 @@ export default function SSL() {
           clearInterval(pollRefs.current[id]);
           delete pollRefs.current[id];
           if (task.state === "done") {
+            toast("SSL certificate enabled");
             await fetchSites();
             setOps((prev) => { const n = { ...prev }; delete n[id]; return n; });
+          } else if (task.state === "error") {
+            toast(task.error ?? "SSL failed", "error");
           }
         }
       } catch {
@@ -58,6 +63,7 @@ export default function SSL() {
     setOps((prev) => ({ ...prev, [id]: { state: "pending", message: "Disabling…" } }));
     try {
       await api.sites.disableSSL(id);
+      toast("SSL disabled");
       await fetchSites();
       setOps((prev) => { const n = { ...prev }; delete n[id]; return n; });
     } catch (e: any) {

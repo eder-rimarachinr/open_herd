@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Check, Download, AlertCircle, X, Plus } from "lucide-react";
 import { api, AppConfig, CatalogEntry, InstallProgress } from "../api/client";
+import { useToast } from "../context/ToastContext";
 import styles from "./PHP.module.css";
 
 export default function PHP() {
+  const { toast } = useToast();
   const [catalog,    setCatalog]    = useState<CatalogEntry[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [rescanning, setRescanning] = useState(false);
@@ -60,6 +62,8 @@ export default function PHP() {
           clearInterval(pollRefs.current[major]);
           delete pollRefs.current[major];
           fetchCatalog();
+          if (prog.state === "done") toast(`PHP ${major} installed successfully`);
+          if (prog.state === "error") toast(prog.error ?? `PHP ${major} install failed`, "error");
         }
       } catch {
         clearInterval(pollRefs.current[major]);
@@ -114,6 +118,13 @@ export default function PHP() {
             <div className={styles.theadCell}>Active</div>
             <div className={styles.theadCell} style={{ textAlign: "right" }}>Action</div>
           </div>
+
+          {catalog.length === 0 && (
+            <div className={styles.emptyTable}>
+              No PHP versions detected.<br />
+              Start the daemon and click Rescan to detect installed versions.
+            </div>
+          )}
 
           {catalog.map((entry) => {
             const prog = installs[entry.major];

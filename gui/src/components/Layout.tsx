@@ -3,7 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   Globe, Cpu, Server, ShieldCheck, Terminal,
   Database, Settings, Sun, Moon, Play, Square, Power,
-  Circle,
+  Circle, AlertTriangle,
 } from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
 import { useTheme } from "../hooks/useTheme";
@@ -23,10 +23,10 @@ const OFFLINE_THRESHOLD = 3;
 
 export default function Layout() {
   const { theme, toggle } = useTheme();
-  const [status, setStatus] = useState<ServiceStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [status,      setStatus]      = useState<ServiceStatus | null>(null);
+  const [busy,        setBusy]        = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError,  setStartError]  = useState<string | null>(null);
   const [, setFailCount] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -52,42 +52,26 @@ export default function Layout() {
   }, [fetchStatus]);
 
   async function handleStart() {
-    setBusy(true);
-    setStartError(null);
-    try {
-      const s = await api.services.start();
-      setStatus(s);
-    } catch (e: any) {
-      setStartError(e.message);
-    } finally {
-      setBusy(false);
-    }
+    setBusy(true); setStartError(null);
+    try { const s = await api.services.start(); setStatus(s); }
+    catch (e: any) { setStartError(e.message); }
+    finally { setBusy(false); }
   }
 
   async function handleStop() {
-    setBusy(true);
-    setStartError(null);
-    try {
-      const s = await api.services.stop();
-      setStatus(s);
-    } catch {
-      // ignore
-    } finally {
-      setBusy(false);
-    }
+    setBusy(true); setStartError(null);
+    try { const s = await api.services.stop(); setStatus(s); }
+    catch { /* ignore */ }
+    finally { setBusy(false); }
   }
 
   async function handleQuit() {
     setBusy(true);
-    try {
-      await api.daemon.quit();
-      window.close();
-    } finally {
-      setBusy(false);
-    }
+    try { await api.daemon.quit(); window.close(); }
+    finally { setBusy(false); }
   }
 
-  const daemonUp  = status !== null;
+  const daemonUp   = status !== null;
   const allRunning = status?.all_running ?? false;
 
   return (
@@ -95,25 +79,19 @@ export default function Layout() {
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className={styles.sidebar}>
 
-        {/* Logo */}
         <div className={styles.logo}>
-          <div className={styles.logoMark}>
-            <span>OH</span>
-          </div>
+          <div className={styles.logoMark}><span>OH</span></div>
           <div className={styles.logoText}>
             <span className={styles.logoName}>Open Herd</span>
             <span className={styles.logoSub}>Local PHP</span>
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className={styles.nav}>
           <p className={styles.navLabel}>Workspace</p>
           {NAV.map(({ to, label, Icon }) => (
             <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
+              key={to} to={to} end={to === "/"}
               className={({ isActive }) =>
                 [styles.navItem, isActive ? styles.navActive : ""].join(" ")
               }
@@ -123,7 +101,7 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          <p className={styles.navLabel} style={{ marginTop: 12 }}>System</p>
+          <p className={styles.navLabel} style={{ marginTop: 10 }}>System</p>
           <NavLink
             to="/settings"
             className={({ isActive }) =>
@@ -135,7 +113,7 @@ export default function Layout() {
           </NavLink>
         </nav>
 
-        {/* ── Service status ────────────────────────────────────────────── */}
+        {/* ── Services ─────────────────────────────────────────────────── */}
         <div className={styles.services}>
           <p className={styles.navLabel}>Services</p>
 
@@ -148,15 +126,18 @@ export default function Layout() {
             <ul className={styles.serviceList}>
               <ServiceRow label="Nginx" running={status?.nginx ?? false} />
               {status?.php_versions.map((v) => (
-                <ServiceRow key={v.major} label={`PHP ${v.major}`} running={v.running} />
+                <ServiceRow
+                  key={v.major}
+                  label={`PHP ${v.major}`}
+                  sublabel={v.version !== v.major ? v.version : undefined}
+                  running={v.running}
+                />
               ))}
             </ul>
           )}
 
           {startError && (
-            <div className={styles.startError} title={startError}>
-              {startError}
-            </div>
+            <div className={styles.startError} title={startError}>{startError}</div>
           )}
 
           <div className={styles.serviceActions}>
@@ -181,34 +162,41 @@ export default function Layout() {
             onClick={toggle}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
-            {theme === "dark"
-              ? <Sun size={15} strokeWidth={1.8} />
-              : <Moon size={15} strokeWidth={1.8} />
-            }
+            {theme === "dark" ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
           </button>
-
           <button className={styles.btnQuit} onClick={handleQuit} disabled={busy}>
-            <Power size={13} strokeWidth={1.8} />
-            Quit
+            <Power size={13} strokeWidth={1.8} /> Quit
           </button>
         </div>
       </aside>
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <main className={styles.content}>
+        {/* Daemon offline banner */}
+        {!daemonUp && initialized && (
+          <div className={styles.daemonBanner}>
+            <AlertTriangle size={14} />
+            Daemon offline — launch the app or run <code>phpenv open</code> in your terminal.
+          </div>
+        )}
         <Outlet />
       </main>
     </div>
   );
 }
 
-function ServiceRow({ label, running }: { label: string; running: boolean }) {
+function ServiceRow({
+  label, sublabel, running,
+}: { label: string; sublabel?: string; running: boolean }) {
   return (
     <li className={styles.serviceRow}>
       <span className={running ? styles.dotGreen : styles.dotAmber} />
-      <span>{label}</span>
+      <span className={styles.serviceLabel}>
+        {label}
+        {sublabel && <span className={styles.serviceVersion}>{sublabel}</span>}
+      </span>
       <span className={[styles.serviceStatus, running ? styles.statusRunning : styles.statusStopped].join(" ")}>
-        {running ? "running" : "stopped"}
+        {running ? "on" : "off"}
       </span>
     </li>
   );

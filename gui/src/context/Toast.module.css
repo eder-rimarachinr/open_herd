@@ -1,0 +1,69 @@
+.container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  pointer-events: all;
+  max-width: 360px;
+  animation: slideIn 0.2s ease both;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.success {
+  background: var(--surface);
+  border-color: var(--green-border);
+  color: var(--text);
+}
+.success .icon { color: var(--green); }
+
+.error {
+  background: var(--surface);
+  border-color: var(--red-border);
+  color: var(--text);
+}
+.error .icon { color: var(--red); }
+
+.info {
+  background: var(--surface);
+  border-color: var(--border-2);
+  color: var(--text);
+}
+.info .icon { color: var(--text-2); }
+
+.icon { flex-shrink: 0; display: flex; align-items: center; }
+
+.msg { flex: 1; line-height: 1.4; }
+
+.close {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color var(--transition);
+}
+.close:hover { color: var(--text); }

@@ -35,6 +35,31 @@
   font-family: monospace;
 }
 
+/* Download progress */
+.dlProgress {
+  margin-bottom: 14px;
+}
+
+.dlBar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.dlFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width 0.5s ease;
+}
+
+.dlLabel {
+  font-size: 12px;
+  color: var(--accent);
+}
+
 /* Error banner */
 .error {
   border: 1px solid var(--red-border);
