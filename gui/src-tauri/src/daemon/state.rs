@@ -8,6 +8,7 @@ use super::config::Config;
 use super::download::DownloadState;
 use super::models::{NginxStatus, PhpVersion, Site};
 use super::nginx::NginxProcess;
+use super::php::PhpProcesses;
 
 pub struct AppState {
     pub config: RwLock<Config>,
@@ -16,6 +17,7 @@ pub struct AppState {
     pub php_versions: RwLock<Vec<PhpVersion>>,
     pub nginx: RwLock<NginxStatus>,
     pub nginx_proc: Arc<NginxProcess>,
+    pub php_proc: Arc<PhpProcesses>,
     pub downloads: Arc<DownloadState>,
     pub started_at: Instant,
     pub daemon_log: RwLock<Vec<String>>,
@@ -31,6 +33,7 @@ impl AppState {
             php_versions: RwLock::new(vec![]),
             nginx: RwLock::new(NginxStatus { running: false, version: None, pid: None }),
             nginx_proc: NginxProcess::new(),
+            php_proc: PhpProcesses::new(),
             downloads: DownloadState::new(),
             started_at: Instant::now(),
             daemon_log: RwLock::new(vec![]),

@@ -34,7 +34,7 @@ async function request<T>(path: string, init?: RequestInit & { timeoutMs?: numbe
     ...fetchInit,
   }).finally(() => clearTimeout(timer)).catch((err: Error) => {
     if (err.name === "AbortError") {
-      throw new Error(`Request timed out after ${(timeoutMs ?? 15_000) / 1000}s`);
+      throw new Error(`Request timed out after ${(timeoutMs ?? TIMEOUT_DEFAULT) / 1000}s`);
     }
     throw err;
   });

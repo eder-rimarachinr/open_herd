@@ -11,7 +11,9 @@ use super::dns;
 use super::download as dl;
 use super::models::*;
 use super::nginx as nginx_mgr;
+use super::php as php_mgr;
 use super::site_config;
+use super::site_info;
 use super::state::{AppState, save_sites};
 
 pub type AppStateRef = Arc<AppState>;
@@ -86,7 +88,8 @@ pub async fn create_site(
     }
     // Reload nginx if running
     if nginx_mgr::is_running(&state.nginx_proc) {
-        let _ = nginx_mgr::reload(&state);
+        let state2 = state.clone();
+        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
     }
 
     state.log(format!("Site created: {}", site.domain));
@@ -129,7 +132,8 @@ pub async fn update_site(
         state.log(format!("nginx config error for {}: {}", updated.domain, e));
     }
     if nginx_mgr::is_running(&state.nginx_proc) {
-        let _ = nginx_mgr::reload(&state);
+        let state2 = state.clone();
+        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
     }
 
     Json(updated).into_response()
@@ -139,7 +143,8 @@ pub async fn delete_site(
     State(state): State<AppStateRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.sites.write().remove(&id) {
+    let removed = state.sites.write().remove(&id);
+    match removed {
         Some(s) => {
             let _ = save_sites(&state);
             let nginx_dir = state.config.read().nginx_dir.clone();
@@ -147,8 +152,12 @@ pub async fn delete_site(
             if let Err(e) = dns::remove_entry(&s.domain) {
                 state.log(format!("hosts remove error for {}: {}", s.domain, e));
             }
+            // Reload nginx in a blocking thread so we don't stall the async runtime
             if nginx_mgr::is_running(&state.nginx_proc) {
-                let _ = nginx_mgr::reload(&state);
+                let state2 = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _ = nginx_mgr::reload(&state2);
+                });
             }
             state.log(format!("Site deleted: {}", s.domain));
             Json(serde_json::json!({ "ok": true })).into_response()
@@ -216,7 +225,8 @@ pub async fn scan_sites(State(state): State<AppStateRef>) -> impl IntoResponse {
     let _ = save_sites(&state);
 
     if nginx_mgr::is_running(&state.nginx_proc) {
-        let _ = nginx_mgr::reload(&state);
+        let state2 = state.clone();
+        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
     }
 
     if !not_found.is_empty() {
@@ -323,41 +333,44 @@ pub async fn refresh_site_config(
     State(state): State<AppStateRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let site = match state.sites.read().get(&id).cloned() {
-        Some(s) => s,
-        None => return err(StatusCode::NOT_FOUND, "site not found").into_response(),
+    // Re-detect project type and update the stored site
+    let updated = {
+        let mut sites = state.sites.write();
+        let site = match sites.get_mut(&id) {
+            Some(s) => s,
+            None => return err(StatusCode::NOT_FOUND, "site not found").into_response(),
+        };
+        // Re-detect project type from disk
+        site.project_type = detect_project_type(&site.path);
+        site.updated_at = chrono::Utc::now().to_rfc3339();
+        site.clone()
     };
+    let _ = save_sites(&state);
+
     let nginx_dir = state.config.read().nginx_dir.clone();
     let http_port = state.config.read().http_port;
-    site_config::ensure_fastcgi_params(&nginx_dir);
-    if let Err(e) = site_config::generate(&site, &nginx_dir, http_port) {
+    if let Err(e) = site_config::generate(&updated, &nginx_dir, http_port) {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response();
     }
-    if let Err(e) = dns::add_entry(&site.domain) {
+    if let Err(e) = dns::add_entry(&updated.domain) {
         state.log(format!("hosts entry error: {}", e));
     }
     if nginx_mgr::is_running(&state.nginx_proc) {
-        let _ = nginx_mgr::reload(&state);
+        let state2 = state.clone();
+        tokio::task::spawn_blocking(move || { let _ = nginx_mgr::reload(&state2); });
     }
-    state.log(format!("Config refreshed: {}", site.domain));
-    Json(site).into_response()
+    state.log(format!("Config refreshed: {} (type: {})", updated.domain, updated.project_type));
+    Json(updated).into_response()
 }
 
 pub async fn get_site_info(
-    State(_state): State<AppStateRef>,
-    Path(_id): Path<String>,
+    State(state): State<AppStateRef>,
+    Path(id): Path<String>,
 ) -> impl IntoResponse {
-    Json(serde_json::json!({
-        "app_name": "",
-        "app_env": "",
-        "app_debug": false,
-        "app_url": "",
-        "app_timezone": "",
-        "app_locale": "",
-        "framework_name": "",
-        "framework_version": "",
-        "maintenance_mode": false
-    }))
+    match state.sites.read().get(&id).cloned() {
+        Some(site) => Json(site_info::read(&site)).into_response(),
+        None => err(StatusCode::NOT_FOUND, "site not found").into_response(),
+    }
 }
 
 pub async fn open_site_folder(
@@ -380,32 +393,34 @@ pub async fn open_site_folder(
 // ── PHP ───────────────────────────────────────────────────────────────────────
 
 pub async fn list_php_versions(State(state): State<AppStateRef>) -> impl IntoResponse {
-    let cached = state.php_versions.read();
-    if !cached.is_empty() {
-        return Json(cached.clone());
-    }
-    drop(cached);
-    let versions = detect_php_versions();
-    *state.php_versions.write() = versions.clone();
+    // Always run detection — versions can change (new PHP installed, etc.)
+    // Use blocking thread since it spawns child processes
+    let state2 = state.clone();
+    let versions = tokio::task::spawn_blocking(move || {
+        let v = detect_php_versions();
+        *state2.php_versions.write() = v.clone();
+        v
+    }).await.unwrap_or_default();
     Json(versions)
 }
 
 pub async fn php_catalog(State(state): State<AppStateRef>) -> impl IntoResponse {
-    let cached = state.php_versions.read();
-    let versions = if cached.is_empty() {
-        drop(cached);
+    let state2 = state.clone();
+    let versions = tokio::task::spawn_blocking(move || {
         let v = detect_php_versions();
-        *state.php_versions.write() = v.clone();
+        *state2.php_versions.write() = v.clone();
         v
-    } else {
-        cached.clone()
-    };
+    }).await.unwrap_or_default();
     Json(build_catalog(&versions))
 }
 
 pub async fn detect_php(State(state): State<AppStateRef>) -> impl IntoResponse {
-    let versions = detect_php_versions();
-    *state.php_versions.write() = versions.clone();
+    let state2 = state.clone();
+    let versions = tokio::task::spawn_blocking(move || {
+        let v = detect_php_versions();
+        *state2.php_versions.write() = v.clone();
+        v
+    }).await.unwrap_or_default();
     state.log(format!("PHP detect: found {} version(s)", versions.len()));
     Json(build_catalog(&versions))
 }
@@ -424,12 +439,29 @@ pub async fn install_php_progress(Path(major): Path<String>) -> impl IntoRespons
     })
 }
 
-pub async fn start_php_fpm(Path(_version): Path<String>) -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true }))
+pub async fn start_php_fpm(
+    State(state): State<AppStateRef>,
+    Path(version): Path<String>,
+) -> impl IntoResponse {
+    let versions = state.php_versions.read().clone();
+    let v = match versions.iter().find(|v| v.major == version || v.version == version) {
+        Some(v) => v.clone(),
+        None => return err(StatusCode::NOT_FOUND, "PHP version not found").into_response(),
+    };
+    let php_proc = state.php_proc.clone();
+    match php_mgr::start(&state, &php_proc, &v) {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
+    }
 }
 
-pub async fn stop_php_fpm(Path(_version): Path<String>) -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true }))
+pub async fn stop_php_fpm(
+    State(state): State<AppStateRef>,
+    Path(version): Path<String>,
+) -> impl IntoResponse {
+    let php_proc = state.php_proc.clone();
+    let _ = php_mgr::stop(&state, &php_proc, &version);
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 // ── Nginx ─────────────────────────────────────────────────────────────────────
@@ -526,22 +558,62 @@ pub async fn reload_nginx(State(state): State<AppStateRef>) -> impl IntoResponse
 // ── Services ──────────────────────────────────────────────────────────────────
 
 pub async fn services_status(State(state): State<AppStateRef>) -> impl IntoResponse {
-    let nginx = state.nginx.read();
-    Json(ServiceStatus {
-        nginx: nginx.running,
-        php_versions: vec![],
-        all_running: nginx.running,
-    })
+    build_service_status(&state)
 }
 
 pub async fn start_services(State(state): State<AppStateRef>) -> impl IntoResponse {
-    state.log("Services start requested".into());
-    Json(ServiceStatus { nginx: false, php_versions: vec![], all_running: false })
+    // Detect PHP versions if not cached
+    {
+        let mut versions = state.php_versions.write();
+        if versions.is_empty() {
+            *versions = detect_php_versions();
+        }
+    }
+
+    // Start default PHP version
+    let default_php = state.config.read().default_php.clone();
+    let versions = state.php_versions.read().clone();
+    if let Some(v) = versions.iter().find(|v| v.major == default_php || v.version.starts_with(&default_php)) {
+        let php_proc = state.php_proc.clone();
+        if let Err(e) = php_mgr::start(&state, &php_proc, v) {
+            state.log(format!("PHP start warning: {}", e));
+        }
+    }
+
+    // Start nginx
+    let nginx_proc = state.nginx_proc.clone();
+    if let Err(e) = nginx_mgr::start(&state, &nginx_proc) {
+        state.log(format!("Nginx start warning: {}", e));
+    }
+
+    build_service_status(&state)
 }
 
 pub async fn stop_services(State(state): State<AppStateRef>) -> impl IntoResponse {
-    state.log("Services stop requested".into());
-    Json(ServiceStatus { nginx: false, php_versions: vec![], all_running: false })
+    let php_proc = state.php_proc.clone();
+    php_mgr::stop_all(&state, &php_proc);
+
+    let nginx_proc = state.nginx_proc.clone();
+    let _ = nginx_mgr::stop(&state, &nginx_proc);
+
+    build_service_status(&state)
+}
+
+fn build_service_status(state: &AppStateRef) -> impl IntoResponse {
+    let nginx_running = nginx_mgr::is_running(&state.nginx_proc);
+    if !nginx_running { state.nginx.write().running = false; }
+
+    let running = php_mgr::running_versions(&state.php_proc);
+    let php_status: Vec<PhpVersionStatus> = running.iter().map(|major| {
+        let ver = state.php_versions.read().iter()
+            .find(|v| &v.major == major)
+            .map(|v| v.version.clone())
+            .unwrap_or_else(|| major.clone());
+        PhpVersionStatus { major: major.clone(), version: ver, running: true }
+    }).collect();
+
+    let all = nginx_running && !php_status.is_empty() && php_status.iter().all(|p| p.running);
+    Json(ServiceStatus { nginx: nginx_running, php_versions: php_status, all_running: all })
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -593,6 +665,7 @@ fn detect_project_type(path: &str) -> String {
     let p = std::path::Path::new(path);
     if p.join("artisan").exists() && p.join("public").exists() { return "laravel".into(); }
     if p.join("spark").exists() { return "codeigniter4".into(); }
+    if p.join("application").exists() && p.join("system").exists() && p.join("index.php").exists() { return "codeigniter3".into(); }
     if p.join("wp-config.php").exists() || p.join("wp-login.php").exists() { return "wordpress".into(); }
     if p.join("dist").join("index.html").exists() || p.join("build").join("index.html").exists() { return "spa".into(); }
     if p.join("index.html").exists() { return "static".into(); }

@@ -37,8 +37,14 @@ pub fn generate(site: &Site, nginx_dir: &str, http_port: u16) -> Result<(), Stri
     let sites_dir = Path::new(nginx_dir).join("sites");
     std::fs::create_dir_all(&sites_dir).map_err(|e| e.to_string())?;
 
+    ensure_fastcgi_params(nginx_dir);
+    let fastcgi_params_path = Path::new(nginx_dir)
+        .join("fastcgi_params")
+        .to_string_lossy()
+        .replace('\\', "/");
+
     let conf_path = sites_dir.join(format!("{}.conf", site.domain));
-    let content = build_conf(site, http_port);
+    let content = build_conf(site, http_port, &fastcgi_params_path);
     std::fs::write(&conf_path, content).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -61,13 +67,12 @@ pub fn remove(site: &Site, nginx_dir: &str) {
     }
 }
 
-fn build_conf(site: &Site, http_port: u16) -> String {
+fn build_conf(site: &Site, http_port: u16, fastcgi_params: &str) -> String {
     let root = document_root(site);
     let root_str = root.to_string_lossy().replace('\\', "/");
     let fpm_port = fastcgi_port(&site.php_version);
     let domain = &site.domain;
 
-    // autoindex for generic sites (no index.php or index.html guaranteed)
     let autoindex = match site.project_type.as_str() {
         "generic" => "autoindex on;",
         _ => "autoindex off;",
@@ -91,7 +96,7 @@ fn build_conf(site: &Site, http_port: u16) -> String {
         fastcgi_pass   127.0.0.1:{fpm_port};
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
-        include        fastcgi_params;
+        include        "{fastcgi_params}";
     }}
 
     location ~ /\.ht {{

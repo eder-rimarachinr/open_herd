@@ -236,7 +236,7 @@ fn ensure_config(nginx_dir: &str, _binary: &Path, http_port: u16, https_port: u1
     let sites  = to_fwd(dir.join("sites"));
     let _ = https_port;
 
-    let fastcgi = to_fwd(dir.join("fastcgi_params"));
+    let _fastcgi = to_fwd(dir.join("fastcgi_params"));
     let conf = format!(
         r#"worker_processes 1;
 error_log  "{logs}/error.log";

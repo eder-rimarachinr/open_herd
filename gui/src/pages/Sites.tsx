@@ -7,13 +7,13 @@ import styles from "./Page.module.css";
 const sortSites = (s: Site[]) => [...s].sort((a, b) => a.domain.localeCompare(b.domain));
 
 const TYPE_LABELS: Record<string, string> = {
-  laravel: "Laravel",
-  wordpress: "WordPress",
-  codeigniter4: "CodeIgniter 4",
-  codeigniter3: "CodeIgniter 3",
-  spa: "SPA",
-  static: "Static",
-  generic: "Generic",
+  laravel:       "Laravel",
+  wordpress:     "WordPress",
+  codeigniter4:  "CodeIgniter 4",
+  codeigniter3:  "CodeIgniter 3",
+  spa:           "SPA",
+  static:        "Static",
+  generic:       "Generic",
 };
 
 type Tab = "general" | "info";
