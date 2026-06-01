@@ -13,6 +13,7 @@ use super::models::*;
 use super::nginx as nginx_mgr;
 use super::php as php_mgr;
 use super::site_config;
+use super::ssl as ssl_mgr;
 use super::site_info;
 use super::state::{AppState, save_sites};
 use super::validate;
@@ -98,17 +99,19 @@ pub async fn create_site(
         created_at: now.clone(),
         updated_at: now,
     };
-    state.sites.write().insert(site.id.clone(), site.clone());
-    let _ = save_sites(&state);
-
-    // Generate nginx config + DNS entry
+    // Generate nginx config BEFORE inserting into state — if this fails the
+    // site never enters state and the caller gets a clean error (no partial state).
     site_config::ensure_fastcgi_params(&nginx_dir);
     if let Err(e) = site_config::generate(&site, &nginx_dir, http_port) {
-        state.log(format!("nginx config error for {}: {}", site.domain, e));
+        return err(StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to generate nginx config: {}", e)).into_response();
     }
     if let Err(e) = dns::add_entry(&site.domain) {
         state.log(format!("hosts entry error for {}: {}", site.domain, e));
     }
+
+    state.sites.write().insert(site.id.clone(), site.clone());
+    let _ = save_sites(&state);
     reload_nginx_if_running(&state);
 
     state.log(format!("Site created: {}", site.domain));
@@ -313,49 +316,136 @@ pub async fn bulk_add_sites(
     Json(list)
 }
 
-// SSL stubs — full mkcert integration comes later
 pub async fn enable_ssl(
     State(state): State<AppStateRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let mut sites = state.sites.write();
-    if let Some(site) = sites.get_mut(&id) {
-        site.ssl_enabled = true;
-        site.updated_at = chrono::Utc::now().to_rfc3339();
-        let updated = site.clone();
-        drop(sites);
-        let _ = save_sites(&state);
-        state.log(format!("SSL enabled: {}", updated.domain));
-        return Json(AsyncTask { state: "done".into(), message: "SSL enabled".into(), error: None }).into_response();
-    }
-    err(StatusCode::NOT_FOUND, "site not found").into_response()
+    let site = match state.sites.read().get(&id).cloned() {
+        Some(s) => s,
+        None => return err(StatusCode::NOT_FOUND, "site not found").into_response(),
+    };
+
+    // Mark as pending so the frontend can start polling /ssl/progress
+    ssl_mgr::set_task(&state.ssl_tasks, &id, "pending", "Starting SSL issuance…", None);
+
+    let state2   = state.clone();
+    let site_id  = id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let set = |s: &str, m: &str, e: Option<String>| {
+            ssl_mgr::set_task(&state2.ssl_tasks, &site_id, s, m, e);
+        };
+
+        let (base_dir, nginx_dir, certs_dir, http_port) = {
+            let cfg = state2.config.read();
+            (
+                std::path::PathBuf::from(&cfg.base_dir),
+                cfg.nginx_dir.clone(),
+                cfg.certs_dir.clone(),
+                cfg.http_port,
+            )
+        };
+
+        // 1. Ensure mkcert is present
+        set("running", "Downloading mkcert…", None);
+        let mkcert = match ssl_mgr::ensure_mkcert(&base_dir) {
+            Ok(p) => p,
+            Err(e) => { set("error", &e, Some(e.clone())); return; }
+        };
+
+        // 2. Install local CA (idempotent)
+        set("running", "Installing local CA…", None);
+        if let Err(e) = ssl_mgr::install_ca(&mkcert) {
+            set("error", &e, Some(e.clone())); return;
+        }
+
+        // 3. Issue cert for the domain
+        set("running", &format!("Issuing cert for {}…", site.domain), None);
+        let certs_path = std::path::Path::new(&certs_dir);
+        if let Err(e) = ssl_mgr::issue_cert(&mkcert, &site.domain, certs_path) {
+            set("error", &e, Some(e.clone())); return;
+        }
+
+        // 4. Update site state + regenerate nginx config
+        {
+            let mut sites = state2.sites.write();
+            if let Some(s) = sites.get_mut(&site_id) {
+                s.ssl_enabled = true;
+                s.updated_at = chrono::Utc::now().to_rfc3339();
+            }
+        }
+        let _ = save_sites(&state2);
+
+        let updated = state2.sites.read().get(&site_id).cloned();
+        if let Some(s) = updated {
+            if let Err(e) = site_config::generate_with_certs(&s, &nginx_dir, http_port, Some(&certs_dir)) {
+                state2.log(format!("SSL nginx config error: {}", e));
+            }
+            if nginx_mgr::is_running(&state2.nginx_proc) {
+                let _ = nginx_mgr::reload(&state2);
+            }
+            state2.log(format!("SSL enabled: {}", s.domain));
+        }
+
+        set("done", "SSL certificate issued and nginx reloaded", None);
+    });
+
+    Json(AsyncTask { state: "pending".into(), message: "SSL issuance started".into(), error: None })
+        .into_response()
 }
 
 pub async fn disable_ssl(
     State(state): State<AppStateRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let mut sites = state.sites.write();
-    if let Some(site) = sites.get_mut(&id) {
-        site.ssl_enabled = false;
-        site.updated_at = chrono::Utc::now().to_rfc3339();
-        let updated = site.clone();
-        drop(sites);
-        let _ = save_sites(&state);
-        return Json(updated).into_response();
+    let site = {
+        let mut sites = state.sites.write();
+        let s = match sites.get_mut(&id) {
+            Some(s) => s,
+            None => return err(StatusCode::NOT_FOUND, "site not found").into_response(),
+        };
+        s.ssl_enabled = false;
+        s.updated_at = chrono::Utc::now().to_rfc3339();
+        s.clone()
+    };
+    let _ = save_sites(&state);
+
+    // Revoke cert files
+    let certs_dir = state.config.read().certs_dir.clone();
+    ssl_mgr::revoke_cert(&site.domain, std::path::Path::new(&certs_dir));
+
+    // Regenerate HTTP-only nginx config
+    let (nginx_dir, http_port) = {
+        let cfg = state.config.read();
+        (cfg.nginx_dir.clone(), cfg.http_port)
+    };
+    if let Err(e) = site_config::generate(&site, &nginx_dir, http_port) {
+        state.log(format!("nginx config error after SSL disable: {}", e));
     }
-    err(StatusCode::NOT_FOUND, "site not found").into_response()
+    if nginx_mgr::is_running(&state.nginx_proc) {
+        let _ = nginx_mgr::reload(&state);
+    }
+
+    // Clear any ssl task state for this site
+    state.ssl_tasks.lock().remove(&id);
+    state.log(format!("SSL disabled: {}", site.domain));
+    Json(site).into_response()
 }
 
 pub async fn ssl_progress(
     State(state): State<AppStateRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    // Check active issuance task first
+    if let Some(task) = state.ssl_tasks.lock().get(&id).cloned() {
+        return Json(task).into_response();
+    }
+    // Fallback: reflect current site state
     match state.sites.read().get(&id) {
         Some(s) => Json(AsyncTask {
-            state: "done".into(),
+            state:   "done".into(),
             message: if s.ssl_enabled { "SSL active".into() } else { "SSL disabled".into() },
-            error: None,
+            error:   None,
         }).into_response(),
         None => err(StatusCode::NOT_FOUND, "site not found").into_response(),
     }
@@ -411,10 +501,12 @@ pub async fn open_site_folder(
     let path = state.sites.read().get(&id).map(|s| s.path.clone());
     match path {
         Some(p) => {
-            #[cfg(target_os = "windows")]
-            let _ = std::process::Command::new("explorer").arg(&p).spawn();
-            #[cfg(target_os = "linux")]
-            let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
+            tokio::task::spawn_blocking(move || {
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("explorer").arg(&p).spawn();
+                #[cfg(not(target_os = "windows"))]
+                let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
+            });
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         None => err(StatusCode::NOT_FOUND, "site not found").into_response(),

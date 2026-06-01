@@ -6,6 +6,7 @@ pub mod nginx;
 pub mod php;
 pub mod site_config;
 pub mod site_info;
+pub mod ssl;
 pub mod state;
 pub mod validate;
 pub mod routes;

@@ -9,6 +9,7 @@ use super::download::DownloadState;
 use super::models::{NginxStatus, PhpVersion, Site};
 use super::nginx::NginxProcess;
 use super::php::PhpProcesses;
+use super::ssl::SslTasks;
 
 pub struct AppState {
     pub config: RwLock<Config>,
@@ -19,6 +20,7 @@ pub struct AppState {
     pub nginx_proc: Arc<NginxProcess>,
     pub php_proc: Arc<PhpProcesses>,
     pub downloads: Arc<DownloadState>,
+    pub ssl_tasks: SslTasks,
     pub started_at: Instant,
     pub daemon_log: RwLock<Vec<String>>,
     /// Serializes all atomic writes to disk (sites.json, config.json).
@@ -38,6 +40,7 @@ impl AppState {
             nginx_proc: NginxProcess::new(),
             php_proc: PhpProcesses::new(),
             downloads: DownloadState::new(),
+            ssl_tasks: super::ssl::new_ssl_tasks(),
             started_at: Instant::now(),
             daemon_log: RwLock::new(vec![]),
             write_lock: parking_lot::Mutex::new(()),

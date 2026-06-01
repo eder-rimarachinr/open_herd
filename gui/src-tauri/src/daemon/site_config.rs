@@ -34,6 +34,15 @@ pub fn fastcgi_port(php_version: &str) -> u16 {
 }
 
 pub fn generate(site: &Site, nginx_dir: &str, http_port: u16) -> Result<(), String> {
+    generate_with_certs(site, nginx_dir, http_port, None)
+}
+
+pub fn generate_with_certs(
+    site: &Site,
+    nginx_dir: &str,
+    http_port: u16,
+    certs_dir: Option<&str>,
+) -> Result<(), String> {
     let sites_dir = Path::new(nginx_dir).join("sites");
     std::fs::create_dir_all(&sites_dir).map_err(|e| e.to_string())?;
 
@@ -44,7 +53,12 @@ pub fn generate(site: &Site, nginx_dir: &str, http_port: u16) -> Result<(), Stri
         .replace('\\', "/");
 
     let conf_path = sites_dir.join(format!("{}.conf", site.domain));
-    let content = build_conf(site, http_port, &fastcgi_params_path);
+    let content = if site.ssl_enabled {
+        let certs = certs_dir.unwrap_or(nginx_dir);
+        build_conf_ssl(site, http_port, &fastcgi_params_path, certs)
+    } else {
+        build_conf(site, http_port, &fastcgi_params_path)
+    };
     std::fs::write(&conf_path, content).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -65,6 +79,66 @@ pub fn remove(site: &Site, nginx_dir: &str) {
     {
         let _ = std::fs::write(&placeholder, "# placeholder\n");
     }
+}
+
+fn build_conf_ssl(site: &Site, http_port: u16, fastcgi_params: &str, certs_dir: &str) -> String {
+    let root = document_root(site);
+    let root_str = root.to_string_lossy().replace('\\', "/");
+    let fpm_port = fastcgi_port(&site.php_version);
+    let domain = &site.domain;
+    let certs_dir = certs_dir.replace('\\', "/");
+
+    // Escape any single/double quotes in the paths (defensive)
+    let cert_path = format!("{}/{}.pem",     certs_dir, domain).replace('"', "\\\"");
+    let key_path  = format!("{}/{}-key.pem", certs_dir, domain).replace('"', "\\\"");
+    let root_str  = root_str.replace('"', "\\\"");
+
+    let autoindex = match site.project_type.as_str() {
+        "generic" => "autoindex on;",
+        _ => "autoindex off;",
+    };
+
+    format!(
+        r#"# HTTP → HTTPS redirect
+server {{
+    listen       {http_port};
+    server_name  {domain};
+    return 301   https://$host$request_uri;
+}}
+
+# HTTPS
+server {{
+    listen       443 ssl;
+    server_name  {domain};
+
+    ssl_certificate     "{cert_path}";
+    ssl_certificate_key "{key_path}";
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_session_cache   shared:SSL:1m;
+
+    root  "{root_str}";
+    index index.php index.html index.htm;
+
+    {autoindex}
+
+    location / {{
+        try_files $uri $uri/ /index.php?$query_string;
+    }}
+
+    location ~ \.php$ {{
+        fastcgi_pass   127.0.0.1:{fpm_port};
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+        include        "{fastcgi_params}";
+    }}
+
+    location ~ /\.ht {{
+        deny all;
+    }}
+}}
+"#
+    )
 }
 
 fn build_conf(site: &Site, http_port: u16, fastcgi_params: &str) -> String {

@@ -149,19 +149,50 @@ async fn list_sites_sorted_by_domain() {
 
 // ── SSL ───────────────────────────────────────────────────────────────────────
 
+/// Poll /ssl/progress until the task is no longer pending/running (max ~60 s).
+/// Returns the final state string ("done" | "error").
+async fn wait_ssl(server: &axum_test::TestServer, id: &str) -> String {
+    for _ in 0..120 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let prog = server
+            .get(&format!("/api/v1/sites/{id}/ssl/progress"))
+            .await
+            .json::<serde_json::Value>();
+        let state = prog["state"].as_str().unwrap_or("").to_string();
+        if state != "pending" && state != "running" {
+            return state;
+        }
+    }
+    "timeout".into()
+}
+
 #[tokio::test]
-async fn enable_ssl_sets_flag() {
+async fn enable_ssl_starts_task_and_reports_progress() {
     let tmp = TempDir::new().unwrap();
     let server = make_server(&tmp);
     let id = server
         .post("/api/v1/sites").json(&site_body(&tmp)).await
         .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
 
-    server.post(&format!("/api/v1/sites/{id}/ssl")).await.assert_status_ok();
+    // Kick off SSL issuance — response is immediate (pending)
+    let resp = server.post(&format!("/api/v1/sites/{id}/ssl")).await;
+    resp.assert_status_ok();
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["state"], "pending");
 
-    let site = server.get(&format!("/api/v1/sites/{id}")).await
-        .json::<serde_json::Value>();
-    assert_eq!(site["ssl_enabled"], true);
+    // Wait for the background task to finish (done or error — mkcert may not be in CI)
+    let final_state = wait_ssl(&server, &id).await;
+    assert!(
+        final_state == "done" || final_state == "error",
+        "unexpected final state: {}", final_state
+    );
+
+    // If mkcert succeeded, ssl_enabled must be true
+    if final_state == "done" {
+        let site = server.get(&format!("/api/v1/sites/{id}")).await
+            .json::<serde_json::Value>();
+        assert_eq!(site["ssl_enabled"], true);
+    }
 }
 
 #[tokio::test]
@@ -172,6 +203,7 @@ async fn disable_ssl_clears_flag() {
         .post("/api/v1/sites").json(&site_body(&tmp)).await
         .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
 
+    // Start (and possibly fail) SSL, then immediately disable
     server.post(&format!("/api/v1/sites/{id}/ssl")).await;
     server.delete(&format!("/api/v1/sites/{id}/ssl")).await.assert_status_ok();
 
@@ -181,13 +213,14 @@ async fn disable_ssl_clears_flag() {
 }
 
 #[tokio::test]
-async fn ssl_progress_returns_done_state() {
+async fn ssl_progress_returns_done_state_when_idle() {
     let tmp = TempDir::new().unwrap();
     let server = make_server(&tmp);
     let id = server
         .post("/api/v1/sites").json(&site_body(&tmp)).await
         .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
 
+    // No SSL task started — should fall back to site state ("done" + ssl disabled)
     let prog = server
         .get(&format!("/api/v1/sites/{id}/ssl/progress")).await
         .json::<serde_json::Value>();

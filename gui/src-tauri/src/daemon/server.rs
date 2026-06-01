@@ -1,15 +1,30 @@
-use axum::{Router, routing::{get, post}};
+use axum::{Router, routing::{get, post}, http::{HeaderValue, Method}};
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use super::routes::*;
 use super::state::AppState;
 
 pub fn build_router(state: Arc<AppState>) -> Router {
+    // Restrict CORS to the origins that legitimately call the daemon:
+    //   - tauri://localhost          → Tauri webview on Windows
+    //   - https://tauri.localhost    → Tauri webview (some configs)
+    //   - http://localhost:1420      → Vite dev server
+    //   - http://127.0.0.1:1420     → Vite dev server (numeric)
+    let allowed: Vec<HeaderValue> = [
+        "tauri://localhost",
+        "https://tauri.localhost",
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+    ]
+    .iter()
+    .filter_map(|o| o.parse().ok())
+    .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(allowed)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers(tower_http::cors::Any);
 
     Router::new()
         // Status
