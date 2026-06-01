@@ -1,0 +1,118 @@
+.page { max-width: 780px; }
+
+.loading { color: var(--text-muted); padding: 48px 0; text-align: center; }
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.title { font-size: 22px; font-weight: 700; }
+
+.count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 48px 0;
+  line-height: 1.8;
+}
+
+.list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: rgba(255,255,255,0.02); }
+
+.info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.domain {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.type { flex-shrink: 0; }
+
+.statusCol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+}
+
+.dotGreen,
+.dotRed {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.dotGreen { background: #22c55e; }
+.dotRed   { background: var(--border); }
+
+.progress {
+  font-size: 12px;
+  color: var(--accent-hover);
+  white-space: nowrap;
+}
+
+.errorBadge {
+  font-size: 12px;
+  color: var(--danger);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.errorBadge:hover { text-decoration: underline; }
+
+.action { display: flex; justify-content: flex-end; min-width: 100px; }
+
+.btnEnable,
+.btnDisable {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.btnEnable { background: var(--accent); color: #fff; }
+.btnEnable:hover { filter: brightness(1.1); }
+
+.btnDisable { background: var(--border); color: var(--text-muted); }
+.btnDisable:hover { color: var(--danger); }
+
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-top: 4px;
+}

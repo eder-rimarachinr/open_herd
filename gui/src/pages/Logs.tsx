@@ -1,44 +1,95 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import styles from "./Nginx.module.css"; // Reuse log styles
+import styles from "./Logs.module.css";
+
+type Tab = "daemon" | "nginx";
 
 export default function Logs() {
-  const [logs, setLogs] = useState("");
+  const [tab, setTab] = useState<Tab>("daemon");
+  const [daemonLog, setDaemonLog] = useState("");
+  const [nginxLog, setNginxLog] = useState("");
   const [loading, setLoading] = useState(true);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
 
-  const fetchLogs = async () => {
+  const fetchDaemon = useCallback(async () => {
     try {
       const data = await api.daemon.logs();
-      setLogs(data.logs);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
+      setDaemonLog(data.logs);
+    } catch { /* keep last */ }
+  }, []);
+
+  const fetchNginx = useCallback(async () => {
+    try {
+      const info = await api.nginx.info();
+      setNginxLog(info.error_log || "");
+    } catch { /* keep last */ }
+  }, []);
 
   useEffect(() => {
-    fetchLogs();
-    const iv = setInterval(fetchLogs, 4000);
+    Promise.all([fetchDaemon(), fetchNginx()]).finally(() => setLoading(false));
+    const iv = setInterval(() => { fetchDaemon(); fetchNginx(); }, 4000);
     return () => clearInterval(iv);
-  }, []);
+  }, [fetchDaemon, fetchNginx]);
+
+  // Auto-scroll to bottom when content updates
+  useEffect(() => {
+    if (autoScrollRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [daemonLog, nginxLog, tab]);
+
+  const log = tab === "daemon" ? daemonLog : nginxLog;
+  const empty = tab === "daemon" ? "No daemon logs yet." : "No nginx errors logged.";
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.title}>Daemon Logs</h1>
-      <section className={styles.card}>
-        <h2 className={styles.sectionTitle}>Last 100 lines of daemon.log</h2>
-        {loading ? (
-          <div className={styles.loading}>Loading logs…</div>
-        ) : (
-          <pre className={styles.log} style={{ color: "#a78bfa", maxHeight: "600px" }}>
-            {logs || "No logs yet."}
-          </pre>
-        )}
-      </section>
-      <div style={{ marginTop: "10px", textAlign: "right" }}>
-        <button className="btn-ghost" onClick={fetchLogs}>↺ Refresh now</button>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Logs</h1>
+        <button
+          className="btn-ghost"
+          onClick={() => { fetchDaemon(); fetchNginx(); }}
+        >
+          ↺ Refresh
+        </button>
       </div>
+
+      <div className={styles.tabs}>
+        <button
+          className={tab === "daemon" ? styles.tabActive : styles.tab}
+          onClick={() => setTab("daemon")}
+        >
+          Daemon
+        </button>
+        <button
+          className={tab === "nginx" ? styles.tabActive : styles.tab}
+          onClick={() => setTab("nginx")}
+        >
+          Nginx errors
+        </button>
+      </div>
+
+      <div className={styles.logBox}>
+        {loading ? (
+          <div className={styles.empty}>Loading…</div>
+        ) : log ? (
+          <>
+            <pre className={styles.log}>{log}</pre>
+            <div ref={bottomRef} />
+          </>
+        ) : (
+          <div className={styles.empty}>{empty}</div>
+        )}
+      </div>
+
+      <label className={styles.autoScroll}>
+        <input
+          type="checkbox"
+          defaultChecked
+          onChange={e => { autoScrollRef.current = e.target.checked; }}
+        />
+        Auto-scroll to bottom
+      </label>
     </div>
   );
 }

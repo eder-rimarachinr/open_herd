@@ -4,98 +4,88 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-**open_herd** is a local PHP development environment manager for Windows and Linux (think Laravel Herd). It manages nginx, PHP-FPM, DNS (`/etc/hosts`), and SSL certs for local `.test` sites through a desktop GUI and CLI.
+**open_herd** is a local PHP development environment manager for Windows and Linux (think Laravel Herd). It manages nginx, PHP-FPM/CGI, DNS (`/etc/hosts`), and SSL certs for local `.test` sites through a desktop GUI.
 
-## Three components
+## Two components
 
 | Component | Language | Entry point |
 |-----------|----------|-------------|
-| `daemon/` | Go 1.25 (module: `github.com/open-herd/phpenv/daemon`) | `daemon/main.go` |
-| `cli/` | Go 1.22 (module: `github.com/open-herd/phpenv/cli`) | `cli/main.go` |
-| `gui/` | Tauri v2 + React/TypeScript | `gui/src/main.tsx`, `gui/src-tauri/src/lib.rs` |
+| `gui/src-tauri/src/daemon/` | Rust (axum + tokio) | `gui/src-tauri/src/lib.rs` |
+| `gui/src/` | React/TypeScript (Tauri v2) | `gui/src/main.tsx` |
 
-Key dependencies: daemon uses `go-chi/chi` (v5) and `google/uuid`; CLI uses `spf13/cobra`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
+Key dependencies: daemon uses `axum`, `tokio`, `parking_lot`, `serde_json`, `anyhow`, `uuid`, `chrono`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
 
 ## Development commands
 
-### Run in dev mode (Windows)
+### Run in dev mode
 ```powershell
 .\dev.ps1
-```
-This opens a second elevated PowerShell for the daemon (`cd daemon; go run .`) and starts Vite dev server in the current terminal.
-
-### Run daemon only
-```bash
-cd daemon
-go run .          # requires admin/root (writes /etc/hosts, binds port 80)
+# equivalent to:
+cd gui && npm run tauri dev
 ```
 
-### Run CLI only
-```bash
-cd cli
-go run . <command>    # e.g.: go run . status
+### Build for production (Windows)
+```powershell
+.\build-portable.ps1
 ```
+Produces `dist/open-herd-v0.1.0-setup.exe` (NSIS installer) and `dist/open-herd-v0.1.0-portable.zip`. Requires `logo.png` at project root.
 
 ### Frontend only (hot-reload, no Tauri shell)
 ```bash
 cd gui
-npm run dev           # serves at http://localhost:1420
+npm run dev   # serves at http://localhost:1420
 ```
 
-### Build everything for production (Windows)
-```powershell
-.\build-portable.ps1
-```
-Produces `dist/open-herd-v0.1.0-setup.exe` (NSIS installer) and `dist/open-herd-v0.1.0-portable.zip`. Requires `logo.png` at project root. The script builds icons from `logo.png`, compiles the daemon sidecar, cleans Tauri cache, then builds the frontend + Tauri app.
+## Tests
 
-### Build individual pieces
+Integration tests live in `gui/src-tauri/tests/`:
 ```bash
-# Daemon sidecar (used by Tauri)
-cd daemon
-go build -ldflags="-H windowsgui" -o ../gui/src-tauri/phpenv-daemon-x86_64-pc-windows-msvc.exe .
-
-# Tauri app (requires daemon binary to exist as sidecar first)
-cd gui
-npm run tauri build
+cd gui/src-tauri
+cargo test
 ```
-
-## Tests and linting
-
-No automated tests exist yet. No linting configs are set up (no `.golangci.yml`, no ESLint config). There is no CI/CD pipeline.
+Tests spin up a real in-process `AppState` and call route handlers directly — no mock state.
 
 ## Architecture
 
-### Daemon API
-The daemon is a Go HTTP server (chi router) listening on `127.0.0.1:7878`. All routes are under `/api/v1`. Both the Tauri GUI and the CLI communicate exclusively through this API — there are no direct inter-process calls.
+### Daemon (Rust, embedded in Tauri)
 
-Full route list (defined in `daemon/api/server.go`):
+The daemon is **not a separate process** — it runs as a background Tokio thread inside the Tauri app, started in `gui/src-tauri/src/lib.rs`:
+
+```rust
+std::thread::spawn(move || {
+    tokio::runtime::Runtime::new().unwrap().block_on(server::start(state));
+});
+```
+
+It exposes an HTTP API on `127.0.0.1:7878` (axum router). The GUI communicates with it via `fetch` through `gui/src/api/client.ts`.
+
+### API routes (defined in `gui/src-tauri/src/daemon/server.rs`)
 
 ```text
-GET/PUT  /api/v1/config
 GET      /api/v1/status
-GET      /api/v1/daemon/logs
-POST     /api/v1/daemon/quit
 
-GET      /api/v1/sites
-POST     /api/v1/sites
-POST     /api/v1/sites/bulk
+GET/POST /api/v1/sites
 POST     /api/v1/sites/scan
-GET/PUT/DELETE /api/v1/sites/{siteID}
-POST     /api/v1/sites/{siteID}/ssl
-DELETE   /api/v1/sites/{siteID}/ssl
-POST     /api/v1/sites/{siteID}/refresh-config
+POST     /api/v1/sites/bulk
+GET/PUT/DELETE /api/v1/sites/:id
+POST/DELETE    /api/v1/sites/:id/ssl
+GET            /api/v1/sites/:id/ssl/progress
+POST           /api/v1/sites/:id/refresh-config
+GET            /api/v1/sites/:id/info
+POST           /api/v1/sites/:id/open-folder
 
 GET      /api/v1/php/versions
 GET      /api/v1/php/catalog
 POST     /api/v1/php/detect
 POST     /api/v1/php/install
-GET      /api/v1/php/install/{major}/progress
-POST     /api/v1/php/versions/{version}/start
-POST     /api/v1/php/versions/{version}/stop
+GET      /api/v1/php/install/:major/progress
+POST     /api/v1/php/versions/:version/start
+POST     /api/v1/php/versions/:version/stop
 
 GET      /api/v1/nginx/status
 GET      /api/v1/nginx/info
 POST     /api/v1/nginx/download
+GET      /api/v1/nginx/download/progress
 POST     /api/v1/nginx/start
 POST     /api/v1/nginx/stop
 POST     /api/v1/nginx/reload
@@ -103,73 +93,48 @@ POST     /api/v1/nginx/reload
 GET      /api/v1/services/status
 POST     /api/v1/services/start
 POST     /api/v1/services/stop
+
+GET/PUT  /api/v1/config
+GET      /api/v1/daemon/logs
+POST     /api/v1/daemon/quit
 ```
 
-The GUI API client (`gui/src/api/client.ts`) wraps `fetch` with a 15s default timeout, extended to 90s for SSL (first-run CA generation) and 120s for nginx download and service start.
+### Daemon module layout (`gui/src-tauri/src/daemon/`)
 
-### CLI commands
-
-Built with Cobra; the binary locates the daemon in order: same dir as CLI → `~/.phpenv/bin/` → PATH.
-
-```text
-phpenv open [--no-gui]          start all services + open GUI
-phpenv stop [--quit]            stop services (--quit also quits daemon)
-phpenv status                   show daemon + services status
-
-phpenv sites list
-phpenv sites scan
-
-phpenv php versions
-phpenv php start [version]
-phpenv php stop [version]
-
-phpenv nginx start|stop|reload
-phpenv nginx status
-```
-
-### Core managers (`daemon/core/`)
-- `App` — top-level coordinator; wired with `Config`, `Platform`, and all managers
-- `SiteManager` — CRUD for sites, persisted to `sites.json`; scans directories for new projects
-- `PHPManager` — detects installed PHP binaries; manages php-fpm (Linux) / php-cgi (Windows) processes
-- `NginxManager` — generates `nginx.conf` and per-site `.conf` from Go templates; starts/stops/reloads nginx
-- `DNSManager` — writes/removes entries in `/etc/hosts` (Windows: `System32/drivers/etc/hosts`)
-- `SSLManager` — wraps mkcert for certificate issuance and CA installation
-- `Config` — loaded from `config.json` on startup; supports portable mode
-
-### Platform abstraction (`daemon/platform/`)
-`Platform` interface isolates OS-specific code. Build tags control which file is compiled:
-- `platform/windows.go` — UAC elevation via PowerShell `Start-Process -Verb RunAs`, hosts file manipulation, nginx/mkcert binary lookup
-- `platform/linux.go` — elevation via `pkexec` → `sudo` fallback, dnsmasq reload, standard binary lookup
-
-### Tauri sidecar
-`gui/src-tauri/src/lib.rs` spawns `phpenv-daemon` as a sidecar at launch. If a `data/config.json` file exists next to the exe, it sets `PHPENV_DATA_DIR` env var to activate **portable mode** (data stored in `./data/` instead of `~/.phpenv`).
+| File | Responsibility |
+|------|---------------|
+| `state.rs` | `AppState` (all shared state behind `parking_lot::RwLock`), site persistence |
+| `models.rs` | Serde structs: `Site`, `PhpVersion`, `NginxStatus`, `Config`, etc. |
+| `config.rs` | `Config` load/save, `resolve_base_dir` (portable vs `~/.phpenv`) |
+| `routes.rs` | All axum handler functions |
+| `server.rs` | Router wiring, TCP bind with retry |
+| `nginx.rs` | nginx process management, config generation |
+| `php.rs` | PHP detection, php-cgi/php-fpm process management |
+| `dns.rs` | `/etc/hosts` read/write |
+| `download.rs` | Async download with progress tracking |
+| `site_config.rs` | Per-site nginx config generation |
+| `site_info.rs` | Project type detection, site metadata |
 
 ### GUI (`gui/src/`)
-Plain React with `react-router-dom`. No state management library. Pages: Sites, PHP, Nginx, Database, SSL, Logs. All API calls go through `gui/src/api/client.ts`. TypeScript strict mode is enabled.
 
-## Key cross-platform differences
+Plain React with `react-router-dom`. No state management library. All API calls go through `gui/src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-| Feature | Windows | Linux |
-|---------|---------|-------|
-| PHP FastCGI | `php-cgi.exe` on TCP (port formula: `9000 + major*10 + minor`) | `php-fpm` on Unix socket at `~/.phpenv/phpXX.sock` |
-| nginx | Auto-downloaded from nginx.org to `~/.phpenv/nginx/` | Must be installed via system package manager (`apt install nginx`) |
-| mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
-| Elevation | UAC via PowerShell `RunAs`; daemon re-launches itself if not elevated | pkexec → sudo fallback |
-| Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
+Pages: Sites (complete), PHP (partial), Nginx (partial), SSL (stub), Logs (stub).
 
 ## Data persistence
 
-All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode):
-- `config.json` — daemon config (ports, scanned dirs, default PHP, etc.)
-- `sites.json` — registered sites list
+All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode — triggered when `data/config.json` exists next to the exe):
+
+- `config.json` — daemon config
+- `sites.json` — registered sites list (written atomically: tmp → rename)
 - `nginx/nginx.conf` — generated main nginx config
-- `nginx/sites/*.conf` — per-site nginx configs (fully regenerated; do not edit manually)
+- `nginx/sites/*.conf` — per-site configs (fully regenerated on refresh)
 - `certs/*.pem` — mkcert-issued certificates
-- `logs/` — nginx and PHP-FPM logs
+- `logs/` — nginx and PHP logs
 
 ## Project type detection
 
-`SiteManager.detectProjectType` inspects directory contents to classify sites:
+`site_info.rs` classifies sites by directory contents:
 - **laravel**: `artisan` + `public/`
 - **codeigniter4**: `spark`
 - **codeigniter3**: `application/` + `system/` + `index.php`
@@ -178,13 +143,15 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode)
 - **static**: `index.html`
 - **generic**: fallback (autoindex enabled in nginx)
 
-nginx `DocumentRoot` is set automatically based on project type (e.g. `public/` for Laravel/CI4, `dist/` or `build/` for SPA).
+## Key cross-platform differences
 
-## Elevation requirements
+| Feature | Windows | Linux |
+|---------|---------|-------|
+| PHP FastCGI | `php-cgi.exe` on TCP (port: `9000 + major*10 + minor`) | `php-fpm` on Unix socket `~/.phpenv/phpXX.sock` |
+| nginx | Auto-downloaded from nginx.org to `~/.phpenv/nginx/` | Must be system-installed (`apt install nginx`) |
+| mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
+| Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
 
-The daemon needs admin/root to:
-1. Bind ports 80 and 443 (Linux only — Windows allows this with admin token)
-2. Write `/etc/hosts` for DNS entries
-3. Run `mkcert -install` to add the CA to the system trust store
+## Async tasks
 
-On Windows the daemon binary calls `ensureElevated()` at startup; the GUI app inherits UAC from the sidecar host so no second prompt appears. On Linux, individual operations that need root call `platform.ElevatedRun` (pkexec/sudo) rather than running the whole daemon as root.
+SSL issuance and nginx/PHP downloads use Tokio tasks with progress stored in `DownloadState` (arc + mutex). The frontend polls the corresponding `/progress` endpoints.

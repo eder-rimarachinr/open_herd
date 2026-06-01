@@ -1,67 +1,137 @@
-import { useEffect, useState } from "react";
-import { api, Site } from "../api/client";
-import styles from "./Page.module.css";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, AsyncTask, Site } from "../api/client";
+import styles from "./SSL.module.css";
+
+type SslOp = { state: AsyncTask["state"]; message: string; error?: string };
 
 export default function SSL() {
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ops, setOps] = useState<Record<string, SslOp>>({});
+  const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
-  useEffect(() => {
-    api.sites.list()
-      .then(setSites)
-      .finally(() => setLoading(false));
+  const fetchSites = useCallback(async () => {
+    api.sites.invalidate();
+    const data = await api.sites.list();
+    setSites(data.sort((a, b) => a.domain.localeCompare(b.domain)));
   }, []);
 
-  const sslSites = sites.filter((s) => s.ssl_enabled);
-  const pendingSites = sites.filter((s) => !s.ssl_enabled);
+  useEffect(() => {
+    fetchSites().finally(() => setLoading(false));
+    return () => { Object.values(pollRefs.current).forEach(clearInterval); };
+  }, [fetchSites]);
 
-  if (loading) return <div className={styles.empty}>Loading…</div>;
+  function startPolling(id: string) {
+    if (pollRefs.current[id]) return;
+    pollRefs.current[id] = setInterval(async () => {
+      try {
+        const task = await api.sites.sslProgress(id);
+        setOps(prev => ({ ...prev, [id]: { state: task.state, message: task.message, error: task.error } }));
+        if (task.state === "done" || task.state === "error") {
+          clearInterval(pollRefs.current[id]);
+          delete pollRefs.current[id];
+          if (task.state === "done") {
+            await fetchSites();
+            setOps(prev => { const next = { ...prev }; delete next[id]; return next; });
+          }
+        }
+      } catch {
+        clearInterval(pollRefs.current[id]);
+        delete pollRefs.current[id];
+      }
+    }, 800);
+  }
+
+  async function handleEnable(id: string) {
+    setOps(prev => ({ ...prev, [id]: { state: "pending", message: "Starting…" } }));
+    try {
+      const task = await api.sites.enableSSL(id);
+      setOps(prev => ({ ...prev, [id]: { state: task.state, message: task.message } }));
+      startPolling(id);
+    } catch (e: any) {
+      setOps(prev => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
+    }
+  }
+
+  async function handleDisable(id: string) {
+    setOps(prev => ({ ...prev, [id]: { state: "pending", message: "Disabling…" } }));
+    try {
+      await api.sites.disableSSL(id);
+      await fetchSites();
+      setOps(prev => { const next = { ...prev }; delete next[id]; return next; });
+    } catch (e: any) {
+      setOps(prev => ({ ...prev, [id]: { state: "error", message: "", error: e.message } }));
+    }
+  }
+
+  if (loading) return <div className={styles.loading}>Loading…</div>;
+
+  const active = sites.filter(s => s.ssl_enabled).length;
 
   return (
-    <div>
+    <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>SSL Certificates</h1>
+        <span className={styles.count}>{active} active</span>
       </div>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Active certificates</h2>
-        {sslSites.length === 0 ? (
-          <div className={styles.empty}>No SSL certificates issued yet.</div>
-        ) : (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Domain</th>
-                <th>Project type</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sslSites.map((s) => (
-                <tr key={s.id}>
-                  <td className={styles.bold}>{s.domain}</td>
-                  <td><span className="badge badge-gray">{s.project_type}</span></td>
-                  <td><span className="badge badge-green">active</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      {sites.length === 0 ? (
+        <div className={styles.empty}>
+          No sites registered yet.<br />
+          <span>Add a site from the Sites page first.</span>
+        </div>
+      ) : (
+        <div className={styles.list}>
+          {sites.map(site => {
+            const op = ops[site.id];
+            const busy = op && op.state !== "done" && op.state !== "error";
 
-      {pendingSites.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Sites without SSL</h2>
-          <p className={styles.hint}>
-            Enable SSL from the Sites page for individual projects.
-          </p>
-          <ul className={styles.list}>
-            {pendingSites.map((s) => (
-              <li key={s.id} className={styles.listItem}>{s.domain}</li>
-            ))}
-          </ul>
-        </section>
+            return (
+              <div key={site.id} className={styles.row}>
+                <div className={styles.info}>
+                  <span className={styles.domain}>{site.domain}</span>
+                  <span className={styles.type + " badge badge-gray"}>{site.project_type}</span>
+                </div>
+
+                <div className={styles.statusCol}>
+                  {busy ? (
+                    <span className={styles.progress}>{op.message || "Working…"}</span>
+                  ) : op?.state === "error" ? (
+                    <span
+                      className={styles.errorBadge}
+                      title="Click to dismiss"
+                      onClick={() => setOps(prev => { const next = { ...prev }; delete next[site.id]; return next; })}
+                    >
+                      ✕ {op.error ?? "Failed"}
+                    </span>
+                  ) : (
+                    <span className={site.ssl_enabled ? styles.dotGreen : styles.dotRed} />
+                  )}
+                </div>
+
+                <div className={styles.action}>
+                  {!busy && op?.state !== "error" && (
+                    site.ssl_enabled ? (
+                      <button className={styles.btnDisable} onClick={() => handleDisable(site.id)}>
+                        Disable
+                      </button>
+                    ) : (
+                      <button className={styles.btnEnable} onClick={() => handleEnable(site.id)}>
+                        Enable SSL
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
+
+      <p className={styles.hint}>
+        Certificates are issued by a local mkcert CA.
+        On first use, the CA is installed into the system trust store (requires admin/sudo).
+      </p>
     </div>
   );
 }

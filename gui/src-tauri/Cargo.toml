@@ -34,3 +34,14 @@ zip = "2"
 [dev-dependencies]
 axum-test = "15"
 tempfile = "3"
+
+[lints.clippy]
+# Correctness
+unwrap_used = "warn"
+expect_used = "warn"
+# Style
+redundant_closure_for_method_calls = "warn"
+needless_pass_by_value = "warn"
+cloned_instead_of_copied = "warn"
+# Complexity
+cognitive_complexity = "warn"
