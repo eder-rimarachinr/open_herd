@@ -12,22 +12,31 @@ const nav = [
 ];
 
 const POLL_INTERVAL = 4000;
+const OFFLINE_THRESHOLD = 3; // consecutive failures before showing "offline"
 
 export default function Layout() {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [failCount, setFailCount] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchStatus = useCallback(async () => {
     try {
       const s = await api.services.status();
       setStatus(s);
-    } catch {
-      setStatus(null);
-    } finally {
+      setFailCount(0);
       setInitialized(true);
+    } catch {
+      setFailCount((n) => {
+        const next = n + 1;
+        if (next >= OFFLINE_THRESHOLD) {
+          setStatus(null);
+          setInitialized(true);
+        }
+        return next;
+      });
     }
   }, []);
 
@@ -65,7 +74,6 @@ export default function Layout() {
   }
 
   async function handleQuit() {
-    if (!confirm("Stop all services and quit phpenv?")) return;
     setBusy(true);
     try {
       await api.daemon.quit();

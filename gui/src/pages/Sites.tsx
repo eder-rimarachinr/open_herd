@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, Site, PHPVersion, SiteInfo } from "../api/client";
 import styles from "./Page.module.css";
 
@@ -398,7 +399,7 @@ export default function Sites() {
                 </div>
 
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                  <button className="btn-primary" onClick={() => window.open(siteUrl, "_blank")}>
+                  <button className="btn-primary" onClick={() => openUrl(siteUrl)}>
                     Open ↗
                   </button>
 

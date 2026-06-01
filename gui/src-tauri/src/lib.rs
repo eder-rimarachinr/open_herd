@@ -1,5 +1,8 @@
 mod daemon;
 
+#[cfg(test)]
+mod tests;
+
 use tauri::Manager;
 use daemon::{
     config::{resolve_base_dir, Config},
@@ -30,6 +33,7 @@ pub fn run() {
     // Launch Tauri
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();

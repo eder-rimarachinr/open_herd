@@ -1,6 +1,7 @@
 const BASE = "http://127.0.0.1:7878/api/v1";
 
-const TIMEOUT_DEFAULT = 15_000; // ms — standard API calls
+const TIMEOUT_DEFAULT = 5_000;  // ms — standard API calls
+const TIMEOUT_LONG    = 15_000; // ms — operations that may take longer
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 // Module-level TTL cache for stable GET endpoints. Mutations call invalidate()
@@ -168,10 +169,8 @@ export const api = {
     delete: (id: string) =>
       request<void>(`/sites/${id}`, { method: "DELETE" })
         .then(r => { invalidate("/sites"); return r; }),
-    // SSL issuance is async: POST returns 202, then poll sslProgress until done.
-    // Invalidate immediately so the list re-fetches fresh data once polling shows "done".
     enableSSL: (id: string) =>
-      request<AsyncTask>(`/sites/${id}/ssl`, { method: "POST" })
+      request<AsyncTask>(`/sites/${id}/ssl`, { method: "POST", timeoutMs: TIMEOUT_LONG })
         .then(r => { invalidate("/sites"); return r; }),
     sslProgress: (id: string) => request<AsyncTask>(`/sites/${id}/ssl/progress`),
     disableSSL: (id: string) =>
@@ -206,8 +205,7 @@ export const api = {
   nginx: {
     status: () => request<{ running: boolean }>("/nginx/status"),
     info: () => request<NginxInfo>("/nginx/info"),
-    // Nginx download is async: POST returns 202, then poll downloadProgress until done.
-    download: () => request<AsyncTask>("/nginx/download", { method: "POST" }),
+    download: () => request<AsyncTask>("/nginx/download", { method: "POST", timeoutMs: TIMEOUT_LONG }),
     downloadProgress: () => request<AsyncTask>("/nginx/download/progress"),
     start: () => request<unknown>("/nginx/start", { method: "POST" }),
     stop: () => request<unknown>("/nginx/stop", { method: "POST" }),
@@ -216,7 +214,7 @@ export const api = {
 
   services: {
     status: () => request<ServiceStatus>("/services/status"),
-    start: () => request<ServiceStatus>("/services/start", { method: "POST" }),
+    start: () => request<ServiceStatus>("/services/start", { method: "POST", timeoutMs: TIMEOUT_LONG }),
     stop: () => request<ServiceStatus>("/services/stop", { method: "POST" }),
   },
 

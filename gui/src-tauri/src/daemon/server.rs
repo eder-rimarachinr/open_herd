@@ -56,9 +56,24 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 pub async fn start(state: Arc<AppState>) {
     let addr = state.config.read().api_addr.clone();
     let router = build_router(state);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect(&format!("Failed to bind to {}", addr));
+
+    // Retry binding — port may still be held briefly after a hot-reload
+    let listener = {
+        let mut last_err = String::new();
+        let mut listener = None;
+        for attempt in 0..10 {
+            match tokio::net::TcpListener::bind(&addr).await {
+                Ok(l) => { listener = Some(l); break; }
+                Err(e) => {
+                    last_err = e.to_string();
+                    eprintln!("Port {} busy (attempt {}), retrying…", addr, attempt + 1);
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+        listener.unwrap_or_else(|| panic!("Cannot bind {}: {}", addr, last_err))
+    };
+
     println!("Daemon API listening on http://{}", addr);
     axum::serve(listener, router).await.expect("Server error");
 }
