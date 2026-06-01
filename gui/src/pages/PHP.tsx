@@ -7,13 +7,13 @@ import styles from "./PHP.module.css";
 // ── Extension categories with display labels ──────────────────────────────────
 const CATEGORY_LABELS: Record<string, string> = {
   database: "Database",
-  string:   "String / Encoding",
+  string:   "String / Encoding / i18n",
   image:    "Image",
   network:  "Network / Mail",
   files:    "Files / Compression",
   security: "Security",
   math:     "Math",
-  misc:     "Miscellaneous",
+  misc:     "XML / Misc",
 };
 
 export default function PHP() {

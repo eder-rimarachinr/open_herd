@@ -736,11 +736,14 @@ fn parse_php_extensions(content: &str) -> Vec<PhpExtension> {
         ("pdo_oci",    "database"),
         ("oci8_12c",   "database"),
         ("sqlite3",    "database"),
-        // String / encoding
+        // String / encoding / i18n
         ("mbstring",   "string"),
         ("iconv",      "string"),
         ("intl",       "string"),
         ("gettext",    "string"),
+        ("ctype",      "string"),
+        ("pspell",     "string"),
+        ("enchant",    "string"),
         // Image
         ("gd",         "image"),
         ("exif",       "image"),
@@ -772,6 +775,9 @@ fn parse_php_extensions(content: &str) -> Vec<PhpExtension> {
         ("xml",        "misc"),
         ("xmlrpc",     "misc"),
         ("xsl",        "misc"),
+        ("dom",        "misc"),
+        ("simplexml",  "misc"),
+        ("tokenizer",  "misc"),
     ];
 
     known.iter().map(|(name, category)| {
@@ -838,6 +844,8 @@ fn known_settings() -> &'static [(&'static str, &'static str, &'static str)] {
         ("display_errors",      "Display Errors",       "Show errors in browser output: On | Off."),
         ("log_errors",          "Log Errors",           "Write errors to log file: On | Off."),
         ("date.timezone",       "Timezone",             "PHP timezone, e.g. America/Lima, UTC, Europe/Madrid."),
+        ("default_charset",     "Default Charset",      "Default character encoding for HTTP responses, e.g. UTF-8, ISO-8859-1."),
+        ("intl.default_locale", "Default Locale",       "ICU locale for intl extension, e.g. es_PE, en_US, pt_BR."),
     ]
 }
 
@@ -926,6 +934,18 @@ fn validate_php_setting(key: &str, value: &str) -> Result<(), String> {
             };
             if !value.chars().all(allowed) {
                 return Err(format!("'{}' contains invalid characters (got '{}')", key, value));
+            }
+        }
+        // Charset name: letters, digits, hyphens, underscores (e.g. UTF-8, ISO-8859-1)
+        "default_charset" => {
+            if !value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) {
+                return Err(format!("'{}' must be a valid charset name like UTF-8, ISO-8859-1 (got '{}')", key, value));
+            }
+        }
+        // ICU locale: letters, digits, underscores, hyphens (e.g. es_PE, en_US, pt_BR)
+        "intl.default_locale" => {
+            if !value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')) {
+                return Err(format!("'{}' must be a locale like es_PE, en_US, pt_BR (got '{}')", key, value));
             }
         }
         _ => {}
