@@ -1,7 +1,7 @@
 [package]
 name = "phpenv-gui"
 version = "0.1.0"
-description = "PHP Environment Manager"
+description = "Open Herd — Local PHP development environment manager"
 authors = []
 edition = "2021"
 

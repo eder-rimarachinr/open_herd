@@ -1,102 +1,120 @@
 #!/usr/bin/env bash
+# install.sh — Descarga e instala Open Herd desde GitHub Releases
+#
+# Uso:
+#   curl -fsSL https://raw.githubusercontent.com/TU_USUARIO/open_herd/main/installer/install.sh | bash
+#
+# Con versión específica:
+#   OPENHERD_VERSION=0.2.0 curl -fsSL ...install.sh | bash
+#
+# Con .deb (Debian/Ubuntu) en vez de AppImage:
+#   OPENHERD_FORMAT=deb curl -fsSL ...install.sh | bash
+
 set -euo pipefail
 
-PHPENV_DIR="${HOME}/.phpenv"
-BIN_DIR="${HOME}/.local/bin"
-REPO_URL="https://github.com/open-herd/phpenv"
-VERSION="${PHPENV_VERSION:-latest}"
+REPO_OWNER="TU_USUARIO"          # ← cambia esto por tu usuario de GitHub
+REPO_NAME="open_herd"
+API_BASE="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
+VERSION="${OPENHERD_VERSION:-}"
+FORMAT="${OPENHERD_FORMAT:-appimage}"   # appimage | deb
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-info()    { echo -e "${CYAN}[phpenv]${NC} $*"; }
-success() { echo -e "${GREEN}[phpenv]${NC} $*"; }
-warn()    { echo -e "${YELLOW}[phpenv]${NC} $*"; }
-die()     { echo -e "${RED}[phpenv] ERROR:${NC} $*" >&2; exit 1; }
+info()    { echo -e "${CYAN}[open-herd]${NC} $*"; }
+success() { echo -e "${GREEN}[open-herd]${NC} $*"; }
+warn()    { echo -e "${YELLOW}[open-herd]${NC} $*"; }
+die()     { echo -e "${RED}[open-herd] ERROR:${NC} $*" >&2; exit 1; }
+require() { command -v "$1" &>/dev/null || die "$1 es necesario pero no está instalado."; }
 
-require() { command -v "$1" &>/dev/null || die "$1 is required but not installed."; }
-
-# ── Pre-flight ────────────────────────────────────────────────────────────────
-
-info "Checking dependencies..."
 require curl
-require nginx
-require mkcert
 
-# ── Directories ───────────────────────────────────────────────────────────────
+# ── Resolución de versión ─────────────────────────────────────────────────────
 
-info "Creating directories under ${PHPENV_DIR}..."
-mkdir -p \
-    "${PHPENV_DIR}/nginx/sites" \
-    "${PHPENV_DIR}/php" \
-    "${PHPENV_DIR}/certs" \
-    "${PHPENV_DIR}/logs" \
-    "${BIN_DIR}"
-
-# ── mkcert CA ─────────────────────────────────────────────────────────────────
-
-info "Installing local CA with mkcert..."
-mkcert -install
-
-# ── Download daemon binary ────────────────────────────────────────────────────
-
-ARCH="$(uname -m)"
-case "${ARCH}" in
-    x86_64)  ARCH_SLUG="amd64" ;;
-    aarch64) ARCH_SLUG="arm64" ;;
-    *)       die "Unsupported architecture: ${ARCH}" ;;
-esac
-
-BINARY_URL="${REPO_URL}/releases/download/${VERSION}/phpenv-daemon-linux-${ARCH_SLUG}"
-info "Downloading daemon (${VERSION} ${ARCH_SLUG})..."
-curl -fsSL "${BINARY_URL}" -o "${BIN_DIR}/phpenv-daemon"
-chmod +x "${BIN_DIR}/phpenv-daemon"
-
-CLI_URL="${REPO_URL}/releases/download/${VERSION}/phpenv-linux-${ARCH_SLUG}"
-curl -fsSL "${CLI_URL}" -o "${BIN_DIR}/phpenv"
-chmod +x "${BIN_DIR}/phpenv"
-
-# ── systemd service ───────────────────────────────────────────────────────────
-
-SERVICE_FILE="${HOME}/.config/systemd/user/phpenv-daemon.service"
-mkdir -p "$(dirname "${SERVICE_FILE}")"
-
-cat > "${SERVICE_FILE}" << EOF
-[Unit]
-Description=phpenv daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=${BIN_DIR}/phpenv-daemon
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable --now phpenv-daemon
-
-# ── Shell PATH ────────────────────────────────────────────────────────────────
-
-SHELL_RC=""
-case "${SHELL}" in
-    */bash) SHELL_RC="${HOME}/.bashrc" ;;
-    */zsh)  SHELL_RC="${HOME}/.zshrc"  ;;
-esac
-
-if [[ -n "${SHELL_RC}" ]]; then
-    if ! grep -q 'phpenv' "${SHELL_RC}"; then
-        echo '' >> "${SHELL_RC}"
-        echo '# phpenv' >> "${SHELL_RC}"
-        echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> "${SHELL_RC}"
-    fi
+if [[ -z "$VERSION" ]]; then
+    info "Buscando la última versión..."
+    VERSION=$(curl -fsSL "$API_BASE/releases/latest" | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+    [[ -n "$VERSION" ]] || die "No se pudo obtener la versión de GitHub."
+    info "Última versión: $VERSION"
 fi
 
-success "phpenv installed successfully!"
-echo ""
-echo "  Daemon: systemctl --user status phpenv-daemon"
-echo "  CLI:    phpenv status"
-echo ""
-warn "Restart your shell or run: source ${SHELL_RC:-~/.bashrc}"
+# ── Arquitectura ──────────────────────────────────────────────────────────────
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64)  DEB_ARCH="amd64"  ; APPIMAGE_ARCH="x86_64"  ;;
+    aarch64) DEB_ARCH="arm64"  ; APPIMAGE_ARCH="aarch64"  ;;
+    *)       die "Arquitectura no soportada: $ARCH" ;;
+esac
+
+# ── Instalar según formato ────────────────────────────────────────────────────
+
+case "$FORMAT" in
+
+    deb)
+        require dpkg
+        FILE="open-herd_${VERSION}_${DEB_ARCH}.deb"
+        URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v$VERSION/$FILE"
+        TMP="/tmp/$FILE"
+
+        info "Descargando $FILE..."
+        curl -fsSL "$URL" -o "$TMP"
+
+        info "Instalando paquete .deb..."
+        if command -v apt &>/dev/null; then
+            sudo apt install -y "$TMP"
+        else
+            sudo dpkg -i "$TMP"
+        fi
+        rm -f "$TMP"
+
+        success "Open Herd v$VERSION instalado."
+        echo ""
+        echo "  Ejecuta: open-herd"
+        ;;
+
+    appimage)
+        INSTALL_DIR="${HOME}/.local/bin"
+        FILE="Open_Herd_${VERSION}_${APPIMAGE_ARCH}.AppImage"
+        URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v$VERSION/$FILE"
+        DEST="$INSTALL_DIR/open-herd"
+
+        mkdir -p "$INSTALL_DIR"
+
+        info "Descargando $FILE..."
+        curl -fsSL "$URL" -o "$DEST"
+        chmod +x "$DEST"
+
+        # Crear entrada en el menú de aplicaciones
+        DESKTOP_DIR="${HOME}/.local/share/applications"
+        mkdir -p "$DESKTOP_DIR"
+        cat > "$DESKTOP_DIR/open-herd.desktop" << EOF
+[Desktop Entry]
+Name=Open Herd
+Comment=Local PHP development environment manager
+Exec=$DEST %U
+Icon=open-herd
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=open-herd
+EOF
+
+        success "Open Herd v$VERSION instalado en $DEST"
+        echo ""
+
+        # Advertir si ~/.local/bin no está en PATH
+        if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+            warn "$INSTALL_DIR no está en tu PATH."
+            warn "Añade esta línea a tu ~/.bashrc o ~/.zshrc:"
+            echo ""
+            echo '  export PATH="$HOME/.local/bin:$PATH"'
+            echo ""
+        else
+            echo "  Ejecuta: open-herd"
+        fi
+        ;;
+
+    *)
+        die "Formato desconocido: $FORMAT. Usa 'appimage' o 'deb'."
+        ;;
+esac

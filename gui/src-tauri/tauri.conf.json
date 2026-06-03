@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "phpenv",
+  "productName": "Open Herd",
   "version": "0.1.0",
-  "identifier": "dev.phpenv.app",
+  "identifier": "com.openherd.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "PHP Environment Manager",
+        "title": "Open Herd — PHP Environment Manager",
         "width": 1100,
         "height": 700,
         "minWidth": 800,
@@ -47,7 +47,18 @@
         "installerIcon": "icons/icon.ico",
         "headerImage": null,
         "sidebarImage": null,
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "Open Herd"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
       }
     },
     "externalBin": [],

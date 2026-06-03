@@ -1,101 +1,89 @@
 #Requires -Version 5.1
+# install.ps1 — Descarga e instala Open Herd desde GitHub Releases
+#
+# Uso (PowerShell como Administrador):
+#   irm https://raw.githubusercontent.com/TU_USUARIO/open_herd/main/installer/install.ps1 | iex
+#
+# O con versión específica:
+#   $env:OPENHERD_VERSION = "0.2.0"
+#   irm https://...install.ps1 | iex
+
 [CmdletBinding()]
 param(
-    [string]$Version = "latest",
-    [string]$InstallDir = "$env:USERPROFILE\.phpenv"
+    [string]$Version = $env:OPENHERD_VERSION,
+    [switch]$Portable,
+    [string]$PortableDir = "C:\open-herd"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoUrl   = "https://github.com/open-herd/phpenv"
-$BinDir    = "$InstallDir\bin"
+$RepoOwner = "TU_USUARIO"        # ← cambia esto por tu usuario de GitHub
+$RepoName  = "open_herd"
+$ApiBase   = "https://api.github.com/repos/$RepoOwner/$RepoName"
 
-function Write-Info    { Write-Host "[phpenv] $args" -ForegroundColor Cyan    }
-function Write-Success { Write-Host "[phpenv] $args" -ForegroundColor Green   }
-function Write-Warn    { Write-Host "[phpenv] $args" -ForegroundColor Yellow  }
-function Fail          { Write-Host "[phpenv] ERROR: $args" -ForegroundColor Red; exit 1 }
+function Write-Info    { Write-Host "[open-herd] $args" -ForegroundColor Cyan    }
+function Write-Success { Write-Host "[open-herd] $args" -ForegroundColor Green   }
+function Write-Warn    { Write-Host "[open-herd] $args" -ForegroundColor Yellow  }
+function Fail          { Write-Host "[open-herd] ERROR: $args" -ForegroundColor Red; exit 1 }
 
-function Require-Command([string]$cmd) {
-    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-        Fail "$cmd is required but not found in PATH."
+# ── Resolución de versión ─────────────────────────────────────────────────────
+
+if (-not $Version) {
+    Write-Info "Buscando la última versión..."
+    try {
+        $release = Invoke-RestMethod "$ApiBase/releases/latest" -Headers @{ "User-Agent" = "open-herd-installer" }
+        $Version = $release.tag_name -replace '^v', ''
+        Write-Info "Última versión: $Version"
+    } catch {
+        Fail "No se pudo obtener la versión de GitHub: $_"
     }
 }
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────
+# ── Modo portable ─────────────────────────────────────────────────────────────
+
+if ($Portable) {
+    Write-Info "Modo portable → instalando en $PortableDir"
+
+    $zipName = "open-herd-v$Version-portable.zip"
+    $zipUrl  = "https://github.com/$RepoOwner/$RepoName/releases/download/v$Version/$zipName"
+    $zipTmp  = Join-Path $env:TEMP $zipName
+
+    Write-Info "Descargando $zipName..."
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipTmp -UseBasicParsing
+
+    if (Test-Path $PortableDir) { Remove-Item $PortableDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $PortableDir | Out-Null
+    Expand-Archive -Path $zipTmp -DestinationPath $PortableDir -Force
+    Remove-Item $zipTmp
+
+    Write-Success "Open Herd v$Version instalado en $PortableDir"
+    Write-Host ""
+    Write-Host "  Ejecuta: $PortableDir\open-herd.exe" -ForegroundColor White
+    exit 0
+}
+
+# ── Instalador completo (NSIS) ────────────────────────────────────────────────
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Fail "Run this script as Administrator (needed to write the hosts file and install services)."
+    Fail "Ejecuta este script como Administrador para instalar Open Herd para todos los usuarios."
 }
 
-Write-Info "Checking dependencies..."
-Require-Command mkcert
+$setupName = "open-herd-v$Version-setup.exe"
+$setupUrl  = "https://github.com/$RepoOwner/$RepoName/releases/download/v$Version/$setupName"
+$setupTmp  = Join-Path $env:TEMP $setupName
 
-# ── Directories ───────────────────────────────────────────────────────────────
+Write-Info "Descargando $setupName..."
+Invoke-WebRequest -Uri $setupUrl -OutFile $setupTmp -UseBasicParsing
 
-Write-Info "Creating directories under $InstallDir ..."
-foreach ($sub in @("nginx\sites", "php", "certs", "logs", $BinDir)) {
-    New-Item -ItemType Directory -Force -Path "$InstallDir\$sub" | Out-Null
+Write-Info "Ejecutando instalador (modo silencioso)..."
+$proc = Start-Process $setupTmp -ArgumentList "/S" -Wait -PassThru
+if ($proc.ExitCode -ne 0) {
+    Fail "El instalador terminó con código $($proc.ExitCode)"
 }
+Remove-Item $setupTmp -ErrorAction SilentlyContinue
 
-# ── nginx ─────────────────────────────────────────────────────────────────────
-
-$NginxArchive = "$env:TEMP\nginx.zip"
-$NginxUrl     = "https://nginx.org/download/nginx-1.26.1.zip"
-
-if (-not (Test-Path "$InstallDir\nginx\nginx.exe")) {
-    Write-Info "Downloading nginx..."
-    Invoke-WebRequest -Uri $NginxUrl -OutFile $NginxArchive -UseBasicParsing
-    Expand-Archive -Path $NginxArchive -DestinationPath "$env:TEMP\nginx_extract" -Force
-    $extracted = Get-ChildItem "$env:TEMP\nginx_extract" -Directory | Select-Object -First 1
-    Copy-Item "$($extracted.FullName)\*" "$InstallDir\nginx\" -Recurse -Force
-    Remove-Item $NginxArchive, "$env:TEMP\nginx_extract" -Recurse -Force
-}
-
-# ── mkcert CA ─────────────────────────────────────────────────────────────────
-
-Write-Info "Installing local CA with mkcert..."
-$env:CAROOT = "$InstallDir\certs"
-mkcert -install
-
-# ── Download daemon + CLI ─────────────────────────────────────────────────────
-
-$Arch = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
-
-foreach ($bin in @("phpenv-daemon", "phpenv")) {
-    $url  = "$RepoUrl/releases/download/$Version/$bin-windows-$Arch.exe"
-    $dest = "$BinDir\$bin.exe"
-    Write-Info "Downloading $bin..."
-    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
-}
-
-# ── Windows Service (daemon) ──────────────────────────────────────────────────
-
-$svcName = "phpenv-daemon"
-if (Get-Service -Name $svcName -ErrorAction SilentlyContinue) {
-    Write-Warn "Service $svcName already exists — skipping creation."
-} else {
-    Write-Info "Installing Windows service..."
-    New-Service -Name $svcName `
-                -DisplayName "phpenv Daemon" `
-                -Description "Local PHP environment manager daemon" `
-                -BinaryPathName "$BinDir\phpenv-daemon.exe" `
-                -StartupType Automatic | Out-Null
-    Start-Service -Name $svcName
-}
-
-# ── PATH ──────────────────────────────────────────────────────────────────────
-
-$currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-if ($currentPath -notlike "*$BinDir*") {
-    Write-Info "Adding $BinDir to user PATH..."
-    [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$BinDir", "User")
-}
-
-Write-Success "phpenv installed successfully!"
+Write-Success "Open Herd v$Version instalado correctamente."
 Write-Host ""
-Write-Host "  Service:  Get-Service phpenv-daemon"
-Write-Host "  CLI:      phpenv status"
-Write-Host ""
-Write-Warn "Open a new terminal for PATH changes to take effect."
+Write-Host "  Abre el menú Inicio → Open Herd" -ForegroundColor White
