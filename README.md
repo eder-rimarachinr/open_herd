@@ -60,7 +60,32 @@ src/
 
 ---
 
-## Requirements
+## Installation
+
+Download the latest release from the [Releases](https://github.com/eder-rimarachinr/open_herd/releases) page:
+
+- **`open-herd-vX.X.X-setup.exe`** — NSIS installer for Windows (recommended, requires admin)
+- **`open-herd-vX.X.X-portable.zip`** — No installation needed; `data/config.json` next to the exe activates portable mode
+
+Or install from the command line:
+
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/eder-rimarachinr/open_herd/main/installer/install.ps1 | iex
+```
+
+**Linux:**
+```bash
+# AppImage (any distro)
+curl -fsSL https://raw.githubusercontent.com/eder-rimarachinr/open_herd/main/installer/install.sh | bash
+
+# .deb (Debian / Ubuntu)
+OPENHERD_FORMAT=deb curl -fsSL https://raw.githubusercontent.com/eder-rimarachinr/open_herd/main/installer/install.sh | bash
+```
+
+---
+
+## Requirements (build from source)
 
 | Tool | Purpose |
 |------|---------|

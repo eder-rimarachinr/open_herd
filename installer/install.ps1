@@ -18,7 +18,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoOwner = "TU_USUARIO"        # ← cambia esto por tu usuario de GitHub
+$RepoOwner = "eder-rimarachinr"
 $RepoName  = "open_herd"
 $ApiBase   = "https://api.github.com/repos/$RepoOwner/$RepoName"
 

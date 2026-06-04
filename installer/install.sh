@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REPO_OWNER="TU_USUARIO"          # ← cambia esto por tu usuario de GitHub
+REPO_OWNER="eder-rimarachinr"
 REPO_NAME="open_herd"
 API_BASE="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
 VERSION="${OPENHERD_VERSION:-}"
