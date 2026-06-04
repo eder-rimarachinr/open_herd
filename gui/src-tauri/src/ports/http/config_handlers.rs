@@ -59,10 +59,19 @@ pub async fn daemon_logs(State(container): State<ContainerRef>) -> impl IntoResp
 
 // ── POST /api/v1/daemon/quit ──────────────────────────────────────────────────
 
-pub async fn quit_daemon() -> impl IntoResponse {
-    tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        std::process::exit(0);
+pub async fn quit_daemon(State(container): State<ContainerRef>) -> impl IntoResponse {
+    tokio::spawn(async move {
+        graceful_shutdown(&container).await;
     });
     Json(serde_json::json!({ "ok": true }))
+}
+
+/// Detiene nginx y PHP y luego termina el proceso.
+/// Llamado tanto desde el endpoint /quit como desde el evento CloseRequested.
+pub async fn graceful_shutdown(container: &AppContainer) {
+    use crate::infrastructure::{nginx::process as nginx_mgr, php::process as php_mgr};
+    php_mgr::stop_all(&container.legacy, &container.legacy.php_proc);
+    let _ = nginx_mgr::stop(&container.legacy, &container.legacy.nginx_proc);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    std::process::exit(0);
 }

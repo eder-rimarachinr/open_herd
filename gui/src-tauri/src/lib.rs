@@ -8,7 +8,7 @@ use infrastructure::{
     container::AppContainer,
     state::AppState,
 };
-use ports::http::server;
+use ports::http::{config_handlers, server};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,7 +27,8 @@ pub fn run() {
     let state     = AppState::new(base_dir.clone(), config);
     let container = AppContainer::new(state);
 
-    let container_for_api = container.clone();
+    let container_for_api    = container.clone();
+    let container_for_window = container.clone();
     let crash_log = log_dir.join("daemon-crash.log");
     let crash_log_thread = crash_log.clone();
 
@@ -58,6 +59,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(move |_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let container = container_for_window.clone();
+                std::thread::spawn(move || {
+                    tokio::runtime::Runtime::new()
+                        .expect("tokio rt for shutdown")
+                        .block_on(config_handlers::graceful_shutdown(&container));
+                });
+            }
+        })
         .setup(move |app| {
             #[cfg(debug_assertions)] { use tauri::Manager; app.get_webview_window("main").unwrap().open_devtools(); }
 
