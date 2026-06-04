@@ -1,7 +1,13 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use crate::infrastructure::dto::AsyncTask;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const MKCERT_VERSION: &str = "v1.4.4";
 
@@ -31,7 +37,9 @@ pub fn ensure_mkcert(base_dir: &Path) -> Result<PathBuf, String> {
 }
 
 pub fn install_ca(mkcert: &Path) -> Result<(), String> {
-    let output = std::process::Command::new(mkcert).arg("-install").output().map_err(|e| format!("Failed to run mkcert -install: {}", e))?;
+    #[allow(unused_mut)] let mut cmd = Command::new(mkcert); cmd.arg("-install");
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(|e| format!("Failed to run mkcert -install: {}", e))?;
     if !output.status.success() { return Err(format!("mkcert -install failed: {}", String::from_utf8_lossy(&output.stderr).trim())); }
     Ok(())
 }
@@ -42,9 +50,10 @@ pub fn issue_cert(mkcert: &Path, domain: &str, certs_dir: &Path) -> Result<CertP
     std::fs::create_dir_all(certs_dir).map_err(|e| format!("Failed to create certs dir: {}", e))?;
     let cert   = certs_dir.join(format!("{}.pem", domain));
     let key    = certs_dir.join(format!("{}-key.pem", domain));
-    let output = std::process::Command::new(mkcert)
-        .args(["-cert-file", &cert.to_string_lossy().to_string(), "-key-file", &key.to_string_lossy().to_string(), domain])
-        .output().map_err(|e| format!("Failed to run mkcert: {}", e))?;
+    #[allow(unused_mut)] let mut cmd = Command::new(mkcert);
+    cmd.args(["-cert-file", &cert.to_string_lossy().to_string(), "-key-file", &key.to_string_lossy().to_string(), domain]);
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(|e| format!("Failed to run mkcert: {}", e))?;
     if !output.status.success() { return Err(format!("mkcert cert issuance failed: {}", String::from_utf8_lossy(&output.stderr).trim())); }
     Ok(CertPaths { cert, key })
 }

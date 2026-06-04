@@ -4,6 +4,11 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use crate::infrastructure::{dto::PhpVersion, nginx::vhost_config::fastcgi_port, state::AppState};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub struct PhpProcesses { pub children: Mutex<HashMap<String, Child>> }
 impl PhpProcesses { pub fn new() -> Arc<Self> { Arc::new(Self { children: Mutex::new(HashMap::new()) }) } }
 
@@ -17,7 +22,11 @@ pub fn start(state: &AppState, php_proc: &Arc<PhpProcesses>, version: &PhpVersio
     #[cfg(not(target_os = "windows"))]
     let binary = version.fpm_binary.clone();
 
-    let child = Command::new(&binary).args(["-b", &format!("127.0.0.1:{}", port)]).spawn()
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(&binary);
+    cmd.args(["-b", &format!("127.0.0.1:{}", port)]);
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = cmd.spawn()
         .map_err(|e| format!("Failed to start PHP {}: {}", version.major, e))?;
     state.log(format!("PHP {} started on port {}", version.major, port));
     children.insert(version.major.clone(), child);

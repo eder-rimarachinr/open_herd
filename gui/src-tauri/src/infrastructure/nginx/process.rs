@@ -4,6 +4,11 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use crate::infrastructure::{state::AppState, nginx::vhost_config};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub struct NginxProcess { pub child: Mutex<Option<Child>> }
 impl NginxProcess { pub fn new() -> Arc<Self> { Arc::new(Self { child: Mutex::new(None) }) } }
 
@@ -25,7 +30,11 @@ pub fn nginx_prefix(binary: &Path) -> PathBuf {
 }
 
 pub fn get_nginx_version(binary: &Path) -> Option<String> {
-    let out  = Command::new(binary).arg("-v").output().ok()?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(binary);
+    cmd.arg("-v");
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
     let line = String::from_utf8_lossy(&out.stderr).lines().find(|l| l.contains("nginx/"))?.to_string();
     Some(line.split('/').nth(1)?.trim().to_string())
 }
@@ -64,9 +73,12 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Str
 
     let bin_dir   = binary.parent().unwrap_or(&binary);
     let error_log = PathBuf::from(&nginx_dir).join("logs").join("error.log");
-    let child     = Command::new(&binary).current_dir(bin_dir)
-        .args(["-c", &conf_path.to_string_lossy(), "-e", &error_log.to_string_lossy()])
-        .spawn().map_err(|e| format!("Failed to spawn nginx: {}", e))?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(&binary);
+    cmd.current_dir(bin_dir)
+        .args(["-c", &conf_path.to_string_lossy(), "-e", &error_log.to_string_lossy()]);
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = cmd.spawn().map_err(|e| format!("Failed to spawn nginx: {}", e))?;
 
     std::thread::sleep(std::time::Duration::from_millis(300));
     let version = get_nginx_version(&binary);
@@ -86,7 +98,13 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Str
 
 pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
     let binary = { let cfg = state.config.read(); find_nginx_binary(&cfg.nginx_dir) };
-    if let Some(bin) = &binary { let _ = Command::new(bin).args(["-s", "quit"]).output(); }
+    if let Some(bin) = &binary {
+        #[allow(unused_mut)]
+        let mut cmd = Command::new(bin);
+        cmd.args(["-s", "quit"]);
+        #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
+    }
     let mut lock = nginx_proc.child.lock();
     if let Some(mut child) = lock.take() {
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -102,7 +120,11 @@ pub fn reload(state: &AppState) -> Result<(), String> {
     let (binary, conf_path) = { let cfg = state.config.read(); (find_nginx_binary(&cfg.nginx_dir), PathBuf::from(&cfg.nginx_dir).join("nginx.conf")) };
     let binary = binary.ok_or_else(|| "nginx binary not found".to_string())?;
     let bin_dir = binary.parent().unwrap_or(&binary);
-    let out = Command::new(&binary).current_dir(bin_dir).args(["-s", "reload", "-c", &conf_path.to_string_lossy()]).output().map_err(|e| e.to_string())?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(&binary);
+    cmd.current_dir(bin_dir).args(["-s", "reload", "-c", &conf_path.to_string_lossy()]);
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() { state.log("Nginx reloaded".into()); Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
 }
 
@@ -114,14 +136,22 @@ pub fn is_running(nginx_proc: &Arc<NginxProcess>) -> bool {
 }
 
 fn test_binary(binary: &Path) -> Result<(), String> {
-    let out = Command::new(binary).arg("-v").output().map_err(|e| format!("Cannot run nginx: {}", e))?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(binary);
+    cmd.arg("-v");
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().map_err(|e| format!("Cannot run nginx: {}", e))?;
     if !out.status.success() { return Err(format!("nginx binary error: {}", String::from_utf8_lossy(&out.stderr).trim())); }
     Ok(())
 }
 
 fn test_config(binary: &Path, conf: &Path) -> Result<(), String> {
     let bin_dir = binary.parent().unwrap_or(binary);
-    let out = Command::new(binary).current_dir(bin_dir).args(["-t", "-c", &conf.to_string_lossy()]).output().map_err(|e| e.to_string())?;
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(binary);
+    cmd.current_dir(bin_dir).args(["-t", "-c", &conf.to_string_lossy()]);
+    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
 }
 

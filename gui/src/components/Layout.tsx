@@ -18,8 +18,8 @@ const NAV = [
   { to: "/logs",     label: "Logs",     Icon: Terminal },
 ];
 
-const POLL_INTERVAL = 4000;
-const OFFLINE_THRESHOLD = 3;
+const POLL_INTERVAL = 2000;       // cada 2s
+const OFFLINE_THRESHOLD = 15;     // 15 fallos × 2s = 30s antes de marcar offline
 
 export default function Layout() {
   const { theme, toggle } = useTheme();

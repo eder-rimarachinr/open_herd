@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post}, http::{HeaderValue, Method}};
+use axum::{Router, routing::{get, post}, http::Method};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -6,13 +6,11 @@ use crate::infrastructure::container::AppContainer;
 use crate::ports::http::{config_handlers, nginx_handlers, php_handlers, site_handlers};
 
 pub fn build_router(container: Arc<AppContainer>) -> Router {
-    let allowed: Vec<HeaderValue> = [
-        "tauri://localhost", "https://tauri.localhost",
-        "http://localhost:1420", "http://127.0.0.1:1420",
-    ].iter().filter_map(|o| o.parse().ok()).collect();
-
+    // The daemon only binds 127.0.0.1 (loopback), so allowing any origin is safe.
+    // A strict origin list causes silent CORS failures in production Tauri builds
+    // because the WebView2 Origin header format can vary between dev and release.
     let cors = CorsLayer::new()
-        .allow_origin(allowed)
+        .allow_origin(tower_http::cors::Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers(tower_http::cors::Any);
 
@@ -66,11 +64,29 @@ async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
     for attempt in 0..30 {
         let socket = if socket_addr.is_ipv4() { tokio::net::TcpSocket::new_v4() } else { tokio::net::TcpSocket::new_v6() };
         match socket {
-            Ok(sock) => { let _ = sock.set_reuseaddr(true); match sock.bind(socket_addr) { Ok(()) => match sock.listen(1024) { Ok(l) => return l, Err(e) => last_err = e.to_string() }, Err(e) => last_err = e.to_string() } }
+            Ok(sock) => {
+                let _ = sock.set_reuseaddr(true);
+                match sock.bind(socket_addr) {
+                    Ok(()) => match sock.listen(1024) {
+                        Ok(l) => return l,
+                        Err(e) => last_err = e.to_string(),
+                    },
+                    Err(e) => last_err = e.to_string(),
+                }
+            }
             Err(e) => last_err = e.to_string(),
         }
-        if attempt < 9 { eprintln!("Port {} busy (attempt {}), retrying…", addr, attempt + 1); } else if attempt == 9 { eprintln!("Port {} still busy after 10 attempts, continuing silently…", addr); }
+        if attempt < 9 {
+            eprintln!("[open-herd] port {} busy (attempt {}), retrying…", addr, attempt + 1);
+        } else if attempt == 9 {
+            eprintln!("[open-herd] port {} still busy after 10 attempts; hint: run `netstat -ano | findstr :{}` to find the process holding it.", addr, socket_addr.port());
+        }
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
-    panic!("Cannot bind {} after 30 attempts: {}", addr, last_err)
+    // Surface the port number and current OS error so the crash log is actionable.
+    panic!(
+        "Cannot bind {} after 30 attempts: {}. \
+         If another process owns this port, free it or change api_addr in config.json.",
+        addr, last_err
+    )
 }

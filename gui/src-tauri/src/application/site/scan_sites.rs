@@ -37,7 +37,9 @@ impl ScanSitesUseCase {
 
     pub async fn execute(&self, cmd: ScanSitesCommand) -> Result<ScanSitesResult, ApplicationError> {
         let existing = self.site_repo.list_all().await?;
-        let existing_domains: std::collections::HashSet<String> =
+        // Use a mutable set so we can add entries mid-loop (prevents duplicates when
+        // the same folder name appears in more than one scanned_dir).
+        let mut seen_domains: std::collections::HashSet<String> =
             existing.iter().map(|s| s.domain.to_string()).collect();
 
         let mut added: Vec<Site>   = vec![];
@@ -63,8 +65,9 @@ impl ScanSitesUseCase {
                     .to_string();
                 if name.starts_with('.') { continue; }  // skip hidden
 
-                let domain_str = format!("{}.test", name);
-                if existing_domains.contains(&domain_str) { continue; }
+                // Lowercase to match DomainName's normalized storage.
+                let domain_str = format!("{}.test", name.to_lowercase());
+                if seen_domains.contains(&domain_str) { continue; }
 
                 let path_str = path.to_string_lossy().to_string();
 
@@ -101,6 +104,7 @@ impl ScanSitesUseCase {
                     continue;
                 }
 
+                seen_domains.insert(domain_str);
                 added.push(site);
             }
         }
