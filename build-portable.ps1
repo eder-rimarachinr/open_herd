@@ -6,7 +6,7 @@
 #
 # Uso:
 #   .\build-portable.ps1
-#   .\build-portable.ps1 -SkipIcons        # salta la regeneración de iconos
+#   .\build-portable.ps1 -SkipIcons        # salta la regeneracion de iconos
 #   .\build-portable.ps1 -SkipFrontend     # reutiliza el build de npm anterior
 
 param(
@@ -16,14 +16,11 @@ param(
 )
 
 if ($Help) {
-    Write-Host @"
-build-portable.ps1 — Construye el instalador y el ZIP portable de Open Herd
-
-Opciones:
-  -SkipIcons      No regenera iconos desde logo.png
-  -SkipFrontend   Reutiliza el bundle de npm/Vite anterior (más rápido en iteraciones)
-  -Help           Muestra esta ayuda
-"@
+    Write-Host "build-portable.ps1 -- Construye el instalador y ZIP portable de Open Herd"
+    Write-Host ""
+    Write-Host "  -SkipIcons      No regenera iconos desde logo.png"
+    Write-Host "  -SkipFrontend   Reutiliza el bundle de npm/Vite anterior"
+    Write-Host "  -Help           Muestra esta ayuda"
     exit 0
 }
 
@@ -33,25 +30,25 @@ $root    = $PSScriptRoot
 $guiDir  = Join-Path $root "gui"
 $distDir = Join-Path $root "dist"
 
-# ── Leer versión desde Cargo.toml (única fuente de verdad) ───────────────────
+# -- Leer version desde Cargo.toml (unica fuente de verdad) -------------------
 $cargoToml = Get-Content (Join-Path $root "gui\src-tauri\Cargo.toml") -Raw
 if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
     $version = $Matches[1]
 } else {
-    Write-Host "ERROR: No se pudo leer la versión de Cargo.toml" -ForegroundColor Red
+    Write-Host "ERROR: No se pudo leer la version de Cargo.toml" -ForegroundColor Red
     exit 1
 }
 
 $releaseDir = Join-Path $root "gui\src-tauri\target\release"
-$appExe     = "phpenv-gui.exe"   # nombre del binario (Cargo.toml [package].name)
+$appExe     = "phpenv-gui.exe"
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   Open Herd  —  build v$version              ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
+Write-Host "  Open Herd -- build v$version" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Pre-flight checks ─────────────────────────────────────────────────────────
+# -- Pre-flight checks --------------------------------------------------------
 Write-Host "[preflight] Verificando herramientas..." -ForegroundColor Yellow
 
 foreach ($cmd in @("node", "npm", "cargo", "rustc")) {
@@ -63,7 +60,7 @@ foreach ($cmd in @("node", "npm", "cargo", "rustc")) {
 
 $logoSrc = Join-Path $root "logo.png"
 if (-not (Test-Path $logoSrc)) {
-    Write-Host "ERROR: logo.png no encontrado en la raíz del proyecto." -ForegroundColor Red
+    Write-Host "ERROR: logo.png no encontrado en la raiz del proyecto." -ForegroundColor Red
     Write-Host "       Coloca un PNG cuadrado (1024x1024 recomendado) como logo.png" -ForegroundColor Yellow
     exit 1
 }
@@ -71,46 +68,46 @@ if (-not (Test-Path $logoSrc)) {
 Write-Host "  node    $(node --version)" -ForegroundColor DarkGray
 Write-Host "  npm     $(npm --version)" -ForegroundColor DarkGray
 Write-Host "  cargo   $(cargo --version)" -ForegroundColor DarkGray
-Write-Host "  versión $version" -ForegroundColor DarkGray
+Write-Host "  version $version" -ForegroundColor DarkGray
 Write-Host ""
 
-# ── 1. Iconos ─────────────────────────────────────────────────────────────────
+# -- 1. Iconos ----------------------------------------------------------------
 if (-not $SkipIcons) {
     Write-Host "[1/4] Generando iconos desde logo.png..." -ForegroundColor Yellow
     Set-Location $guiDir
     npx tauri icon "..\logo.png"
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: tauri icon falló." -ForegroundColor Red; exit 1
+        Write-Host "ERROR: tauri icon fallo." -ForegroundColor Red; exit 1
     }
     Write-Host "  Iconos generados." -ForegroundColor Green
 } else {
     Write-Host "[1/4] Iconos omitidos (-SkipIcons)." -ForegroundColor DarkGray
 }
 
-# ── 2. Limpiar caché ──────────────────────────────────────────────────────────
-Write-Host "[2/4] Limpiando caché de build..." -ForegroundColor Yellow
+# -- 2. Limpiar cache ---------------------------------------------------------
+Write-Host "[2/4] Limpiando cache de build..." -ForegroundColor Yellow
 $stalePattern = Join-Path $root "gui\src-tauri\target\release\build\phpenv-gui-*"
 Get-Item $stalePattern -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-Write-Host "  Caché limpio." -ForegroundColor Green
+Write-Host "  Cache limpio." -ForegroundColor Green
 
-# ── 3. Build frontend + Tauri ─────────────────────────────────────────────────
+# -- 3. Build frontend + Tauri ------------------------------------------------
 Write-Host "[3/4] Compilando frontend + Tauri..." -ForegroundColor Yellow
 Set-Location $guiDir
 
 if (-not $SkipFrontend) {
     Write-Host "  npm install..." -ForegroundColor DarkGray
     npm install
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: npm install falló." -ForegroundColor Red; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: npm install fallo." -ForegroundColor Red; exit 1 }
 }
 
 Write-Host "  npm run tauri build..." -ForegroundColor DarkGray
 npm run tauri build
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Tauri build falló." -ForegroundColor Red; exit 1
+    Write-Host "ERROR: Tauri build fallo." -ForegroundColor Red; exit 1
 }
 Write-Host "  Build completado." -ForegroundColor Green
 
-# ── 4. Empaquetar ─────────────────────────────────────────────────────────────
+# -- 4. Empaquetar ------------------------------------------------------------
 Write-Host "[4/4] Empaquetando distribuciones..." -ForegroundColor Yellow
 
 $builtExe = Join-Path $releaseDir $appExe
@@ -119,13 +116,12 @@ if (-not (Test-Path $builtExe)) {
     exit 1
 }
 
-# Limpiar y crear dist/
 if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
 New-Item -ItemType Directory -Path $distDir | Out-Null
 
-# ── Instalador NSIS ───────────────────────────────────────────────────────────
-# Tauri genera el nombre como: "{productName}_{version}_x64-setup.exe"
-# productName = "Open Herd" → "Open Herd_0.1.0_x64-setup.exe"
+# -- Instalador NSIS ----------------------------------------------------------
+# Tauri genera: "{productName}_{version}_x64-setup.exe"
+# productName "Open Herd" -> "Open Herd_0.1.0_x64-setup.exe"
 $nsisDir   = Join-Path $releaseDir "bundle\nsis"
 $nsisSetup = Get-ChildItem $nsisDir -Filter "*setup.exe" -ErrorAction SilentlyContinue |
              Select-Object -First 1
@@ -136,35 +132,28 @@ if ($nsisSetup) {
     $sizeMB = [math]::Round((Get-Item $installerOut).Length / 1MB, 1)
     Write-Host "  Instalador : open-herd-v$version-setup.exe  ($sizeMB MB)" -ForegroundColor Green
 } else {
-    Write-Host "  AVISO: instalador NSIS no encontrado en $nsisDir — omitiendo." -ForegroundColor DarkYellow
-    Write-Host "         Asegúrate de que NSIS esté instalado en Windows." -ForegroundColor DarkYellow
+    Write-Host "  AVISO: instalador NSIS no encontrado en $nsisDir -- omitiendo." -ForegroundColor DarkYellow
+    Write-Host "         Asegurate de que NSIS este instalado en Windows." -ForegroundColor DarkYellow
 }
 
-# ── ZIP portable ──────────────────────────────────────────────────────────────
+# -- ZIP portable -------------------------------------------------------------
 $portableStage = Join-Path $distDir "_portable_stage"
 New-Item -ItemType Directory -Path $portableStage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
 
-# Copiar binario
 Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
 
-# data/config.json vacío → activa el modo portable (datos en ./data/ en vez de ~/.phpenv)
-Set-Content `
-    -Path (Join-Path $portableStage "data\config.json") `
-    -Value "{}" `
-    -Encoding utf8
+# data/config.json vacio -> activa modo portable (datos en ./data/ en vez de ~/.phpenv)
+Set-Content -Path (Join-Path $portableStage "data\config.json") -Value "{}" -Encoding utf8
 
-# README rápido para el ZIP
-Set-Content `
-    -Path (Join-Path $portableStage "README.txt") `
-    -Value @"
-Open Herd v$version — Modo Portable
-=====================================
-Ejecuta open-herd.exe desde esta carpeta.
-Los datos se guardan en la carpeta data/ junto al exe.
-
-Para instalar como app normal usa el instalador open-herd-v$version-setup.exe.
-"@ -Encoding utf8
+# README para el ZIP
+$readmeContent  = "Open Herd v$version - Modo Portable`r`n"
+$readmeContent += "=====================================`r`n"
+$readmeContent += "Ejecuta open-herd.exe desde esta carpeta.`r`n"
+$readmeContent += "Los datos se guardan en la carpeta data/ junto al exe.`r`n"
+$readmeContent += "`r`n"
+$readmeContent += "Para instalar como app normal usa el instalador open-herd-v$version-setup.exe.`r`n"
+Set-Content -Path (Join-Path $portableStage "README.txt") -Value $readmeContent -Encoding utf8
 
 # Comprimir
 $portableZip = Join-Path $distDir "open-herd-v$version-portable.zip"
@@ -174,11 +163,11 @@ Remove-Item $portableStage -Recurse -Force
 $zipSizeMB = [math]::Round((Get-Item $portableZip).Length / 1MB, 1)
 Write-Host "  Portable   : open-herd-v$version-portable.zip  ($zipSizeMB MB)" -ForegroundColor Green
 
-# ── Resumen ───────────────────────────────────────────────────────────────────
+# -- Resumen ------------------------------------------------------------------
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   Listo — archivos en dist/              ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
+Write-Host "  Listo -- archivos en dist/" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Instalador: datos en %USERPROFILE%\.phpenv" -ForegroundColor White
 Write-Host "  Portable:   datos en ./data/ junto al exe" -ForegroundColor White
