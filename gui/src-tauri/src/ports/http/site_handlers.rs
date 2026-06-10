@@ -139,13 +139,16 @@ pub async fn enable_ssl(
     ssl_mgr::set_task(&container.legacy.ssl_tasks, &id, "pending", "Starting SSL issuance\u{2026}", None);
     let container2 = container.clone();
     let site_id    = id.clone();
-    tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Handle::current();
+    // The use case is fully async and offloads its blocking mkcert work via
+    // spawn_blocking internally, so run it directly on the runtime. Do NOT wrap it
+    // in spawn_blocking + Handle::block_on — re-entering the runtime panics when the
+    // inner reqwest::blocking runtime is dropped, which strands the task on "running".
+    tokio::spawn(async move {
         let set = |s: &str, m: &str, e: Option<String>| {
             ssl_mgr::set_task(&container2.legacy.ssl_tasks, &site_id, s, m, e);
         };
         set("running", "Issuing SSL certificate…", None);
-        match rt.block_on(container2.enable_ssl_uc.execute(&site_id)) {
+        match container2.enable_ssl_uc.execute(&site_id).await {
             Ok(()) => {
                 container2.legacy.log(format!("SSL enabled: {}", site_id));
                 set("done", "SSL certificate issued and nginx reloaded", None);
