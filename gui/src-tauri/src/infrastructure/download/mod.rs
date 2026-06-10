@@ -149,10 +149,19 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
             Some(p) => p,
             None => { set_php(&progress, &major, "error", &format!("PHP {} not found on windows.php.net", release.version), 0); return; }
         };
-        let expected_hash = known_php_hash(&filename);
+        // Refuse to install a PHP build we have no pinned hash for. Skipping
+        // verification silently (the old Option<None> path) would defeat the
+        // whole point of integrity checking.
+        let expected_hash = match known_php_hash(&filename) {
+            Some(h) => h,
+            None => {
+                set_php(&progress, &major, "error", &format!("No pinned SHA-256 for {} — refusing to install an unverified PHP build.", filename), 0);
+                return;
+            }
+        };
         set_php(&progress, &major, "downloading", &format!("Downloading PHP {}…", release.version), 8);
         let major2 = major.clone();
-        let result = fetch_zip(&url, &dest, "", expected_hash, &progress, move |p, pct, msg| {
+        let result = fetch_zip(&url, &dest, "", Some(expected_hash), &progress, move |p, pct, msg| {
             set_php(p, &major2, "downloading", msg, pct);
         });
         match result {
@@ -219,7 +228,12 @@ where F: FnMut(&Arc<DownloadState>, u8, &str) {
         let raw_name  = entry.name().to_string();
         let name      = if strip_prefix.is_empty() { raw_name.as_str() } else { raw_name.strip_prefix(strip_prefix).unwrap_or(&raw_name) };
         if name.is_empty() { continue; }
-        if std::path::Path::new(name).components().any(|c| c == std::path::Component::ParentDir) { continue; }
+        // Zip-slip defence: reject `..`, absolute paths and Windows drive prefixes.
+        // `dest_dir.join(absolute)` would otherwise escape dest_dir entirely.
+        use std::path::Component;
+        if std::path::Path::new(name).components().any(|c|
+            matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+        ) { continue; }
         let out_path = dest_dir.join(name);
         if entry.is_dir() { std::fs::create_dir_all(&out_path)?; }
         else {

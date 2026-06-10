@@ -11,6 +11,22 @@ fn infra_err(e: impl std::fmt::Display) -> impl IntoResponse {
     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() })))
 }
 
+fn bad_request(msg: &str) -> axum::response::Response {
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg }))).into_response()
+}
+
+/// A PHP `major` arrives from a URL path segment and is concatenated into a
+/// filesystem path (`php_dir/<major>/php.ini`). Restrict it to `N.N` so it can
+/// never contain `/`, `..` or other traversal sequences.
+fn valid_major(s: &str) -> bool {
+    let mut parts = s.split('.');
+    let major = parts.next();
+    let minor = parts.next();
+    parts.next().is_none()
+        && major.is_some_and(|m| !m.is_empty() && m.len() <= 2 && m.bytes().all(|b| b.is_ascii_digit()))
+        && minor.is_some_and(|m| !m.is_empty() && m.len() <= 2 && m.bytes().all(|b| b.is_ascii_digit()))
+}
+
 // ── GET /api/v1/php/versions ─────────────────────────────────────────────────
 
 pub async fn list_php_versions(State(container): State<ContainerRef>) -> impl IntoResponse {
@@ -50,6 +66,7 @@ pub async fn install_php(
         None => return (StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "major required" }))).into_response(),
     };
+    if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let php_dir = container.legacy.config.read().php_dir.clone();
     container.legacy.log(format!("Starting PHP {} download", major));
     match container.install_php_uc.execute(&major, &php_dir).await {
@@ -64,6 +81,7 @@ pub async fn install_php_progress(
     State(container): State<ContainerRef>,
     Path(major): Path<String>,
 ) -> impl IntoResponse {
+    if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let prog = container.legacy.downloads.php.lock().get(&major).cloned();
     match prog {
         Some(p) => {
@@ -92,6 +110,7 @@ pub async fn get_php_ini(
     State(container): State<ContainerRef>,
     Path(major): Path<String>,
 ) -> impl IntoResponse {
+    if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let php_dir  = container.legacy.config.read().php_dir.clone();
     let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
     if !ini_path.exists() {
@@ -119,6 +138,7 @@ pub async fn update_php_ini(
 ) -> impl IntoResponse {
     use crate::application::php::update_php_ini::UpdatePhpIniCommand;
 
+    if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let php_dir = container.legacy.config.read().php_dir.clone();
     let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
     if !ini_path.exists() {
@@ -158,6 +178,7 @@ pub async fn start_php_fpm(
     State(container): State<ContainerRef>,
     Path(version): Path<String>,
 ) -> impl IntoResponse {
+    if !valid_major(&version) { return bad_request("invalid PHP version"); }
     let known: Option<Vec<crate::domain::ports::process_manager::PhpInstallation>> =
         Some(container.legacy.php_versions.read().iter().map(|v| {
             crate::domain::ports::process_manager::PhpInstallation {
@@ -176,6 +197,7 @@ pub async fn stop_php_fpm(
     State(container): State<ContainerRef>,
     Path(version): Path<String>,
 ) -> impl IntoResponse {
+    if !valid_major(&version) { return bad_request("invalid PHP version"); }
     let _ = container.stop_php_uc.execute(&version).await;
-    Json(serde_json::json!({ "ok": true }))
+    Json(serde_json::json!({ "ok": true })).into_response()
 }

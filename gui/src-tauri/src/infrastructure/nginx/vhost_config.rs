@@ -58,7 +58,9 @@ server {{ listen 443 ssl; server_name {domain}; ssl_certificate "{cert_path}"; s
 
 fn build_conf(site: &Site, http_port: u16, fastcgi_params: &str) -> String {
     let root      = document_root(site);
-    let root_str  = root.to_string_lossy().replace('\\', "/");
+    // Escape quotes like the SSL variant does — a path containing `"` could
+    // otherwise close the nginx string and inject directives.
+    let root_str  = root.to_string_lossy().replace('\\', "/").replace('"', "\\\"");
     let fpm_port  = fastcgi_port(&site.php_version);
     let domain    = &site.domain;
     let autoindex = if site.project_type == "generic" { "autoindex on;" } else { "autoindex off;" };

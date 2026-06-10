@@ -1,14 +1,64 @@
-use axum::{Router, routing::{get, post}, http::Method};
+use axum::{
+    Router,
+    routing::{get, post},
+    http::{Method, StatusCode, header},
+    extract::Request,
+    middleware::{self, Next},
+    response::Response,
+};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 use crate::infrastructure::container::AppContainer;
 use crate::ports::http::{config_handlers, nginx_handlers, php_handlers, site_handlers};
 
+/// Extract the hostname from a `Host` or `authority` value, dropping the port.
+/// Handles bracketed IPv6 (`[::1]:7878`).
+fn hostname(value: &str) -> &str {
+    if let Some(rest) = value.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    value.split(':').next().unwrap_or(value)
+}
+
+fn host_is_local(host: &str) -> bool {
+    matches!(hostname(host), "127.0.0.1" | "localhost" | "::1")
+}
+
+/// The webview talks to the daemon cross-origin (its page lives at
+/// `tauri.localhost` / `localhost:1420`), so a legitimate request carries one of
+/// those origins. Any other origin means a foreign website is driving the call.
+fn origin_is_allowed(origin: &str) -> bool {
+    match origin.split_once("://") {
+        Some((_, rest)) => matches!(hostname(rest), "127.0.0.1" | "localhost" | "::1" | "tauri.localhost"),
+        None => false,
+    }
+}
+
+/// Security guard for the loopback API. Binding to 127.0.0.1 keeps remote hosts
+/// out, but any website the user visits can still reach the port from their
+/// browser. Without this, that enables CSRF (state-changing calls) and DNS
+/// rebinding. We reject:
+///   • requests whose `Host` is not loopback (defeats DNS rebinding), and
+///   • requests carrying an `Origin` that isn't our own webview (defeats CSRF).
+/// Requests with no `Origin` (curl, the shutdown probe) are allowed through as
+/// long as their `Host` is local.
+async fn local_guard(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let headers = req.headers();
+    if let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) {
+        if !host_is_local(host) { return Err(StatusCode::FORBIDDEN); }
+    }
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        if !origin_is_allowed(origin) { return Err(StatusCode::FORBIDDEN); }
+    }
+    Ok(next.run(req).await)
+}
+
 pub fn build_router(container: Arc<AppContainer>) -> Router {
-    // The daemon only binds 127.0.0.1 (loopback), so allowing any origin is safe.
-    // A strict origin list causes silent CORS failures in production Tauri builds
-    // because the WebView2 Origin header format can vary between dev and release.
+    // CORS stays permissive so the webview can read responses regardless of how
+    // WebView2 formats its Origin across dev/release. The actual security boundary
+    // is `local_guard` below, which rejects foreign origins server-side before any
+    // handler runs — CORS only governs whether JS may *read* a response.
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -46,6 +96,7 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/config",                        get(config_handlers::get_config).put(config_handlers::update_config))
         .route("/api/v1/daemon/logs",                   get(config_handlers::daemon_logs))
         .route("/api/v1/daemon/quit",                   post(config_handlers::quit_daemon))
+        .layer(middleware::from_fn(local_guard))
         .layer(cors)
         .with_state(container)
 }

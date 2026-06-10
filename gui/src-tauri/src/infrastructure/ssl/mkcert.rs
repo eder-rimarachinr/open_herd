@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use parking_lot::Mutex;
+use sha2::{Digest, Sha256};
 use crate::infrastructure::dto::AsyncTask;
 
 #[cfg(target_os = "windows")]
@@ -16,6 +17,14 @@ const MKCERT_URL: &str = "https://github.com/FiloSottile/mkcert/releases/downloa
 #[cfg(not(target_os = "windows"))]
 const MKCERT_URL: &str = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-amd64";
 
+// SHA-256 pinned per platform. mkcert is downloaded and then executed (it installs
+// a root CA into the system trust store), so we MUST verify integrity before writing
+// it to disk — a MITM or compromised release would otherwise run arbitrary code.
+#[cfg(target_os = "windows")]
+const MKCERT_SHA256: &str = "d2660b50a9ed59eada480750561c96abc2ed4c9a38c6a24d93e30e0977631398";
+#[cfg(not(target_os = "windows"))]
+const MKCERT_SHA256: &str = "6d31c65b03972c6dc4a14ab429f2928300518b26503f58723e532d1b0a3bbb52";
+
 pub fn mkcert_path(base_dir: &Path) -> PathBuf {
     #[cfg(target_os = "windows")] return base_dir.join("mkcert.exe");
     #[cfg(not(target_os = "windows"))] return base_dir.join("mkcert");
@@ -28,6 +37,13 @@ pub fn ensure_mkcert(base_dir: &Path) -> Result<PathBuf, String> {
     let resp   = client.get(MKCERT_URL).send().map_err(|e| format!("Failed to download mkcert {}: {}", MKCERT_VERSION, e))?;
     if !resp.status().is_success() { return Err(format!("mkcert download returned HTTP {}", resp.status())); }
     let bytes  = resp.bytes().map_err(|e| e.to_string())?;
+    let actual = hex::encode(Sha256::digest(&bytes));
+    if actual != MKCERT_SHA256 {
+        return Err(format!(
+            "mkcert SHA-256 mismatch — refusing to run an untrusted binary.\n  expected: {}\n  actual:   {}",
+            MKCERT_SHA256, actual
+        ));
+    }
     std::fs::write(&path, &bytes).map_err(|e| format!("Failed to save mkcert: {}", e))?;
     #[cfg(not(target_os = "windows"))] {
         use std::os::unix::fs::PermissionsExt;
