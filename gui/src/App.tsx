@@ -6,7 +6,6 @@ import PHP      from "./pages/PHP";
 import SSL      from "./pages/SSL";
 import Nginx    from "./pages/Nginx";
 import Logs     from "./pages/Logs";
-import Database from "./pages/Database";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -19,7 +18,6 @@ export default function App() {
           <Route path="/nginx"    element={<Nginx />} />
           <Route path="/ssl"      element={<SSL />} />
           <Route path="/logs"     element={<Logs />} />
-          <Route path="/database" element={<Database />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

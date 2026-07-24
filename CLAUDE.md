@@ -10,10 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Component | Language | Entry point |
 |-----------|----------|-------------|
-| `gui/src-tauri/src/daemon/` | Rust (axum + tokio) | `gui/src-tauri/src/lib.rs` |
+| `gui/src-tauri/src/` | Rust (axum + tokio, hexagonal architecture) | `gui/src-tauri/src/lib.rs` |
 | `gui/src/` | React/TypeScript (Tauri v2) | `gui/src/main.tsx` |
 
-Key dependencies: daemon uses `axum`, `tokio`, `parking_lot`, `serde_json`, `anyhow`, `uuid`, `chrono`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
+Key dependencies: backend uses `axum`, `tokio`, `parking_lot`, `serde_json`, `anyhow`, `thiserror`, `async-trait`, `uuid`, `chrono`, `reqwest`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
 
 ## Development commands
 
@@ -38,28 +38,46 @@ npm run dev   # serves at http://localhost:1420
 
 ## Tests
 
-Integration tests live in `gui/src-tauri/tests/`:
+Backend, from `gui/src-tauri`:
 ```bash
-cd gui/src-tauri
-cargo test
+cargo test --lib   # domain + application unit tests (no I/O, no server)
+cargo test         # integration tests in tests/ — real AppContainer + axum-test HTTP calls
 ```
-Tests spin up a real in-process `AppState` and call route handlers directly — no mock state.
+`cargo clippy` enforces `unwrap_used`, `expect_used`, and cognitive-complexity warnings (see `[lints.clippy]` in `gui/src-tauri/Cargo.toml`) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
+
+Frontend, from `gui`:
+```bash
+npm test        # vitest run
+npm run test:ui # vitest --ui
+npm run lint    # eslint src
+```
 
 ## Architecture
 
-### Daemon (Rust, embedded in Tauri)
+### Backend: hexagonal architecture (ports & adapters)
 
-The daemon is **not a separate process** — it runs as a background Tokio thread inside the Tauri app, started in `gui/src-tauri/src/lib.rs`:
+The backend is **not a separate process** — it runs as a background Tokio thread inside the Tauri app, started in `gui/src-tauri/src/lib.rs`. It exposes an HTTP API on `127.0.0.1:7878` (axum router). The GUI talks to it via `fetch` through `gui/src/api/client.ts`.
 
-```rust
-std::thread::spawn(move || {
-    tokio::runtime::Runtime::new().unwrap().block_on(server::start(state));
-});
+```
+gui/src-tauri/src/
+├── domain/          # Pure business rules, no external deps
+│   ├── site/        # Site aggregate (entity.rs), value objects, SiteRepository trait
+│   ├── ports/        # Traits: WebServerPort, SslPort, DnsPort, PhpProcessPort, PhpDetectorPort
+│   └── errors.rs     # DomainError / ApplicationError
+├── application/      # Use cases, one file per operation (CreateSiteUseCase, EnableSslUseCase, ...)
+│   ├── site/, php/, nginx/, services/
+├── infrastructure/   # Concrete adapters + shared runtime state
+│   ├── nginx/, php/, dns/, ssl/, persistence/, download/, config/, dto/
+│   ├── container.rs  # AppContainer — wires adapters to use cases (DI root)
+│   └── state/        # AppState — legacy shared runtime state (see below)
+└── ports/http/       # Thin axum handlers per resource — *_handlers.rs, delegate to use cases
 ```
 
-It exposes an HTTP API on `127.0.0.1:7878` (axum router). The GUI communicates with it via `fetch` through `gui/src/api/client.ts`.
+Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs every adapter (`JsonSiteRepository`, `NginxAdapter`, `HostsAdapter`, `MkcertAdapter`, `PhpProcessAdapter`, `SystemPhpDetector`) and injects them into use cases. Handlers in `ports/http/*_handlers.rs` take `State<Arc<AppContainer>>` and call `container.<x>_uc.execute(...)` or `container.site_repo` directly — they should stay thin and never touch adapters or `AppState` fields directly.
 
-### API routes (defined in `gui/src-tauri/src/daemon/server.rs`)
+**Legacy bridge, still load-bearing:** `AppContainer` also holds `legacy: Arc<AppState>` (in `infrastructure/state/mod.rs`) and `Deref`s to it. `AppState` predates the hexagonal migration and still owns some shared runtime state directly (`php_versions`, `nginx` status, `downloads`, `ssl_tasks`, `daemon_log`) that hasn't been ported to a proper port/adapter yet. New site persistence goes through `site_repo` (domain `Site` entities, mapped to/from the legacy DTO shape via `infrastructure/persistence/site_mapper.rs`), but PHP/nginx/download progress state is still read straight off `container.legacy.*`. When adding a feature, prefer a new use case + port over adding fields to `AppState`.
+
+### API routes (registered in `gui/src-tauri/src/ports/http/server.rs`)
 
 ```text
 GET      /api/v1/status
@@ -81,6 +99,7 @@ POST     /api/v1/php/install
 GET      /api/v1/php/install/:major/progress
 POST     /api/v1/php/versions/:version/start
 POST     /api/v1/php/versions/:version/stop
+GET/PUT  /api/v1/php/versions/:version/ini
 
 GET      /api/v1/nginx/status
 GET      /api/v1/nginx/info
@@ -99,27 +118,15 @@ GET      /api/v1/daemon/logs
 POST     /api/v1/daemon/quit
 ```
 
-### Daemon module layout (`gui/src-tauri/src/daemon/`)
+### API security (`ports/http/server.rs`)
 
-| File | Responsibility |
-|------|---------------|
-| `state.rs` | `AppState` (all shared state behind `parking_lot::RwLock`), site persistence |
-| `models.rs` | Serde structs: `Site`, `PhpVersion`, `NginxStatus`, `Config`, etc. |
-| `config.rs` | `Config` load/save, `resolve_base_dir` (portable vs `~/.phpenv`) |
-| `routes.rs` | All axum handler functions |
-| `server.rs` | Router wiring, TCP bind with retry |
-| `nginx.rs` | nginx process management, config generation |
-| `php.rs` | PHP detection, php-cgi/php-fpm process management |
-| `dns.rs` | `/etc/hosts` read/write |
-| `download.rs` | Async download with progress tracking |
-| `site_config.rs` | Per-site nginx config generation |
-| `site_info.rs` | Project type detection, site metadata |
+CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format its `Origin` consistently across dev/release. The real boundary is the `local_guard` middleware, applied to every route: it rejects requests whose `Host` isn't loopback (blocks DNS rebinding) and requests carrying a non-webview `Origin` (blocks CSRF from arbitrary websites hitting `127.0.0.1:7878`). Keep this in mind before loosening CORS instead of extending `local_guard`.
 
 ### GUI (`gui/src/`)
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `gui/src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages: Sites (complete), PHP (partial), Nginx (partial), SSL (stub), Logs (stub).
+Pages (`gui/src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (stub), Logs (stub).
 
 ## Data persistence
 
@@ -134,7 +141,7 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode 
 
 ## Project type detection
 
-`site_info.rs` classifies sites by directory contents:
+`application/site/project_type_detector.rs` classifies sites by directory contents:
 - **laravel**: `artisan` + `public/`
 - **codeigniter4**: `spark`
 - **codeigniter3**: `application/` + `system/` + `index.php`
@@ -154,4 +161,4 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode 
 
 ## Async tasks
 
-SSL issuance and nginx/PHP downloads use Tokio tasks with progress stored in `DownloadState` (arc + mutex). The frontend polls the corresponding `/progress` endpoints.
+SSL issuance and nginx/PHP downloads use Tokio tasks with progress stored in `DownloadState` / `SslTasks` (arc + mutex, on `AppState`). The frontend polls the corresponding `/progress` endpoints.

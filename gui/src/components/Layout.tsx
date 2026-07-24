@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Globe, Cpu, Server, ShieldCheck, Terminal,
-  Database, Settings, Sun, Moon, Play, Square, Power,
+  Settings, Sun, Moon, Play, Square, Power,
   Circle, AlertTriangle,
 } from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
@@ -14,7 +14,6 @@ const NAV = [
   { to: "/php",      label: "PHP",      Icon: Cpu },
   { to: "/nginx",    label: "Nginx",    Icon: Server },
   { to: "/ssl",      label: "SSL",      Icon: ShieldCheck },
-  { to: "/database", label: "Database", Icon: Database },
   { to: "/logs",     label: "Logs",     Icon: Terminal },
 ];
 
