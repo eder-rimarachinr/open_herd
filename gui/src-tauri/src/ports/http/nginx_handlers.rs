@@ -18,7 +18,9 @@ fn infra_err(e: impl std::fmt::Display) -> impl IntoResponse {
 // ── GET /api/v1/nginx/status ──────────────────────────────────────────────────
 
 pub async fn nginx_status(State(container): State<ContainerRef>) -> impl IntoResponse {
-    Json(container.legacy.nginx.read().clone())
+    use crate::infrastructure::dto::NginxStatus;
+    let status = container.web_server.status().await;
+    Json(NginxStatus { running: status.running, version: status.version, pid: status.pid })
 }
 
 // ── GET /api/v1/nginx/info ────────────────────────────────────────────────────
@@ -26,8 +28,7 @@ pub async fn nginx_status(State(container): State<ContainerRef>) -> impl IntoRes
 pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoResponse {
     let nginx_dir = container.legacy.config.read().nginx_dir.clone();
     let binary    = nginx_mgr::find_nginx_binary(&nginx_dir);
-    let running   = nginx_mgr::is_running(&container.legacy.nginx_proc);
-    if !running { container.legacy.nginx.write().running = false; }
+    let running   = container.web_server.status().await.running;
     let version     = binary.as_ref().and_then(|b| nginx_mgr::get_nginx_version(b)).unwrap_or_default();
     let binary_path = binary.map(|b| b.to_string_lossy().to_string()).unwrap_or_default();
     Json(NginxInfo {
@@ -117,8 +118,7 @@ pub async fn stop_services(State(container): State<ContainerRef>) -> impl IntoRe
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async fn build_service_status(container: &ContainerRef) -> ServiceStatus {
-    let nginx_running = nginx_mgr::is_running(&container.legacy.nginx_proc);
-    if !nginx_running { container.legacy.nginx.write().running = false; }
+    let nginx_running = container.web_server.status().await.running;
     let running = php::running_versions(&container.legacy.php_proc);
     let versions = container.php_version_repo.list().await;
     let php_status: Vec<PhpVersionStatus> = running.iter().map(|major| {

@@ -9,7 +9,7 @@ pub type ContainerRef = Arc<AppContainer>;
 pub async fn get_status(State(container): State<ContainerRef>) -> impl IntoResponse {
     use crate::infrastructure::{dto::NginxRunning, php::process as php_mgr};
     let uptime   = container.legacy.started_at.elapsed().as_secs();
-    let nginx    = container.legacy.nginx.read();
+    let nginx    = container.web_server.status().await;
     let php_vers = php_mgr::running_versions(&container.legacy.php_proc);
     Json(DaemonStatus {
         status:       "ok".into(),

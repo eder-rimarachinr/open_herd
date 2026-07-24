@@ -9,8 +9,16 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-pub struct NginxProcess { pub child: Mutex<Option<Child>> }
-impl NginxProcess { pub fn new() -> Arc<Self> { Arc::new(Self { child: Mutex::new(None) }) } }
+pub struct NginxProcess {
+    pub child: Mutex<Option<Child>>,
+    pub version: Mutex<Option<String>>,
+    pub pid: Mutex<Option<u32>>,
+}
+impl NginxProcess {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { child: Mutex::new(None), version: Mutex::new(None), pid: Mutex::new(None) })
+    }
+}
 
 pub fn find_nginx_binary(nginx_dir: &str) -> Option<PathBuf> {
     let win = Path::new(nginx_dir).join("nginx.exe");
@@ -90,8 +98,8 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Str
     }
     drop(lock);
 
-    let mut nginx = state.nginx.write();
-    nginx.running = true; nginx.pid = Some(pid); nginx.version = version;
+    *nginx_proc.version.lock() = version;
+    *nginx_proc.pid.lock() = Some(pid);
     state.log("Nginx started".into());
     Ok(())
 }
@@ -110,8 +118,9 @@ pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Stri
         std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = child.kill(); let _ = child.wait();
     }
-    let mut nginx = state.nginx.write();
-    nginx.running = false; nginx.pid = None;
+    drop(lock);
+    *nginx_proc.version.lock() = None;
+    *nginx_proc.pid.lock() = None;
     state.log("Nginx stopped".into());
     Ok(())
 }
@@ -131,7 +140,15 @@ pub fn reload(state: &AppState) -> Result<(), String> {
 pub fn is_running(nginx_proc: &Arc<NginxProcess>) -> bool {
     let mut lock = nginx_proc.child.lock();
     if let Some(child) = lock.as_mut() {
-        match child.try_wait() { Ok(None) => true, Ok(Some(_)) | Err(_) => { *lock = None; false } }
+        match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(_)) | Err(_) => {
+                *lock = None;
+                *nginx_proc.version.lock() = None;
+                *nginx_proc.pid.lock() = None;
+                false
+            }
+        }
     } else { false }
 }
 
@@ -175,3 +192,15 @@ http {{ include "{mime}"; default_type application/octet-stream; access_log "{lo
 }
 
 const BASIC_MIME_TYPES: &str = "types {\n    text/html html htm shtml;\n    text/css css;\n    text/xml xml;\n    application/javascript js;\n    application/json json;\n    image/gif gif;\n    image/jpeg jpeg jpg;\n    image/png png;\n    image/svg+xml svg svgz;\n    image/webp webp;\n    image/x-icon ico;\n    font/woff woff;\n    font/woff2 woff2;\n    application/octet-stream bin exe dll;\n    application/zip zip;\n    application/pdf pdf;\n}\n";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_process_reports_not_running_with_no_version_or_pid() {
+        let proc = NginxProcess::new();
+        assert!(proc.version.lock().is_none());
+        assert!(proc.pid.lock().is_none());
+    }
+}

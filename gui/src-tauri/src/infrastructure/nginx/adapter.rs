@@ -51,4 +51,14 @@ impl WebServerPort for NginxAdapter {
         tokio::task::spawn_blocking(move || ng::stop(&state, &nginx_proc).map_err(|e| InfrastructureError::ProcessFailed(e)))
             .await.unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
     }
+
+    async fn status(&self) -> crate::domain::ports::web_server::WebServerStatus {
+        use crate::domain::ports::web_server::WebServerStatus;
+        let running = ng::is_running(&self.state.nginx_proc);
+        WebServerStatus {
+            running,
+            version: self.state.nginx_proc.version.lock().clone(),
+            pid: *self.state.nginx_proc.pid.lock(),
+        }
+    }
 }
