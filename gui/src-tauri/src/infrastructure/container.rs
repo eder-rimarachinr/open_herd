@@ -36,6 +36,7 @@ use crate::{
         download::DownloadProgressPort,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
+        ssl_task::SslTaskPort,
         web_server::WebServerPort,
     },
     domain::site::repository::SiteRepository,
@@ -48,6 +49,7 @@ use crate::infrastructure::{
     persistence::json_site_repository::JsonSiteRepository,
     php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, version_repository::InMemoryPhpVersionRepository},
     ssl::mkcert_adapter::MkcertAdapter,
+    ssl::task_tracker::InMemorySslTaskTracker,
 };
 
 pub struct AppContainer {
@@ -65,6 +67,7 @@ pub struct AppContainer {
     pub php_detector:     Arc<dyn PhpDetectorPort>,
     pub php_version_repo: Arc<dyn PhpVersionRepository>,
     pub downloads: Arc<dyn DownloadProgressPort>,
+    pub ssl_tasks: Arc<dyn SslTaskPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -110,6 +113,7 @@ impl AppContainer {
         let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new());
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();
         let downloads: Arc<dyn DownloadProgressPort> = DownloadTracker::new();
+        let ssl_tasks: Arc<dyn SslTaskPort> = InMemorySslTaskTracker::new();
 
         // ── Use cases — Sites ────────────────────────────────────────────────
         let create_site_uc = CreateSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
@@ -144,7 +148,7 @@ impl AppContainer {
 
         Arc::new(Self {
             legacy: state,
-            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads,
+            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,
