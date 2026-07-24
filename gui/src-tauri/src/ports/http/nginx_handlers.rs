@@ -52,8 +52,7 @@ pub async fn download_nginx(State(container): State<ContainerRef>) -> impl IntoR
 // ── GET /api/v1/nginx/download/progress ──────────────────────────────────────
 
 pub async fn nginx_download_progress(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let prog = container.legacy.downloads.nginx.lock().clone();
-    match prog {
+    match container.downloads.nginx_progress().await {
         Some(p) => Json(AsyncTask { state: p.state, message: p.message, error: p.error }),
         None    => Json(AsyncTask { state: "done".into(), message: String::new(), error: None }),
     }

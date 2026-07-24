@@ -4,25 +4,15 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
+use crate::domain::ports::download::DownloadProgress;
+
+pub mod tracker;
+
 const NGINX_VERSION: &str = "1.26.3";
 const NGINX_URL:     &str = "https://nginx.org/download/nginx-1.26.3.zip";
 const NGINX_SHA256:  &str = "39ca13277b361910f9e463a7e958e11566f7ede8a6f0df08a21b659ca92f3662";
 
 // ── Progress ──────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DownloadProgress {
-    pub state:   String,
-    pub message: String,
-    pub percent: u8,
-    pub error:   Option<String>,
-}
-
-impl DownloadProgress {
-    pub fn error(e: &str) -> Self {
-        Self { state: "error".into(), message: e.into(), percent: 0, error: Some(e.into()) }
-    }
-}
 
 pub struct DownloadState {
     pub nginx: Mutex<Option<DownloadProgress>>,

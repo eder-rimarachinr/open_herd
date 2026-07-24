@@ -82,8 +82,7 @@ pub async fn install_php_progress(
     Path(major): Path<String>,
 ) -> impl IntoResponse {
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let prog = container.legacy.downloads.php.lock().get(&major).cloned();
-    match prog {
+    match container.downloads.php_progress(&major).await {
         Some(p) => {
             let error = if p.state == "error" { Some(p.message.clone()) } else { p.error.clone() };
             Json(InstallProgress { major, state: p.state, message: p.message, percent: p.percent, error })

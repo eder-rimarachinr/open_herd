@@ -1,25 +1,21 @@
 use std::{path::PathBuf, sync::Arc};
-use crate::infrastructure::download::DownloadState;
-use crate::domain::errors::ApplicationError;
+use crate::domain::{errors::ApplicationError, ports::download::DownloadProgressPort};
 
 pub struct DownloadNginxUseCase {
-    downloads: Arc<DownloadState>,
+    downloads: Arc<dyn DownloadProgressPort>,
 }
 
 impl DownloadNginxUseCase {
-    pub fn new(downloads: Arc<DownloadState>) -> Self { Self { downloads } }
+    pub fn new(downloads: Arc<dyn DownloadProgressPort>) -> Self { Self { downloads } }
 
     pub async fn execute(&self, nginx_dir: &str) -> Result<String, ApplicationError> {
-        {
-            let current = self.downloads.nginx.lock();
-            if let Some(ref p) = *current {
-                if p.state == "downloading" || p.state == "extracting" {
-                    return Ok(p.state.clone());
-                }
+        if let Some(prog) = self.downloads.nginx_progress().await {
+            if prog.state == "downloading" || prog.state == "extracting" {
+                return Ok(prog.state);
             }
         }
         let dir = PathBuf::from(nginx_dir);
-        crate::infrastructure::download::download_nginx(&dir, self.downloads.clone());
+        self.downloads.start_nginx_download(&dir).await;
         Ok("pending".into())
     }
 }

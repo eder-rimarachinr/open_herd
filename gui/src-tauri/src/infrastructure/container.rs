@@ -33,6 +33,7 @@ use crate::{
     infrastructure::state::AppState,
     domain::ports::{
         dns::DnsPort,
+        download::DownloadProgressPort,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
         web_server::WebServerPort,
@@ -42,6 +43,7 @@ use crate::{
 
 use crate::infrastructure::{
     dns::hosts_adapter::HostsAdapter,
+    download::tracker::DownloadTracker,
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
     php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, version_repository::InMemoryPhpVersionRepository},
@@ -62,6 +64,7 @@ pub struct AppContainer {
     pub php_process_port: Arc<dyn PhpProcessPort>,
     pub php_detector:     Arc<dyn PhpDetectorPort>,
     pub php_version_repo: Arc<dyn PhpVersionRepository>,
+    pub downloads: Arc<dyn DownloadProgressPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -106,6 +109,7 @@ impl AppContainer {
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone()));
         let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new());
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();
+        let downloads: Arc<dyn DownloadProgressPort> = DownloadTracker::new();
 
         // ── Use cases — Sites ────────────────────────────────────────────────
         let create_site_uc = CreateSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
@@ -123,7 +127,7 @@ impl AppContainer {
         let stop_php_uc   = StopPhpUseCase::new(php_process_port.clone());
 
         // ── Use cases — PHP (extra) ──────────────────────────────────────────
-        let install_php_uc    = InstallPhpUseCase::new(state.downloads.clone());
+        let install_php_uc    = InstallPhpUseCase::new(downloads.clone());
         let update_php_ini_uc = UpdatePhpIniUseCase::new(
             php_process_port.clone(), php_detector.clone(), web_server.clone(),
         );
@@ -132,7 +136,7 @@ impl AppContainer {
         let start_nginx_uc    = StartNginxUseCase::new(web_server.clone());
         let stop_nginx_uc     = StopNginxUseCase::new(web_server.clone());
         let reload_nginx_uc   = ReloadNginxUseCase::new(web_server.clone());
-        let download_nginx_uc = DownloadNginxUseCase::new(state.downloads.clone());
+        let download_nginx_uc = DownloadNginxUseCase::new(downloads.clone());
 
         // ── Use cases — Services ─────────────────────────────────────────────
         let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone());
@@ -140,7 +144,7 @@ impl AppContainer {
 
         Arc::new(Self {
             legacy: state,
-            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo,
+            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,

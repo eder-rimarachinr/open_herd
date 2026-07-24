@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use crate::infrastructure::{
     config::Config,
-    download::DownloadState,
     dto::Site,
     nginx::process::NginxProcess,
     php::process::PhpProcesses,
@@ -19,7 +18,6 @@ pub struct AppState {
     pub sites:       RwLock<HashMap<String, Site>>,
     pub nginx_proc:  Arc<NginxProcess>,
     pub php_proc:    Arc<PhpProcesses>,
-    pub downloads:   Arc<DownloadState>,
     pub ssl_tasks:   SslTasks,
     pub started_at:  Instant,
     pub daemon_log:  RwLock<Vec<String>>,
@@ -35,7 +33,6 @@ impl AppState {
             sites:        RwLock::new(sites),
             nginx_proc:   NginxProcess::new(),
             php_proc:     PhpProcesses::new(),
-            downloads:    DownloadState::new(),
             ssl_tasks:    crate::infrastructure::ssl::mkcert::new_ssl_tasks(),
             started_at:   Instant::now(),
             daemon_log:   RwLock::new(vec![]),

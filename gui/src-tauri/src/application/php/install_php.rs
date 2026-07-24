@@ -1,23 +1,21 @@
 use std::{path::PathBuf, sync::Arc};
-use crate::infrastructure::download::DownloadState;
-use crate::domain::errors::ApplicationError;
+use crate::domain::{errors::ApplicationError, ports::download::DownloadProgressPort};
 
 pub struct InstallPhpUseCase {
-    downloads: Arc<DownloadState>,
+    downloads: Arc<dyn DownloadProgressPort>,
 }
 
 impl InstallPhpUseCase {
-    pub fn new(downloads: Arc<DownloadState>) -> Self { Self { downloads } }
+    pub fn new(downloads: Arc<dyn DownloadProgressPort>) -> Self { Self { downloads } }
 
     pub async fn execute(&self, major: &str, php_dir: &str) -> Result<String, ApplicationError> {
-        // No iniciar si ya hay una descarga en curso
-        if let Some(prog) = self.downloads.php.lock().get(major) {
+        if let Some(prog) = self.downloads.php_progress(major).await {
             if prog.state == "downloading" || prog.state == "extracting" {
-                return Ok(prog.state.clone());
+                return Ok(prog.state);
             }
         }
         let dir = PathBuf::from(php_dir);
-        crate::infrastructure::download::download_php(major, &dir, self.downloads.clone());
+        self.downloads.start_php_download(major, &dir).await;
         Ok("pending".into())
     }
 }
