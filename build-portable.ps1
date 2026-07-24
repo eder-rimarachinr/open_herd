@@ -136,6 +136,21 @@ if ($nsisSetup) {
     Write-Host "         Asegurate de que NSIS este instalado en Windows." -ForegroundColor DarkYellow
 }
 
+# -- Instalador MSI (WiX) ------------------------------------------------------
+# Tauri genera: "{productName}_{version}_x64_en-US.msi"
+$msiDir = Join-Path $releaseDir "bundle\msi"
+$msi    = Get-ChildItem $msiDir -Filter "*.msi" -ErrorAction SilentlyContinue |
+          Select-Object -First 1
+
+if ($msi) {
+    $msiOut = Join-Path $distDir "open-herd-v$version-x64.msi"
+    Copy-Item $msi.FullName $msiOut
+    $msiSizeMB = [math]::Round((Get-Item $msiOut).Length / 1MB, 1)
+    Write-Host "  MSI        : open-herd-v$version-x64.msi  ($msiSizeMB MB)" -ForegroundColor Green
+} else {
+    Write-Host "  AVISO: instalador MSI no encontrado en $msiDir -- omitiendo." -ForegroundColor DarkYellow
+}
+
 # -- ZIP portable -------------------------------------------------------------
 $portableStage = Join-Path $distDir "_portable_stage"
 New-Item -ItemType Directory -Path $portableStage | Out-Null

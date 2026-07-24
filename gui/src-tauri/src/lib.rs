@@ -27,8 +27,8 @@ pub fn run() {
     let state     = AppState::new(base_dir.clone(), config);
     let container = AppContainer::new(state);
 
-    let container_for_api    = container.clone();
-    let container_for_window = container.clone();
+    let container_for_api  = container.clone();
+    let container_for_tray = container.clone();
     let crash_log = log_dir.join("daemon-crash.log");
     let crash_log_thread = crash_log.clone();
 
@@ -59,18 +59,60 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .on_window_event(move |_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let container = container_for_window.clone();
-                std::thread::spawn(move || {
-                    tokio::runtime::Runtime::new()
-                        .expect("tokio rt for shutdown")
-                        .block_on(config_handlers::graceful_shutdown(&container));
-                });
+        .on_window_event(|window, event| {
+            // Closing the window minimizes to the tray instead of quitting — the
+            // daemon (nginx/PHP) keeps running. Real shutdown only happens via the
+            // sidebar Quit button or the tray menu's "Salir" item, both of which
+            // hit /api/v1/daemon/quit (or graceful_shutdown directly, for the tray).
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .setup(move |app| {
-            #[cfg(debug_assertions)] { use tauri::Manager; app.get_webview_window("main").unwrap().open_devtools(); }
+            use tauri::Manager;
+            #[cfg(debug_assertions)] { app.get_webview_window("main").unwrap().open_devtools(); }
+
+            // -- System tray -------------------------------------------------------
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+            let show_item = MenuItem::with_id(app, "show", "Mostrar Open Herd", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("no default window icon set in tauri.conf.json").clone())
+                .tooltip("Open Herd")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        let container = container_for_tray.clone();
+                        std::thread::spawn(move || {
+                            tokio::runtime::Runtime::new()
+                                .expect("tokio rt for shutdown")
+                                .block_on(config_handlers::graceful_shutdown(&container));
+                        });
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
 
             // Verify the daemon came up; show a native error dialog if it did not.
             let handle     = app.handle().clone();

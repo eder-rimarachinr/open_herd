@@ -34,7 +34,9 @@
       "Bash(bash \"C:/Users/ederr/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 11e1ceeb95a61e55e3de020ecf07323a4998ecfe 98c5646)",
       "Bash(bash \"C:/Users/ederr/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief\" docs/superpowers/plans/2026-07-24-appstate-hexagonal-migration.md 3)",
       "Bash(grep -B6 -E \"download/mod.rs:206|state\\\\\\\\\\\\\\\\mod.rs:43|state\\\\\\\\\\\\\\\\mod.rs:60|php_handlers.rs:157|download\\\\\\\\\\\\\\\\tracker.rs:70\" \"C:\\\\Users\\\\ederr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--proyectos-propios-open-herd\\\\437613e0-b211-404a-b470-f9d82a20a1ce\\\\scratchpad\\\\clippy_out.txt\")",
-      "Bash(grep -B2 -E \"download\\\\\\\\\\\\\\\\tracker.rs|download\\\\\\\\\\\\\\\\mod.rs|container.rs|php_handlers.rs|nginx_handlers.rs|state\\\\\\\\\\\\\\\\mod.rs|install_php.rs|download_nginx.rs\")"
+      "Bash(grep -B2 -E \"download\\\\\\\\\\\\\\\\tracker.rs|download\\\\\\\\\\\\\\\\mod.rs|container.rs|php_handlers.rs|nginx_handlers.rs|state\\\\\\\\\\\\\\\\mod.rs|install_php.rs|download_nginx.rs\")",
+      "Bash(find \"$HOME/.cargo/registry/src\" -maxdepth 1 -iname \"tauri-2.*\" 2>/dev/null | head -5)",
+      "Bash(find / -maxdepth 6 -type d -iname \"tauri-2.*\" 2>/dev/null | grep -i registry)"
     ]
   }
 }
