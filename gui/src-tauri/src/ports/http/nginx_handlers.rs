@@ -88,7 +88,7 @@ pub async fn reload_nginx(State(container): State<ContainerRef>) -> impl IntoRes
 // ── GET /api/v1/services/status ───────────────────────────────────────────────
 
 pub async fn services_status(State(container): State<ContainerRef>) -> impl IntoResponse {
-    Json(build_service_status(&container))
+    Json(build_service_status(&container).await)
 }
 
 // ── POST /api/v1/services/start ───────────────────────────────────────────────
@@ -101,7 +101,7 @@ pub async fn start_services(State(container): State<ContainerRef>) -> impl IntoR
     tokio::task::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(container2.start_services_uc.execute(cmd))
     }).await.ok();
-    Json(build_service_status(&container))
+    Json(build_service_status(&container).await)
 }
 
 // ── POST /api/v1/services/stop ────────────────────────────────────────────────
@@ -111,17 +111,18 @@ pub async fn stop_services(State(container): State<ContainerRef>) -> impl IntoRe
     tokio::task::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(container2.stop_services_uc.execute())
     }).await.ok();
-    Json(build_service_status(&container))
+    Json(build_service_status(&container).await)
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-fn build_service_status(container: &ContainerRef) -> ServiceStatus {
+async fn build_service_status(container: &ContainerRef) -> ServiceStatus {
     let nginx_running = nginx_mgr::is_running(&container.legacy.nginx_proc);
     if !nginx_running { container.legacy.nginx.write().running = false; }
     let running = php::running_versions(&container.legacy.php_proc);
+    let versions = container.php_version_repo.list().await;
     let php_status: Vec<PhpVersionStatus> = running.iter().map(|major| {
-        let ver = container.legacy.php_versions.read().iter()
+        let ver = versions.iter()
             .find(|v| &v.major == major).map(|v| v.version.clone())
             .unwrap_or_else(|| major.clone());
         PhpVersionStatus { major: major.clone(), version: ver, running: true }

@@ -31,8 +31,7 @@ fn valid_major(s: &str) -> bool {
 
 pub async fn list_php_versions(State(container): State<ContainerRef>) -> impl IntoResponse {
     let versions = container.detect_php_uc.execute().await.unwrap_or_default();
-    let legacy = container.legacy.php_versions.read().clone();
-    let _ = versions; // detector already updated AppState.php_versions
+    let legacy: Vec<_> = versions.iter().map(crate::infrastructure::php::version_mapper::to_legacy).collect();
     Json(legacy)
 }
 
@@ -40,7 +39,8 @@ pub async fn list_php_versions(State(container): State<ContainerRef>) -> impl In
 
 pub async fn php_catalog(State(container): State<ContainerRef>) -> impl IntoResponse {
     container.detect_php_uc.execute().await.ok();
-    let versions = container.legacy.php_versions.read().clone();
+    let versions: Vec<_> = container.php_version_repo.list().await.iter()
+        .map(crate::infrastructure::php::version_mapper::to_legacy).collect();
     let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
     Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
@@ -50,7 +50,7 @@ pub async fn php_catalog(State(container): State<ContainerRef>) -> impl IntoResp
 pub async fn detect_php(State(container): State<ContainerRef>) -> impl IntoResponse {
     let installs = container.detect_php_uc.execute().await.unwrap_or_default();
     container.legacy.log(format!("PHP detect: found {} version(s)", installs.len()));
-    let versions = container.legacy.php_versions.read().clone();
+    let versions: Vec<_> = installs.iter().map(crate::infrastructure::php::version_mapper::to_legacy).collect();
     let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
     Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
@@ -179,12 +179,7 @@ pub async fn start_php_fpm(
     Path(version): Path<String>,
 ) -> impl IntoResponse {
     if !valid_major(&version) { return bad_request("invalid PHP version"); }
-    let known: Option<Vec<crate::domain::ports::process_manager::PhpInstallation>> =
-        Some(container.legacy.php_versions.read().iter().map(|v| {
-            crate::domain::ports::process_manager::PhpInstallation {
-                major: v.major.clone(), version: v.version.clone(), binary_path: v.binary_path.clone(),
-            }
-        }).collect());
+    let known = Some(container.php_version_repo.list().await);
     match container.start_php_uc.execute(&version, known).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => infra_err(e).into_response(),

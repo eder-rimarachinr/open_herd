@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use std::process::Command;
-use crate::infrastructure::{dto, state::AppState};
 use crate::domain::ports::process_manager::{PhpDetectorPort, PhpInstallation};
 
 #[cfg(target_os = "windows")]
@@ -9,23 +7,13 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-pub struct SystemPhpDetector { state: Arc<AppState> }
-impl SystemPhpDetector { pub fn new(state: Arc<AppState>) -> Self { Self { state } } }
+pub struct SystemPhpDetector;
+impl SystemPhpDetector { pub fn new() -> Self { Self } }
 
 #[async_trait]
 impl PhpDetectorPort for SystemPhpDetector {
     async fn detect(&self) -> Vec<PhpInstallation> {
-        let state = self.state.clone();
-        tokio::task::spawn_blocking(move || {
-            let installs = find_php_binaries();
-            let legacy: Vec<dto::PhpVersion> = installs.iter().map(|p| {
-                let parts: Vec<u16> = p.major.split('.').filter_map(|s| s.parse().ok()).collect();
-                let port = match parts.as_slice() { [maj, min, ..] => 9000 + maj * 10 + min, [maj] => 9000 + maj * 10, _ => 9082 };
-                dto::PhpVersion { version: p.version.clone(), major: p.major.clone(), binary_path: p.binary_path.clone(), fpm_binary: p.binary_path.clone(), fastcgi_addr: format!("127.0.0.1:{}", port), installed: true, running: false }
-            }).collect();
-            *state.php_versions.write() = legacy;
-            installs
-        }).await.unwrap_or_default()
+        tokio::task::spawn_blocking(find_php_binaries).await.unwrap_or_default()
     }
 }
 

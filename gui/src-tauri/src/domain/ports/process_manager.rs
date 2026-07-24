@@ -47,3 +47,14 @@ pub trait PhpDetectorPort: Send + Sync {
     /// También puede actualizar cualquier caché interno.
     async fn detect(&self) -> Vec<PhpInstallation>;
 }
+
+/// Puerto de caché de versiones PHP detectadas. Reemplaza el campo
+/// `AppState.php_versions` — el detector escribe aquí tras cada detección,
+/// los handlers leen de aquí en vez de tocar AppState directamente.
+#[async_trait]
+pub trait PhpVersionRepository: Send + Sync {
+    /// Reemplaza la caché completa con el resultado de una nueva detección.
+    async fn replace(&self, installs: Vec<PhpInstallation>);
+    /// Última lista detectada (vacía si `detect()` nunca se ejecutó).
+    async fn list(&self) -> Vec<PhpInstallation>;
+}

@@ -1,7 +1,7 @@
 use axum_test::TestServer;
 use tempfile::TempDir;
 use phpenv_gui_lib::{
-    infrastructure::{container::AppContainer, dto::PhpVersion},
+    infrastructure::container::AppContainer,
     ports::http::server::build_router,
 };
 mod common;
@@ -63,16 +63,16 @@ async fn php_install_progress_returns_done_for_unknown() {
 async fn php_start_stop_return_ok() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp);
+    let container = AppContainer::new(state);
 
     // Pre-registrar PHP 8.2 para que start_php_fpm pueda encontrarlo.
-    state.php_versions.write().push(PhpVersion {
-        version: "8.2.31".into(), major: "8.2".into(),
-        binary_path: "php".into(), fpm_binary: "php".into(),
-        fastcgi_addr: "127.0.0.1:9082".into(), installed: true, running: false,
-    });
+    container.php_version_repo.replace(vec![
+        phpenv_gui_lib::domain::ports::process_manager::PhpInstallation {
+            major: "8.2".into(), version: "8.2.31".into(), binary_path: "php".into(),
+        }
+    ]).await;
 
-    let container = AppContainer::new(state);
-    let server    = TestServer::new(build_router(container)).unwrap();
+    let server = TestServer::new(build_router(container)).unwrap();
 
     // Start: 200 si el binario existe, 500 si no (en CI). Nunca 404 ni cuelgue.
     let resp = server.post("/api/v1/php/versions/8.2/start").await;
