@@ -34,6 +34,7 @@ use crate::{
     domain::ports::{
         dns::DnsPort,
         download::DownloadProgressPort,
+        logger::LoggerPort,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
         ssl_task::SslTaskPort,
@@ -47,6 +48,7 @@ use crate::infrastructure::{
     download::tracker::DownloadTracker,
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
+    logging::InMemoryLogger,
     php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, version_repository::InMemoryPhpVersionRepository},
     ssl::mkcert_adapter::MkcertAdapter,
     ssl::task_tracker::InMemorySslTaskTracker,
@@ -68,6 +70,7 @@ pub struct AppContainer {
     pub php_version_repo: Arc<dyn PhpVersionRepository>,
     pub downloads: Arc<dyn DownloadProgressPort>,
     pub ssl_tasks: Arc<dyn SslTaskPort>,
+    pub logger: Arc<dyn LoggerPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -106,10 +109,11 @@ impl AppContainer {
 
         // ── Adaptadores ──────────────────────────────────────────────────────
         let site_repo:    Arc<dyn SiteRepository>  = Arc::new(JsonSiteRepository::new(state.clone()));
-        let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone()));
+        let logger: Arc<dyn LoggerPort> = InMemoryLogger::new();
+        let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone(), logger.clone()));
         let dns:          Arc<dyn DnsPort>          = Arc::new(HostsAdapter::new());
         let ssl:          Arc<dyn SslPort>          = Arc::new(MkcertAdapter::new(base_dir));
-        let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone()));
+        let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
         let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new());
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();
         let downloads: Arc<dyn DownloadProgressPort> = DownloadTracker::new();
@@ -148,7 +152,7 @@ impl AppContainer {
 
         Arc::new(Self {
             legacy: state,
-            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks,
+            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,

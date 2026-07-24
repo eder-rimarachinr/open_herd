@@ -8,8 +8,12 @@ use crate::infrastructure::{
 use crate::domain::{errors::InfrastructureError, ports::web_server::WebServerPort, site::entity::Site};
 use super::super::persistence::site_mapper;
 
-pub struct NginxAdapter { state: Arc<AppState> }
-impl NginxAdapter { pub fn new(state: Arc<AppState>) -> Self { Self { state } } }
+pub struct NginxAdapter { state: Arc<AppState>, logger: Arc<dyn crate::domain::ports::logger::LoggerPort> }
+impl NginxAdapter {
+    pub fn new(state: Arc<AppState>, logger: Arc<dyn crate::domain::ports::logger::LoggerPort>) -> Self {
+        Self { state, logger }
+    }
+}
 
 #[async_trait]
 impl WebServerPort for NginxAdapter {
@@ -35,20 +39,20 @@ impl WebServerPort for NginxAdapter {
         if !ng::is_running(&self.state.nginx_proc) {
             return Ok(());
         }
-        ng::reload(&self.state).map_err(|e| InfrastructureError::ProcessFailed(e))
+        ng::reload(&self.state, &self.logger).map_err(InfrastructureError::ProcessFailed)
     }
 
     async fn is_running(&self) -> bool { ng::is_running(&self.state.nginx_proc) }
 
     async fn start(&self) -> Result<(), InfrastructureError> {
-        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone();
-        tokio::task::spawn_blocking(move || ng::start(&state, &nginx_proc).map_err(|e| InfrastructureError::ProcessFailed(e)))
+        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone(); let logger = self.logger.clone();
+        tokio::task::spawn_blocking(move || ng::start(&state, &nginx_proc, &logger).map_err(InfrastructureError::ProcessFailed))
             .await.unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
     }
 
     async fn stop(&self) -> Result<(), InfrastructureError> {
-        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone();
-        tokio::task::spawn_blocking(move || ng::stop(&state, &nginx_proc).map_err(|e| InfrastructureError::ProcessFailed(e)))
+        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone(); let logger = self.logger.clone();
+        tokio::task::spawn_blocking(move || ng::stop(&state, &nginx_proc, &logger).map_err(InfrastructureError::ProcessFailed))
             .await.unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
     }
 

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Arc;
 use parking_lot::Mutex;
+use crate::domain::ports::logger::LoggerPort;
 use crate::infrastructure::{state::AppState, nginx::vhost_config};
 
 #[cfg(target_os = "windows")]
@@ -47,7 +48,7 @@ pub fn get_nginx_version(binary: &Path) -> Option<String> {
     Some(line.split('/').nth(1)?.trim().to_string())
 }
 
-pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
+pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>, logger: &Arc<dyn LoggerPort>) -> Result<(), String> {
     let config        = state.config.read();
     let binary        = find_nginx_binary(&config.nginx_dir).ok_or_else(|| "nginx binary not found".to_string())?;
     let http_port     = config.http_port;
@@ -100,11 +101,11 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Str
 
     *nginx_proc.version.lock() = version;
     *nginx_proc.pid.lock() = Some(pid);
-    state.log("Nginx started".into());
+    logger.log("Nginx started".into());
     Ok(())
 }
 
-pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), String> {
+pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>, logger: &Arc<dyn LoggerPort>) -> Result<(), String> {
     let binary = { let cfg = state.config.read(); find_nginx_binary(&cfg.nginx_dir) };
     if let Some(bin) = &binary {
         #[allow(unused_mut)]
@@ -121,11 +122,11 @@ pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>) -> Result<(), Stri
     drop(lock);
     *nginx_proc.version.lock() = None;
     *nginx_proc.pid.lock() = None;
-    state.log("Nginx stopped".into());
+    logger.log("Nginx stopped".into());
     Ok(())
 }
 
-pub fn reload(state: &AppState) -> Result<(), String> {
+pub fn reload(state: &AppState, logger: &Arc<dyn LoggerPort>) -> Result<(), String> {
     let (binary, conf_path) = { let cfg = state.config.read(); (find_nginx_binary(&cfg.nginx_dir), PathBuf::from(&cfg.nginx_dir).join("nginx.conf")) };
     let binary = binary.ok_or_else(|| "nginx binary not found".to_string())?;
     let bin_dir = binary.parent().unwrap_or(&binary);
@@ -134,7 +135,7 @@ pub fn reload(state: &AppState) -> Result<(), String> {
     cmd.current_dir(bin_dir).args(["-s", "reload", "-c", &conf_path.to_string_lossy()]);
     #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd.output().map_err(|e| e.to_string())?;
-    if out.status.success() { state.log("Nginx reloaded".into()); Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+    if out.status.success() { logger.log("Nginx reloaded".into()); Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
 }
 
 pub fn is_running(nginx_proc: &Arc<NginxProcess>) -> bool {

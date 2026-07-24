@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::process::{Child, Command};
 use std::sync::Arc;
 use parking_lot::Mutex;
+use crate::domain::ports::logger::LoggerPort;
 use crate::infrastructure::{dto::PhpVersion, nginx::vhost_config::fastcgi_port, state::AppState};
 
 #[cfg(target_os = "windows")]
@@ -12,7 +13,10 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 pub struct PhpProcesses { pub children: Mutex<HashMap<String, Child>> }
 impl PhpProcesses { pub fn new() -> Arc<Self> { Arc::new(Self { children: Mutex::new(HashMap::new()) }) } }
 
-pub fn start(state: &AppState, php_proc: &Arc<PhpProcesses>, version: &PhpVersion) -> Result<(), String> {
+// `state` ya no se usa en el cuerpo (solo se usaba para `.log(...)`, ahora vía `logger`),
+// pero se conserva en la firma por simetría con `nginx::process` y para no romper a los
+// call sites, que siguen pasando `&AppState` desde `PhpProcessAdapter`.
+pub fn start(_state: &AppState, php_proc: &Arc<PhpProcesses>, logger: &Arc<dyn LoggerPort>, version: &PhpVersion) -> Result<(), String> {
     let port     = fastcgi_port(&version.major);
     let mut children = php_proc.children.lock();
     if children.contains_key(&version.major) { return Ok(()); }
@@ -28,20 +32,20 @@ pub fn start(state: &AppState, php_proc: &Arc<PhpProcesses>, version: &PhpVersio
     #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
     let child = cmd.spawn()
         .map_err(|e| format!("Failed to start PHP {}: {}", version.major, e))?;
-    state.log(format!("PHP {} started on port {}", version.major, port));
+    logger.log(format!("PHP {} started on port {}", version.major, port));
     children.insert(version.major.clone(), child);
     Ok(())
 }
 
-pub fn stop(state: &AppState, php_proc: &Arc<PhpProcesses>, major: &str) -> Result<(), String> {
+pub fn stop(_state: &AppState, php_proc: &Arc<PhpProcesses>, logger: &Arc<dyn LoggerPort>, major: &str) -> Result<(), String> {
     let mut children = php_proc.children.lock();
-    if let Some(mut child) = children.remove(major) { let _ = child.kill(); let _ = child.wait(); state.log(format!("PHP {} stopped", major)); }
+    if let Some(mut child) = children.remove(major) { let _ = child.kill(); let _ = child.wait(); logger.log(format!("PHP {} stopped", major)); }
     Ok(())
 }
 
-pub fn stop_all(state: &AppState, php_proc: &Arc<PhpProcesses>) {
+pub fn stop_all(_state: &AppState, php_proc: &Arc<PhpProcesses>, logger: &Arc<dyn LoggerPort>) {
     let mut children = php_proc.children.lock();
-    for (major, mut child) in children.drain() { let _ = child.kill(); let _ = child.wait(); state.log(format!("PHP {} stopped", major)); }
+    for (major, mut child) in children.drain() { let _ = child.kill(); let _ = child.wait(); logger.log(format!("PHP {} stopped", major)); }
 }
 
 pub fn is_running(php_proc: &Arc<PhpProcesses>, major: &str) -> bool {

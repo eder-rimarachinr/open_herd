@@ -3,6 +3,7 @@ pub mod container;
 pub mod dns;
 pub mod download;
 pub mod dto;
+pub mod logging;
 pub mod nginx;
 pub mod persistence;
 pub mod php;

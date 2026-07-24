@@ -42,7 +42,7 @@ pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoRespo
 
 pub async fn download_nginx(State(container): State<ContainerRef>) -> impl IntoResponse {
     let nginx_dir = container.legacy.config.read().nginx_dir.clone();
-    container.legacy.log(format!("Starting nginx download to {}", nginx_dir));
+    container.logger.log(format!("Starting nginx download to {}", nginx_dir));
     match container.download_nginx_uc.execute(&nginx_dir).await {
         Ok(state) => Json(AsyncTask { state, message: "Download started".into(), error: None }).into_response(),
         Err(e)    => infra_err(e).into_response(),
@@ -63,7 +63,7 @@ pub async fn nginx_download_progress(State(container): State<ContainerRef>) -> i
 pub async fn start_nginx(State(container): State<ContainerRef>) -> impl IntoResponse {
     match container.start_nginx_uc.execute().await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
-        Err(e) => { container.legacy.log(format!("Nginx start failed: {}", e)); infra_err(e).into_response() }
+        Err(e) => { container.logger.log(format!("Nginx start failed: {}", e)); infra_err(e).into_response() }
     }
 }
 

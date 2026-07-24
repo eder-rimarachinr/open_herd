@@ -89,7 +89,7 @@ pub async fn create_site(
     match container.create_site_uc.execute(cmd).await {
         Ok(site) => {
             let legacy = site_mapper::to_legacy(&site);
-            container.legacy.log(format!("Site created: {}", legacy.domain));
+            container.logger.log(format!("Site created: {}", legacy.domain));
             (StatusCode::CREATED, Json(legacy)).into_response()
         }
         Err(e) => domain_err(e).into_response(),
@@ -122,7 +122,7 @@ pub async fn delete_site(
 ) -> impl IntoResponse {
     match container.delete_site_uc.execute(&id).await {
         Ok(()) => {
-            container.legacy.log(format!("Site deleted: {}", id));
+            container.logger.log(format!("Site deleted: {}", id));
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         Err(e) => domain_err(e).into_response(),
@@ -147,7 +147,7 @@ pub async fn enable_ssl(
         container2.ssl_tasks.set(&site_id, "running", "Issuing SSL certificate…", None);
         match container2.enable_ssl_uc.execute(&site_id).await {
             Ok(()) => {
-                container2.legacy.log(format!("SSL enabled: {}", site_id));
+                container2.logger.log(format!("SSL enabled: {}", site_id));
                 container2.ssl_tasks.set(&site_id, "done", "SSL certificate issued and nginx reloaded", None);
             }
             Err(e) => {
@@ -169,7 +169,7 @@ pub async fn disable_ssl(
     match container.disable_ssl_uc.execute(&id).await {
         Ok(()) => {
             container.ssl_tasks.remove(&id);
-            container.legacy.log(format!("SSL disabled: {}", id));
+            container.logger.log(format!("SSL disabled: {}", id));
             let site_opt = container.legacy.sites.read().get(&id).cloned();
             match site_opt {
                 Some(s) => Json(s).into_response(),
@@ -216,7 +216,7 @@ pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoRespo
     let cmd = ScanSitesCommand { dirs: scan_dirs, default_php: Some(default_php) };
     match container.scan_sites_uc.execute(cmd).await {
         Ok(result) => {
-            container.legacy.log(format!("Scan complete: {} new site(s) found", result.added.len()));
+            container.logger.log(format!("Scan complete: {} new site(s) found", result.added.len()));
             if !result.not_found.is_empty() && result.added.is_empty() {
                 return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
                     "error": format!("Directory not found: {}. Check the path and try again.", result.not_found.join(", "))
@@ -257,7 +257,7 @@ pub async fn refresh_site_config(
 ) -> impl IntoResponse {
     match container.refresh_site_config_uc.execute(&id).await {
         Ok(site) => {
-            container.legacy.log(format!("Config refreshed: {} (type: {})", site.domain, site.project_type));
+            container.logger.log(format!("Config refreshed: {} (type: {})", site.domain, site.project_type));
             Json(site_mapper::to_legacy(&site)).into_response()
         }
         Err(e) => domain_err(e).into_response(),

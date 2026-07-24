@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
-use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
-use crate::infrastructure::dto::AsyncTask;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -77,14 +74,4 @@ pub fn issue_cert(mkcert: &Path, domain: &str, certs_dir: &Path) -> Result<CertP
 pub fn revoke_cert(domain: &str, certs_dir: &Path) {
     let _ = std::fs::remove_file(certs_dir.join(format!("{}.pem", domain)));
     let _ = std::fs::remove_file(certs_dir.join(format!("{}-key.pem", domain)));
-}
-
-// ── Progress tracking ─────────────────────────────────────────────────────────
-
-pub type SslTasks = Arc<Mutex<std::collections::HashMap<String, AsyncTask>>>;
-
-pub fn new_ssl_tasks() -> SslTasks { Arc::new(Mutex::new(std::collections::HashMap::new())) }
-
-pub fn set_task(tasks: &SslTasks, id: &str, state: &str, message: &str, error: Option<String>) {
-    tasks.lock().insert(id.to_string(), AsyncTask { state: state.into(), message: message.into(), error });
 }

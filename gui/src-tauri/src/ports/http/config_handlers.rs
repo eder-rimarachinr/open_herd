@@ -52,9 +52,8 @@ pub async fn update_config(
 // ── GET /api/v1/daemon/logs ───────────────────────────────────────────────────
 
 pub async fn daemon_logs(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let log  = container.legacy.daemon_log.read();
-    let last: Vec<&String> = log.iter().rev().take(100).collect::<Vec<_>>().into_iter().rev().collect();
-    Json(serde_json::json!({ "logs": last.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n") }))
+    let last = container.logger.recent(100);
+    Json(serde_json::json!({ "logs": last.join("\n") }))
 }
 
 // ── POST /api/v1/daemon/quit ──────────────────────────────────────────────────
@@ -70,8 +69,8 @@ pub async fn quit_daemon(State(container): State<ContainerRef>) -> impl IntoResp
 /// Llamado tanto desde el endpoint /quit como desde el evento CloseRequested.
 pub async fn graceful_shutdown(container: &AppContainer) {
     use crate::infrastructure::{nginx::process as nginx_mgr, php::process as php_mgr};
-    php_mgr::stop_all(&container.legacy, &container.legacy.php_proc);
-    let _ = nginx_mgr::stop(&container.legacy, &container.legacy.nginx_proc);
+    php_mgr::stop_all(&container.legacy, &container.legacy.php_proc, &container.logger);
+    let _ = nginx_mgr::stop(&container.legacy, &container.legacy.nginx_proc, &container.logger);
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     std::process::exit(0);
 }

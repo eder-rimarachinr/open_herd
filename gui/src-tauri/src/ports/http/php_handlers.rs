@@ -49,7 +49,7 @@ pub async fn php_catalog(State(container): State<ContainerRef>) -> impl IntoResp
 
 pub async fn detect_php(State(container): State<ContainerRef>) -> impl IntoResponse {
     let installs = container.detect_php_uc.execute().await.unwrap_or_default();
-    container.legacy.log(format!("PHP detect: found {} version(s)", installs.len()));
+    container.logger.log(format!("PHP detect: found {} version(s)", installs.len()));
     let versions: Vec<_> = installs.iter().map(crate::infrastructure::php::version_mapper::to_legacy).collect();
     let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
     Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
@@ -68,7 +68,7 @@ pub async fn install_php(
     };
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let php_dir = container.legacy.config.read().php_dir.clone();
-    container.legacy.log(format!("Starting PHP {} download", major));
+    container.logger.log(format!("Starting PHP {} download", major));
     match container.install_php_uc.execute(&major, &php_dir).await {
         Ok(state) => Json(serde_json::json!({ "ok": true, "state": state })).into_response(),
         Err(e)    => infra_err(e).into_response(),
@@ -159,7 +159,7 @@ pub async fn update_php_ini(
         Ok(()) => {}
     }
 
-    container.legacy.log(format!("php.ini updated for PHP {}", major));
+    container.logger.log(format!("php.ini updated for PHP {}", major));
 
     // Devolver config actualizada
     let updated = std::fs::read_to_string(&ini_path).unwrap_or_default();

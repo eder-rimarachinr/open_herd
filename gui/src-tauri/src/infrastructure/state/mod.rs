@@ -9,7 +9,6 @@ use crate::infrastructure::{
     dto::Site,
     nginx::process::NginxProcess,
     php::process::PhpProcesses,
-    ssl::mkcert::SslTasks,
 };
 
 pub struct AppState {
@@ -18,9 +17,7 @@ pub struct AppState {
     pub sites:       RwLock<HashMap<String, Site>>,
     pub nginx_proc:  Arc<NginxProcess>,
     pub php_proc:    Arc<PhpProcesses>,
-    pub ssl_tasks:   SslTasks,
     pub started_at:  Instant,
-    pub daemon_log:  RwLock<Vec<String>>,
     write_lock:      parking_lot::Mutex<()>,
 }
 
@@ -33,19 +30,9 @@ impl AppState {
             sites:        RwLock::new(sites),
             nginx_proc:   NginxProcess::new(),
             php_proc:     PhpProcesses::new(),
-            ssl_tasks:    crate::infrastructure::ssl::mkcert::new_ssl_tasks(),
             started_at:   Instant::now(),
-            daemon_log:   RwLock::new(vec![]),
             write_lock:   parking_lot::Mutex::new(()),
         })
-    }
-
-    pub fn log(&self, msg: String) {
-        let mut log   = self.daemon_log.write();
-        let entry     = format!("[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
-        eprintln!("{}", entry);
-        log.push(entry);
-        if log.len() > 200 { let excess = log.len() - 200; log.drain(0..excess); }
     }
 
     pub fn atomic_write(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
