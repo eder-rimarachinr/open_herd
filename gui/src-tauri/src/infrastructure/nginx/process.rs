@@ -38,6 +38,35 @@ pub fn nginx_prefix(binary: &Path) -> PathBuf {
     bin_dir.to_path_buf()
 }
 
+/// En Windows cada arranque de nginx crea un proceso totalmente independiente
+/// (no hay fork real como en Unix), y `nginx -s reload`/`-s quit` dependen de
+/// un named event atado al PID que aparece en `nginx.pid`. Si el daemon se
+/// reinicia pierde el `Child` de la sesión anterior, y si dos arranques
+/// llegan a solaparse ese archivo puede quedar apuntando a un PID muerto —
+/// entonces las señales se pierden en el vacío y el nginx huérfano sigue
+/// vivo, sirviendo una config vieja en los puertos 80/443. Por eso, antes de
+/// levantar un proceso nuevo (o al detenerlo) buscamos y matamos por ruta de
+/// ejecutable exacta cualquier `nginx.exe` que sea el nuestro, sin depender
+/// del pid file ni del `Child` en memoria.
+#[cfg(target_os = "windows")]
+fn kill_stale_nginx(binary: &Path) {
+    let binary_str = binary.to_string_lossy().replace('\'', "''");
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | \
+         Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+        binary_str
+    );
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd.output();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_stale_nginx(_binary: &Path) {}
+
 pub fn get_nginx_version(binary: &Path) -> Option<String> {
     #[allow(unused_mut)]
     let mut cmd = Command::new(binary);
@@ -79,6 +108,9 @@ pub fn start(state: &AppState, nginx_proc: &Arc<NginxProcess>, logger: &Arc<dyn 
         if existing.try_wait().map(|s| s.is_none()).unwrap_or(false) { return Err("nginx is already running".into()); }
         *lock = None;
     }
+    // No hay Child rastreado y vivo — puede que un nginx huérfano de una
+    // sesión anterior siga ocupando los puertos con una config vieja.
+    kill_stale_nginx(&binary);
 
     let bin_dir   = binary.parent().unwrap_or(&binary);
     let error_log = PathBuf::from(&nginx_dir).join("logs").join("error.log");
@@ -120,6 +152,10 @@ pub fn stop(state: &AppState, nginx_proc: &Arc<NginxProcess>, logger: &Arc<dyn L
         let _ = child.kill(); let _ = child.wait();
     }
     drop(lock);
+    // `-s quit` puede fallar en silencio si nginx.pid está desincronizado
+    // (ver comentario en kill_stale_nginx) — esto garantiza que no quede
+    // nada nuestro corriendo, sin depender de esa señal.
+    if let Some(bin) = &binary { kill_stale_nginx(bin); }
     *nginx_proc.version.lock() = None;
     *nginx_proc.pid.lock() = None;
     logger.log("Nginx stopped".into());

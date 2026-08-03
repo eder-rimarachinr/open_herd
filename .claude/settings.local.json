@@ -36,7 +36,17 @@
       "Bash(grep -B6 -E \"download/mod.rs:206|state\\\\\\\\\\\\\\\\mod.rs:43|state\\\\\\\\\\\\\\\\mod.rs:60|php_handlers.rs:157|download\\\\\\\\\\\\\\\\tracker.rs:70\" \"C:\\\\Users\\\\ederr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--proyectos-propios-open-herd\\\\437613e0-b211-404a-b470-f9d82a20a1ce\\\\scratchpad\\\\clippy_out.txt\")",
       "Bash(grep -B2 -E \"download\\\\\\\\\\\\\\\\tracker.rs|download\\\\\\\\\\\\\\\\mod.rs|container.rs|php_handlers.rs|nginx_handlers.rs|state\\\\\\\\\\\\\\\\mod.rs|install_php.rs|download_nginx.rs\")",
       "Bash(find \"$HOME/.cargo/registry/src\" -maxdepth 1 -iname \"tauri-2.*\" 2>/dev/null | head -5)",
-      "Bash(find / -maxdepth 6 -type d -iname \"tauri-2.*\" 2>/dev/null | grep -i registry)"
+      "Bash(find / -maxdepth 6 -type d -iname \"tauri-2.*\" 2>/dev/null | grep -i registry)",
+      "PowerShell(Get-Process nginx -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Process phpenv-gui -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue)",
+      "Bash(openssl s_client -connect 127.0.0.1:443 -servername bamboo.test)",
+      "Bash(openssl x509 *)",
+      "PowerShell(Stop-Process -Force)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 80,443 -State Listen -ErrorAction SilentlyContinue)",
+      "Bash(curl -s -X POST http://127.0.0.1:7878/api/v1/nginx/start)",
+      "Bash(curl -s http://127.0.0.1:7878/api/v1/nginx/status)"
     ]
   }
 }
