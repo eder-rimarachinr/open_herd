@@ -44,7 +44,7 @@ open_herd/
 │   ├── src/             #   domain / application / infrastructure / ports
 │   ├── tests/           #   HTTP integration tests (axum-test)
 │   └── tauri.conf.json
-├── scripts/             # dev.ps1, build-portable.ps1, create-icon.ps1
+├── scripts/             # dev.ps1, build-portable.ps1
 ├── installer/           # install.ps1 / install.sh (download a release)
 ├── assets/logo.png      # source for the app icons
 ├── docs/
