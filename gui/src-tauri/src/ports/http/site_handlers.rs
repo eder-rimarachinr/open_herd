@@ -4,7 +4,10 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use serde::Deserialize;
 use std::sync::Arc;
+
+use super::extract::ApiJson;
 
 use crate::{
     application::site::{
@@ -71,22 +74,18 @@ pub async fn get_site(
 
 // ── POST /api/v1/sites ────────────────────────────────────────────────────────
 
+#[derive(Deserialize)]
+pub struct CreateSiteRequest {
+    domain: String,
+    path:   String,
+}
+
 pub async fn create_site(
     State(container): State<ContainerRef>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<CreateSiteRequest>,
 ) -> impl IntoResponse {
-    let domain = match body["domain"].as_str() {
-        Some(d) => d.to_string(),
-        None => return (StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "domain required" }))).into_response(),
-    };
-    let path = match body["path"].as_str() {
-        Some(p) => p.to_string(),
-        None => return (StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "path required" }))).into_response(),
-    };
     let default_php = container.legacy.config.read().default_php.clone();
-    let cmd = CreateSiteCommand { domain, path, default_php: Some(default_php) };
+    let cmd = CreateSiteCommand { domain: body.domain, path: body.path, default_php: Some(default_php) };
     match container.create_site_uc.execute(cmd).await {
         Ok(site) => {
             let legacy = site_mapper::to_legacy(&site);
@@ -99,16 +98,18 @@ pub async fn create_site(
 
 // ── PUT /api/v1/sites/:id ─────────────────────────────────────────────────────
 
+#[derive(Deserialize)]
+pub struct UpdateSiteRequest {
+    php_version: Option<String>,
+    active:      Option<bool>,
+}
+
 pub async fn update_site(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<UpdateSiteRequest>,
 ) -> impl IntoResponse {
-    let cmd = UpdateSiteCommand {
-        site_id:     id,
-        php_version: body["php_version"].as_str().map(str::to_string),
-        active:      body["active"].as_bool(),
-    };
+    let cmd = UpdateSiteCommand { site_id: id, php_version: body.php_version, active: body.active };
     match container.update_site_uc.execute(cmd).await {
         Ok(site) => Json(site_mapper::to_legacy(&site)).into_response(),
         Err(e)   => domain_err(&e).into_response(),
@@ -234,16 +235,22 @@ pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoRespo
 
 // ── POST /api/v1/sites/bulk ───────────────────────────────────────────────────
 
+/// Fields default to empty so one incomplete item is skipped by the use case
+/// (bulk never aborts on a bad item) instead of rejecting the whole request.
+#[derive(Deserialize)]
+pub struct BulkSiteRequest {
+    #[serde(default)] domain: String,
+    #[serde(default)] path:   String,
+}
+
 pub async fn bulk_add_sites(
     State(container): State<ContainerRef>,
-    Json(body): Json<Vec<serde_json::Value>>,
+    ApiJson(body): ApiJson<Vec<BulkSiteRequest>>,
 ) -> impl IntoResponse {
     let default_php = container.legacy.config.read().default_php.clone();
-    let items: Vec<BulkSiteItem> = body.iter().filter_map(|item| {
-        let domain = item["domain"].as_str()?.to_string();
-        let path   = item["path"].as_str()?.to_string();
-        Some(BulkSiteItem { domain, path })
-    }).collect();
+    let items: Vec<BulkSiteItem> = body.into_iter()
+        .map(|item| BulkSiteItem { domain: item.domain, path: item.path })
+        .collect();
     match container.bulk_add_sites_uc.execute(items, Some(default_php)).await {
         Ok(sites) => Json(sites.iter().map(site_mapper::to_legacy).collect::<Vec<_>>()).into_response(),
         Err(e) => domain_err(&e).into_response(),

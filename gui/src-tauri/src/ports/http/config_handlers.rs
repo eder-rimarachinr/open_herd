@@ -1,6 +1,8 @@
 use axum::{Json, extract::State, http::StatusCode, response::{IntoResponse, Response}};
+use serde::Deserialize;
 use std::sync::Arc;
 use crate::infrastructure::{config::Config, container::AppContainer, dto::DaemonStatus};
+use super::extract::ApiJson;
 
 pub type ContainerRef = Arc<AppContainer>;
 
@@ -34,10 +36,10 @@ pub async fn get_config(State(container): State<ContainerRef>) -> impl IntoRespo
 /// live config — an invalid body or a failed save leaves both untouched.
 pub async fn update_config(
     State(container): State<ContainerRef>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(patch): ApiJson<ConfigPatch>,
 ) -> Response {
     let mut updated = container.legacy.config.read().clone();
-    if let Err(msg) = apply_config_patch(&mut updated, &body) {
+    if let Err(msg) = patch.apply(&mut updated) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg }))).into_response();
     }
     let to_save  = updated.clone();
@@ -53,39 +55,42 @@ pub async fn update_config(
     Json(updated).into_response()
 }
 
-/// Applies the fields present in `body`. Unknown fields are ignored; a present
-/// field with a wrong type or value is an error rather than being dropped.
-fn apply_config_patch(cfg: &mut Config, body: &serde_json::Value) -> Result<(), String> {
-    if let Some(v) = body.get("default_php") {
-        let v = v.as_str().ok_or("default_php must be a string")?;
-        if !super::php_handlers::valid_major(v) {
-            return Err(format!("default_php must look like \"8.2\", got {v:?}"));
+/// Body of `PUT /config`: only the fields present are changed. Wrong JSON
+/// types are rejected by deserialization (400); `apply` checks value ranges.
+/// Ports are read as `u64` so an out-of-range number gets a clear message
+/// instead of a generic overflow error.
+#[derive(Deserialize)]
+pub struct ConfigPatch {
+    default_php:     Option<String>,
+    http_port:       Option<u64>,
+    https_port:      Option<u64>,
+    scanned_dirs:    Option<Vec<String>>,
+    custom_php_dirs: Option<Vec<String>>,
+}
+
+impl ConfigPatch {
+    fn apply(self, cfg: &mut Config) -> Result<(), String> {
+        if let Some(v) = self.default_php {
+            if !super::php_handlers::valid_major(&v) {
+                return Err(format!("default_php must look like \"8.2\", got {v:?}"));
+            }
+            cfg.default_php = v;
         }
-        cfg.default_php = v.to_string();
+        if let Some(v) = self.http_port  { cfg.http_port  = port("http_port", v)?; }
+        if let Some(v) = self.https_port { cfg.https_port = port("https_port", v)?; }
+        if cfg.http_port == cfg.https_port {
+            return Err(format!("http_port and https_port must differ (both {})", cfg.http_port));
+        }
+        if let Some(v) = self.scanned_dirs    { cfg.scanned_dirs    = v; }
+        if let Some(v) = self.custom_php_dirs { cfg.custom_php_dirs = v; }
+        Ok(())
     }
-    if let Some(v) = body.get("http_port")  { cfg.http_port  = parse_port("http_port", v)?; }
-    if let Some(v) = body.get("https_port") { cfg.https_port = parse_port("https_port", v)?; }
-    if cfg.http_port == cfg.https_port {
-        return Err(format!("http_port and https_port must differ (both {})", cfg.http_port));
-    }
-    if let Some(v) = body.get("scanned_dirs")    { cfg.scanned_dirs    = parse_string_list("scanned_dirs", v)?; }
-    if let Some(v) = body.get("custom_php_dirs") { cfg.custom_php_dirs = parse_string_list("custom_php_dirs", v)?; }
-    Ok(())
 }
 
-fn parse_port(field: &str, v: &serde_json::Value) -> Result<u16, String> {
-    v.as_u64()
-        .and_then(|n| u16::try_from(n).ok())
-        .filter(|&n| n != 0)
-        .ok_or_else(|| format!("{field} must be an integer between 1 and 65535, got {v}"))
-}
-
-fn parse_string_list(field: &str, v: &serde_json::Value) -> Result<Vec<String>, String> {
-    v.as_array()
-        .ok_or_else(|| format!("{field} must be an array of strings"))?
-        .iter()
-        .map(|item| item.as_str().map(str::to_string).ok_or_else(|| format!("{field} must contain only strings")))
-        .collect()
+fn port(field: &str, n: u64) -> Result<u16, String> {
+    u16::try_from(n).ok()
+        .filter(|&p| p != 0)
+        .ok_or_else(|| format!("{field} must be an integer between 1 and 65535, got {n}"))
 }
 
 // ── GET /api/v1/daemon/logs ───────────────────────────────────────────────────

@@ -45,6 +45,22 @@ async fn create_site_missing_domain_returns_400() {
         .json(&serde_json::json!({ "path": "/some/path" }))
         .await;
     resp.assert_status(StatusCode::BAD_REQUEST);
+    // The GUI shows `error` from a JSON body; axum's default rejection is plain text.
+    let error = resp.json::<serde_json::Value>()["error"].as_str().unwrap().to_string();
+    assert!(error.contains("domain"), "unhelpful error: {error}");
+}
+
+#[tokio::test]
+async fn malformed_json_returns_400_with_json_error() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let resp = server
+        .post("/api/v1/sites")
+        .content_type("application/json")
+        .text("{ not json")
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert!(resp.json::<serde_json::Value>()["error"].is_string());
 }
 
 #[tokio::test]

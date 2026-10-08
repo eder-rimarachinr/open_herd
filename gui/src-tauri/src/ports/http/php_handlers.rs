@@ -1,5 +1,8 @@
 use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoResponse};
+use serde::Deserialize;
 use std::sync::Arc;
+
+use super::extract::ApiJson;
 use crate::{
     application::php::ini_parser,
     infrastructure::{container::AppContainer, dto::{InstallProgress, PhpExtension, PhpIniConfig, PhpSetting}},
@@ -57,15 +60,15 @@ pub async fn detect_php(State(container): State<ContainerRef>) -> impl IntoRespo
 
 // ── POST /api/v1/php/install ──────────────────────────────────────────────────
 
+#[derive(Deserialize)]
+pub struct InstallPhpRequest {
+    major: String,
+}
+
 pub async fn install_php(
     State(container): State<ContainerRef>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(InstallPhpRequest { major }): ApiJson<InstallPhpRequest>,
 ) -> impl IntoResponse {
-    let major = match body["major"].as_str() {
-        Some(m) => m.to_string(),
-        None => return (StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "major required" }))).into_response(),
-    };
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
     let php_dir = container.legacy.config.read().php_dir.clone();
     container.logger.log(format!("Starting PHP {} download", major));
@@ -131,10 +134,18 @@ pub async fn get_php_ini(
 
 // ── PUT /api/v1/php/versions/:major/ini ──────────────────────────────────────
 
+/// A malformed entry rejects the request (400) rather than being silently
+/// dropped, which used to lose the user's change without telling them.
+#[derive(Deserialize)]
+pub struct UpdatePhpIniRequest {
+    #[serde(default)] extensions: Vec<PhpExtension>,
+    #[serde(default)] settings:   Vec<PhpSetting>,
+}
+
 pub async fn update_php_ini(
     State(container): State<ContainerRef>,
     Path(major): Path<String>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<UpdatePhpIniRequest>,
 ) -> impl IntoResponse {
     use crate::application::php::update_php_ini::UpdatePhpIniCommand;
 
@@ -146,14 +157,11 @@ pub async fn update_php_ini(
             Json(serde_json::json!({ "error": "php.ini not found" }))).into_response();
     }
 
-    let extension_changes: Vec<PhpExtension> = body["extensions"].as_array()
-        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
-        .unwrap_or_default();
-    let setting_changes: Vec<PhpSetting> = body["settings"].as_array()
-        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
-        .unwrap_or_default();
-
-    let cmd = UpdatePhpIniCommand { major: major.clone(), php_dir, extension_changes, setting_changes };
+    let cmd = UpdatePhpIniCommand {
+        major: major.clone(), php_dir,
+        extension_changes: body.extensions,
+        setting_changes:   body.settings,
+    };
 
     if let Err(e) = container.update_php_ini_uc.execute(cmd).await { return infra_err(e).into_response() }
 
