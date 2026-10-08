@@ -44,7 +44,7 @@ Backend, from `src-tauri`:
 cargo test                 # unit tests (src/) + integration tests (tests/: real AppContainer + axum-test)
 cargo test -- --ignored    # real-network tests: download PHP 8.5 and mkcert into temp dirs
 ```
-Integration tests build the container with `tests/common::make_container`, which swaps the hosts-file and mkcert adapters for fakes (`AppContainer::with_adapters`) — never let tests edit the system hosts file or run `mkcert -install`.
+Integration tests build the container with `tests/common::make_container`, which swaps the hosts-file, mkcert and file-manager adapters for fakes (`AppContainer::with_adapters` + `SystemAdapters`) — never let tests edit the system hosts file, run `mkcert -install` or open Explorer windows. Any new adapter with an effect outside `base_dir` belongs in `SystemAdapters`.
 
 `cargo clippy --all-targets` must stay warning-free. It enforces `unwrap_used`, `expect_used`, and cognitive-complexity (see `[lints.clippy]` in `src-tauri/Cargo.toml`; `clippy.toml` allows unwrap/expect in tests) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
 
