@@ -4,7 +4,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
-use crate::domain::ports::download::DownloadProgress;
+use crate::domain::ports::{download::DownloadProgress, task::TaskState};
 
 pub mod tracker;
 
@@ -78,18 +78,18 @@ fn known_php_hash(filename: &str) -> Option<&'static str> {
 pub fn download_nginx(dest_dir: &Path, progress: Arc<DownloadState>) {
     let dest_dir = dest_dir.to_path_buf();
     std::thread::spawn(move || {
-        set_nginx(&progress, "downloading", &format!("Downloading nginx {}…", NGINX_VERSION), 5);
+        set_nginx(&progress, TaskState::Downloading, &format!("Downloading nginx {}…", NGINX_VERSION), 5);
         match fetch_zip(NGINX_URL, &dest_dir, &format!("nginx-{}/", NGINX_VERSION), Some(NGINX_SHA256), &progress, |p, pct, msg| {
-            set_nginx(p, "downloading", msg, pct);
+            set_nginx(p, TaskState::Downloading, msg, pct);
         }) {
-            Ok(())  => set_nginx(&progress, "done", "Nginx ready", 100),
+            Ok(())  => set_nginx(&progress, TaskState::Done, "Nginx ready", 100),
             Err(e)  => *progress.nginx.lock() = Some(DownloadProgress::error(&e.to_string())),
         }
     });
 }
 
-fn set_nginx(progress: &Arc<DownloadState>, state: &str, msg: &str, pct: u8) {
-    *progress.nginx.lock() = Some(DownloadProgress { state: state.into(), message: msg.into(), percent: pct, error: None });
+fn set_nginx(progress: &Arc<DownloadState>, state: TaskState, msg: &str, pct: u8) {
+    *progress.nginx.lock() = Some(DownloadProgress { state, message: msg.into(), percent: pct, error: None });
 }
 
 // ── PHP download ──────────────────────────────────────────────────────────────
@@ -128,16 +128,16 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     let php_dir = php_dir.to_path_buf();
     let release = match php_releases().into_iter().find(|r| r.major == major) {
         Some(r) => r,
-        None => { set_php(&progress, &major, "error", &format!("Unknown PHP version: {}", major), 0); return; }
+        None => { set_php(&progress, &major, TaskState::Error, &format!("Unknown PHP version: {}", major), 0); return; }
     };
     std::thread::spawn(move || {
         let client = make_client();
         let dest   = php_dir.join(&release.major);
         std::fs::create_dir_all(&dest).ok();
-        set_php(&progress, &major, "downloading", &format!("Locating PHP {} on windows.php.net…", release.version), 3);
+        set_php(&progress, &major, TaskState::Downloading, &format!("Locating PHP {} on windows.php.net…", release.version), 3);
         let (url, filename) = match resolve_php_url(&client, &release.major, &release.version) {
             Some(p) => p,
-            None => { set_php(&progress, &major, "error", &format!("PHP {} not found on windows.php.net", release.version), 0); return; }
+            None => { set_php(&progress, &major, TaskState::Error, &format!("PHP {} not found on windows.php.net", release.version), 0); return; }
         };
         // Refuse to install a PHP build we have no pinned hash for. Skipping
         // verification silently (the old Option<None> path) would defeat the
@@ -145,24 +145,24 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
         let expected_hash = match known_php_hash(&filename) {
             Some(h) => h,
             None => {
-                set_php(&progress, &major, "error", &format!("No pinned SHA-256 for {} — refusing to install an unverified PHP build.", filename), 0);
+                set_php(&progress, &major, TaskState::Error, &format!("No pinned SHA-256 for {} — refusing to install an unverified PHP build.", filename), 0);
                 return;
             }
         };
-        set_php(&progress, &major, "downloading", &format!("Downloading PHP {}…", release.version), 8);
+        set_php(&progress, &major, TaskState::Downloading, &format!("Downloading PHP {}…", release.version), 8);
         let major2 = major.clone();
         let result = fetch_zip(&url, &dest, "", Some(expected_hash), &progress, move |p, pct, msg| {
-            set_php(p, &major2, "downloading", msg, pct);
+            set_php(p, &major2, TaskState::Downloading, msg, pct);
         });
         match result {
-            Ok(()) => { set_php(&progress, &major, "configuring", "Configuring php.ini…", 92); configure_ini(&dest); set_php(&progress, &major, "done", &format!("PHP {} installed", release.version), 100); }
-            Err(e) => set_php(&progress, &major, "error", &e.to_string(), 0),
+            Ok(()) => { set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92); configure_ini(&dest); set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100); }
+            Err(e) => set_php(&progress, &major, TaskState::Error, &e.to_string(), 0),
         }
     });
 }
 
-fn set_php(progress: &Arc<DownloadState>, major: &str, state: &str, msg: &str, pct: u8) {
-    progress.php.lock().insert(major.to_string(), DownloadProgress { state: state.into(), message: msg.into(), percent: pct, error: None });
+fn set_php(progress: &Arc<DownloadState>, major: &str, state: TaskState, msg: &str, pct: u8) {
+    progress.php.lock().insert(major.to_string(), DownloadProgress { state, message: msg.into(), percent: pct, error: None });
 }
 
 fn configure_ini(dest_dir: &Path) {

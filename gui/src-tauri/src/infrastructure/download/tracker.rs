@@ -22,7 +22,7 @@ impl DownloadProgressPort for DownloadTracker {
     async fn start_nginx_download(&self, dest_dir: &Path) {
         let already_active = {
             let current = self.state.nginx.lock();
-            current.as_ref().is_some_and(|p| p.state == "downloading" || p.state == "extracting")
+            current.as_ref().is_some_and(|p| p.state.is_active())
         };
         if already_active { return; }
         super::download_nginx(dest_dir, self.state.clone());
@@ -34,7 +34,7 @@ impl DownloadProgressPort for DownloadTracker {
 
     async fn start_php_download(&self, major: &str, php_dir: &Path) {
         let already_active = self.state.php.lock().get(major)
-            .is_some_and(|p| p.state == "downloading" || p.state == "extracting");
+            .is_some_and(|p| p.state.is_active());
         if already_active { return; }
         super::download_php(major, php_dir, self.state.clone());
     }
@@ -47,6 +47,7 @@ impl DownloadProgressPort for DownloadTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ports::task::TaskState;
 
     #[tokio::test]
     async fn no_progress_before_any_download_starts() {
@@ -60,7 +61,7 @@ mod tests {
         let tracker = DownloadTracker::new();
         // Simulate an in-flight download without touching the filesystem/network.
         *tracker.state.nginx.lock() = Some(DownloadProgress {
-            state: "downloading".into(), message: "…".into(), percent: 10, error: None,
+            state: TaskState::Downloading, message: "…".into(), percent: 10, error: None,
         });
         tracker.start_nginx_download(Path::new("/nonexistent")).await;
         // Still the same progress snapshot — a second background download was not spawned

@@ -2,6 +2,15 @@
 /// No son entidades de dominio; son representaciones de respuesta HTTP.
 use serde::{Deserialize, Serialize};
 
+use crate::domain::ports::task::TaskState;
+
+/// The domain enum stays serde-free; on the wire it is its lowercase name.
+impl Serialize for TaskState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Site {
     pub id: String,
@@ -89,19 +98,19 @@ pub struct PhpVersionStatus {
     pub running: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct InstallProgress {
     pub major: String,
-    pub state: String,
+    pub state: TaskState,
     pub message: String,
     pub percent: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AsyncTask {
-    pub state: String,
+    pub state: TaskState,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,

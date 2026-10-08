@@ -1,5 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
-use crate::domain::{errors::ApplicationError, ports::download::DownloadProgressPort};
+use crate::domain::{errors::ApplicationError, ports::{download::DownloadProgressPort, task::TaskState}};
 
 pub struct DownloadNginxUseCase {
     downloads: Arc<dyn DownloadProgressPort>,
@@ -8,14 +8,13 @@ pub struct DownloadNginxUseCase {
 impl DownloadNginxUseCase {
     pub fn new(downloads: Arc<dyn DownloadProgressPort>) -> Self { Self { downloads } }
 
-    pub async fn execute(&self, nginx_dir: &str) -> Result<String, ApplicationError> {
+    /// Starts the download unless one is already in flight.
+    pub async fn execute(&self, nginx_dir: &str) -> Result<TaskState, ApplicationError> {
         if let Some(prog) = self.downloads.nginx_progress().await {
-            if prog.state == "downloading" || prog.state == "extracting" {
-                return Ok(prog.state);
-            }
+            if prog.state.is_active() { return Ok(prog.state); }
         }
         let dir = PathBuf::from(nginx_dir);
         self.downloads.start_nginx_download(&dir).await;
-        Ok("pending".into())
+        Ok(TaskState::Pending)
     }
 }

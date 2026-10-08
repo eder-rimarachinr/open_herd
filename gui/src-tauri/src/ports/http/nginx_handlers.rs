@@ -1,5 +1,6 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
+use crate::domain::ports::task::TaskState;
 use crate::{
     infrastructure::{
         container::AppContainer,
@@ -57,7 +58,7 @@ pub async fn download_nginx(State(container): State<ContainerRef>) -> impl IntoR
 pub async fn nginx_download_progress(State(container): State<ContainerRef>) -> impl IntoResponse {
     match container.downloads.nginx_progress().await {
         Some(p) => Json(AsyncTask { state: p.state, message: p.message, error: p.error }),
-        None    => Json(AsyncTask { state: "done".into(), message: String::new(), error: None }),
+        None    => Json(AsyncTask { state: TaskState::Done, message: String::new(), error: None }),
     }
 }
 

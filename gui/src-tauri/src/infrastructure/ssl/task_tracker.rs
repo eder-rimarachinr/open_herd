@@ -2,7 +2,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::domain::ports::ssl_task::{SslTaskPort, SslTaskProgress};
+use crate::domain::ports::{ssl_task::{SslTaskPort, SslTaskProgress}, task::TaskState};
 
 pub struct InMemorySslTaskTracker {
     tasks: Mutex<HashMap<String, SslTaskProgress>>,
@@ -15,10 +15,10 @@ impl InMemorySslTaskTracker {
 }
 
 impl SslTaskPort for InMemorySslTaskTracker {
-    fn set(&self, site_id: &str, state: &str, message: &str, error: Option<String>) {
+    fn set(&self, site_id: &str, state: TaskState, message: &str, error: Option<String>) {
         self.tasks.lock().insert(
             site_id.to_string(),
-            SslTaskProgress { state: state.into(), message: message.into(), error },
+            SslTaskProgress { state, message: message.into(), error },
         );
     }
 
@@ -44,11 +44,11 @@ mod tests {
     #[test]
     fn set_then_get_then_remove_roundtrip() {
         let tracker = InMemorySslTaskTracker::new();
-        tracker.set("site-1", "running", "Issuing…", None);
+        tracker.set("site-1", TaskState::Running, "Issuing…", None);
         let progress = tracker.get("site-1");
         assert!(progress.is_some());
         if let Some(progress) = progress {
-            assert_eq!(progress.state, "running");
+            assert_eq!(progress.state, TaskState::Running);
             assert_eq!(progress.message, "Issuing…");
         }
 

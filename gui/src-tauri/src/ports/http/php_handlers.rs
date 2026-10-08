@@ -1,6 +1,7 @@
 use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoResponse};
 use serde::Deserialize;
 use std::sync::Arc;
+use crate::domain::ports::task::TaskState;
 
 use super::extract::ApiJson;
 use crate::{
@@ -73,7 +74,7 @@ pub async fn install_php(
     let php_dir = container.legacy.config.read().php_dir.clone();
     container.logger.log(format!("Starting PHP {} download", major));
     match container.install_php_uc.execute(&major, &php_dir).await {
-        Ok(state) => Json(serde_json::json!({ "ok": true, "state": state })).into_response(),
+        Ok(state) => Json(serde_json::json!({ "ok": true, "state": state.as_str() })).into_response(),
         Err(e)    => infra_err(e).into_response(),
     }
 }
@@ -87,7 +88,7 @@ pub async fn install_php_progress(
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
     match container.downloads.php_progress(&major).await {
         Some(p) => {
-            let error = if p.state == "error" { Some(p.message.clone()) } else { p.error.clone() };
+            let error = if p.state == TaskState::Error { Some(p.message.clone()) } else { p.error.clone() };
             Json(InstallProgress { major, state: p.state, message: p.message, percent: p.percent, error })
                 .into_response()
         }
@@ -98,7 +99,7 @@ pub async fn install_php_progress(
                 && (dir.join("php-cgi.exe").exists() || dir.join("php.exe").exists());
             Json(InstallProgress {
                 major,
-                state: if installed { "done".into() } else { "idle".into() },
+                state: if installed { TaskState::Done } else { TaskState::Idle },
                 message: String::new(),
                 percent: if installed { 100 } else { 0 },
                 error: None,

@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use crate::domain::ports::task::TaskState;
 
 use super::extract::ApiJson;
 
@@ -138,7 +139,7 @@ pub async fn enable_ssl(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     use crate::infrastructure::dto::AsyncTask;
-    container.ssl_tasks.set(&id, "pending", "Starting SSL issuance…", None);
+    container.ssl_tasks.set(&id, TaskState::Pending, "Starting SSL issuance…", None);
     let container2 = container.clone();
     let site_id    = id.clone();
     // The use case is fully async and offloads its blocking mkcert work via
@@ -146,19 +147,19 @@ pub async fn enable_ssl(
     // in spawn_blocking + Handle::block_on — re-entering the runtime panics when the
     // inner reqwest::blocking runtime is dropped, which strands the task on "running".
     tokio::spawn(async move {
-        container2.ssl_tasks.set(&site_id, "running", "Issuing SSL certificate…", None);
+        container2.ssl_tasks.set(&site_id, TaskState::Running, "Issuing SSL certificate…", None);
         match container2.enable_ssl_uc.execute(&site_id).await {
             Ok(()) => {
                 container2.logger.log(format!("SSL enabled: {}", site_id));
-                container2.ssl_tasks.set(&site_id, "done", "SSL certificate issued and nginx reloaded", None);
+                container2.ssl_tasks.set(&site_id, TaskState::Done, "SSL certificate issued and nginx reloaded", None);
             }
             Err(e) => {
                 let msg = e.to_string();
-                container2.ssl_tasks.set(&site_id, "error", &msg, Some(msg.clone()));
+                container2.ssl_tasks.set(&site_id, TaskState::Error, &msg, Some(msg.clone()));
             }
         }
     });
-    Json(AsyncTask { state: "pending".into(), message: "SSL issuance started".into(), error: None })
+    Json(AsyncTask { state: TaskState::Pending, message: "SSL issuance started".into(), error: None })
         .into_response()
 }
 
@@ -194,7 +195,7 @@ pub async fn ssl_progress(
     }
     match container.legacy.sites.read().get(&id) {
         Some(s) => Json(AsyncTask {
-            state:   "done".into(),
+            state:   TaskState::Done,
             message: if s.ssl_enabled { "SSL active".into() } else { "SSL disabled".into() },
             error:   None,
         }).into_response(),

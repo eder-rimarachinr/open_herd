@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use std::path::Path;
 
+use super::task::TaskState;
+
 /// Progreso de una descarga en curso (nginx o una versión de PHP).
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
-    pub state: String,
+    pub state: TaskState,
     pub message: String,
     pub percent: u8,
     pub error: Option<String>,
@@ -12,7 +14,7 @@ pub struct DownloadProgress {
 
 impl DownloadProgress {
     pub fn error(e: &str) -> Self {
-        Self { state: "error".into(), message: e.into(), percent: 0, error: Some(e.into()) }
+        Self { state: TaskState::Error, message: e.into(), percent: 0, error: Some(e.into()) }
     }
 }
 
