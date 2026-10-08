@@ -1,4 +1,5 @@
 pub mod dns;
+pub mod file_manager;
 pub mod download;
 pub mod logger;
 pub mod process_manager;

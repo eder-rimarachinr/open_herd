@@ -297,15 +297,12 @@ pub async fn open_site_folder(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let path = match find_site(&container, &id).await {
-        Ok(site)  => site.path.as_path().to_path_buf(),
+    let site = match find_site(&container, &id).await {
+        Ok(site)  => site,
         Err(resp) => return resp,
     };
-    tokio::task::spawn_blocking(move || {
-        #[cfg(target_os = "windows")]
-        let _ = std::process::Command::new("explorer").arg(&path).spawn();
-        #[cfg(not(target_os = "windows"))]
-        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
-    });
-    Json(serde_json::json!({ "ok": true })).into_response()
+    match container.file_manager.open_folder(site.path.as_path()).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => domain_err(&ApplicationError::Infrastructure(e)).into_response(),
+    }
 }

@@ -4,6 +4,7 @@ pub mod container;
 pub mod dns;
 pub mod download;
 pub mod dto;
+pub mod file_manager;
 pub mod fs;
 pub mod logging;
 pub mod nginx;

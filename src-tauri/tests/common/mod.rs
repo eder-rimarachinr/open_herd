@@ -4,14 +4,14 @@
 
 use async_trait::async_trait;
 use axum_test::TestServer;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 use open_herd_lib::{
     domain::{
         errors::InfrastructureError,
-        ports::{dns::DnsPort, ssl::SslPort},
+        ports::{dns::DnsPort, file_manager::FileManagerPort, ssl::SslPort},
     },
     infrastructure::{
         config::Config,
@@ -64,15 +64,42 @@ impl SslPort for FakeSsl {
     async fn revoke_certificate(&self, _domain: &str, _certs_dir: &Path) -> Result<(), InfrastructureError> { Ok(()) }
 }
 
+/// Never opens Explorer / Finder on the developer's desktop; records the
+/// folders it was asked to show.
+#[derive(Default)]
+pub struct RecordingFileManager {
+    pub opened: Mutex<Vec<PathBuf>>,
+}
+
+#[async_trait]
+impl FileManagerPort for RecordingFileManager {
+    async fn open_folder(&self, path: &Path) -> Result<(), InfrastructureError> {
+        self.opened.lock().unwrap().push(path.to_path_buf());
+        Ok(())
+    }
+}
+
 /// Real container over a temp `base_dir`, with the system-touching adapters
-/// (hosts file, trust store) replaced by fakes.
+/// (hosts file, trust store, file manager) replaced by fakes.
 pub fn make_container(tmp: &TempDir) -> Arc<AppContainer> {
+    make_container_with(tmp, Arc::new(RecordingFileManager::default()))
+}
+
+fn make_container_with(tmp: &TempDir, file_manager: Arc<RecordingFileManager>) -> Arc<AppContainer> {
     AppContainer::with_adapters(make_state(tmp), SystemAdapters {
         dns: Some(Arc::new(NoopDns)),
         ssl: Some(Arc::new(FakeSsl)),
+        file_manager: Some(file_manager),
     })
 }
 
 pub fn make_server(tmp: &TempDir) -> TestServer {
     TestServer::new(build_router(make_container(tmp))).unwrap()
+}
+
+/// Like `make_server`, plus the file-manager double to assert on.
+pub fn make_server_with_file_manager(tmp: &TempDir) -> (TestServer, Arc<RecordingFileManager>) {
+    let file_manager = Arc::new(RecordingFileManager::default());
+    let server = TestServer::new(build_router(make_container_with(tmp, file_manager.clone()))).unwrap();
+    (server, file_manager)
 }

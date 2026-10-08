@@ -33,6 +33,7 @@ use crate::{
     infrastructure::{config::ConfigStore, state::AppState},
     domain::ports::{
         dns::DnsPort,
+        file_manager::FileManagerPort,
         download::DownloadProgressPort,
         logger::LoggerPort,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
@@ -45,6 +46,7 @@ use crate::{
 
 use crate::infrastructure::{
     dns::hosts_adapter::HostsAdapter,
+    file_manager::SystemFileManager,
     download::tracker::DownloadTracker,
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
@@ -70,6 +72,7 @@ pub struct AppContainer {
     pub web_server: Arc<dyn WebServerPort>,
     pub dns:        Arc<dyn DnsPort>,
     pub ssl:        Arc<dyn SslPort>,
+    pub file_manager: Arc<dyn FileManagerPort>,
     pub php_process_port: Arc<dyn PhpProcessPort>,
     pub php_detector:     Arc<dyn PhpDetectorPort>,
     pub php_version_repo: Arc<dyn PhpVersionRepository>,
@@ -113,12 +116,14 @@ pub struct AppContainer {
 }
 
 /// Adaptadores que modifican la máquina fuera de `base_dir` (el archivo hosts
-/// del sistema, el almacén de confianza del SO vía `mkcert -install`). Los tests
+/// del sistema, el almacén de confianza del SO vía `mkcert -install`, el explorador
+/// de archivos del usuario). Los tests
 /// los sustituyen por dobles; `None` usa el adaptador real.
 #[derive(Default)]
 pub struct SystemAdapters {
     pub dns: Option<Arc<dyn DnsPort>>,
     pub ssl: Option<Arc<dyn SslPort>>,
+    pub file_manager: Option<Arc<dyn FileManagerPort>>,
 }
 
 impl AppContainer {
@@ -137,6 +142,7 @@ impl AppContainer {
         let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone(), logger.clone()));
         let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
+        let file_manager: Arc<dyn FileManagerPort> = system.file_manager.unwrap_or_else(|| Arc::new(SystemFileManager));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
         let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new(state.clone()));
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();
@@ -179,7 +185,7 @@ impl AppContainer {
             load_warnings: state.load_warnings.clone(),
             started_at: state.started_at,
             legacy: state,
-            site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
+            site_repo, web_server, dns, ssl, file_manager, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,

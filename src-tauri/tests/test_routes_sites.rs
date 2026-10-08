@@ -335,3 +335,26 @@ async fn sites_persisted_to_disk() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0]["domain"], "myapp.test");
 }
+
+// ── Open folder ───────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn open_folder_asks_the_file_manager_for_the_site_path() {
+    let tmp = TempDir::new().unwrap();
+    let (server, file_manager) = common::make_server_with_file_manager(&tmp);
+    let id = server
+        .post("/api/v1/sites").json(&site_body(&tmp)).await
+        .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
+
+    server.post(&format!("/api/v1/sites/{id}/open-folder")).await.assert_status_ok();
+
+    assert_eq!(*file_manager.opened.lock().unwrap(), vec![tmp.path().to_path_buf()]);
+}
+
+#[tokio::test]
+async fn open_folder_unknown_site_returns_404() {
+    let tmp = TempDir::new().unwrap();
+    let (server, file_manager) = common::make_server_with_file_manager(&tmp);
+    server.post("/api/v1/sites/nope/open-folder").await.assert_status(StatusCode::NOT_FOUND);
+    assert!(file_manager.opened.lock().unwrap().is_empty());
+}
