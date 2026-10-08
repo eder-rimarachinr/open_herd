@@ -8,7 +8,6 @@ edition = "2021"
 [lib]
 name = "phpenv_gui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
-test = false  # lib tests disabled — use integration tests in tests/
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
