@@ -40,10 +40,12 @@ npm run dev   # serves at http://localhost:1420
 
 Backend, from `gui/src-tauri`:
 ```bash
-cargo test --lib   # domain + application unit tests (no I/O, no server)
-cargo test         # integration tests in tests/ — real AppContainer + axum-test HTTP calls
+cargo test                 # unit tests (src/) + integration tests (tests/: real AppContainer + axum-test)
+cargo test -- --ignored    # real-network tests: download PHP 8.5 and mkcert into temp dirs
 ```
-`cargo clippy` enforces `unwrap_used`, `expect_used`, and cognitive-complexity warnings (see `[lints.clippy]` in `gui/src-tauri/Cargo.toml`) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
+Integration tests build the container with `tests/common::make_container`, which swaps the hosts-file and mkcert adapters for fakes (`AppContainer::with_adapters`) — never let tests edit the system hosts file or run `mkcert -install`.
+
+`cargo clippy --all-targets` must stay warning-free. It enforces `unwrap_used`, `expect_used`, and cognitive-complexity (see `[lints.clippy]` in `gui/src-tauri/Cargo.toml`; `clippy.toml` allows unwrap/expect in tests) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
 
 Frontend, from `gui`:
 ```bash
@@ -73,9 +75,13 @@ gui/src-tauri/src/
 └── ports/http/       # Thin axum handlers per resource — *_handlers.rs, delegate to use cases
 ```
 
-Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs every adapter (`JsonSiteRepository`, `NginxAdapter`, `HostsAdapter`, `MkcertAdapter`, `PhpProcessAdapter`, `SystemPhpDetector`) and injects them into use cases. Handlers in `ports/http/*_handlers.rs` take `State<Arc<AppContainer>>` and call `container.<x>_uc.execute(...)` or `container.site_repo` directly — they should stay thin and never touch adapters or `AppState` fields directly.
+Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs every adapter (`JsonSiteRepository`, `NginxAdapter`, `HostsAdapter`, `MkcertAdapter`, `PhpProcessAdapter`, `SystemPhpDetector`) and injects them into use cases. Handlers in `ports/http/*_handlers.rs` take `State<Arc<AppContainer>>` and use only its public surface: `container.<x>_uc.execute(...)`, the ports (`site_repo`, `php_process_port`, …), `container.config` (a `ConfigStore`: `get()` snapshot, `replace()` saves then publishes), `load_warnings` and `started_at`. Request bodies are typed structs read with `ports/http/extract.rs::ApiJson`, which answers bad JSON with `400 {"error": ...}` (the shape the GUI shows).
 
-**Legacy bridge, still load-bearing:** `AppContainer` also holds `legacy: Arc<AppState>` (in `infrastructure/state/mod.rs`) and `Deref`s to it. `AppState` predates the hexagonal migration; after the AppState→ports migration it has shrunk to `config`, `base_dir`, `sites`, `nginx_proc`, `php_proc`, `started_at`, and a private `write_lock` — everything else (PHP version cache, nginx running status, download progress, SSL task progress, daemon log) now lives behind a dedicated port (`PhpVersionRepository`, `WebServerPort::status()`, `DownloadProgressPort`, `SslTaskPort`, `LoggerPort`) with an `Arc<dyn Trait>` field on `AppContainer`. New site persistence goes through `site_repo` (domain `Site` entities, mapped to/from the legacy DTO shape via `infrastructure/persistence/site_mapper.rs`); `sites` on `AppState` remains only as the read cache that `JsonSiteRepository` operates on. When adding a feature, prefer a new use case + port over adding fields to `AppState`.
+`AppState` (`infrastructure/state/mod.rs`) is private to the container (`legacy` field, no `Deref`). It holds what the adapters share: `config`, `base_dir`, `sites` (the cache `JsonSiteRepository` operates on), `nginx_proc`, `php_proc`, `started_at`, `load_warnings`. Everything else (PHP version cache, download / SSL task progress, daemon log) lives behind a port with an `Arc<dyn Trait>` field on `AppContainer`. When adding a feature, prefer a new use case + port over adding fields to `AppState`.
+
+**Blocking work never runs on async workers.** Adapters wrap file I/O, child processes and sleeps in `infrastructure::blocking::run` (`spawn_blocking`); the GUI polls status every 2 s and a stalled worker freezes the API. `NginxProcess` has an `op_lock` held for whole start/stop/reload operations and a separate short `running` lock read by status — never sleep or spawn while holding the latter.
+
+**Logging:** use cases log non-fatal failures with `application::best_effort(result, format_args!(...))` / `tracing::warn!`. `infrastructure::logging::ForwardToLogger` copies this crate's INFO+ events into the in-memory daemon log (`GET /daemon/logs`, Logs page) — release builds have no console, so `eprintln!` output is lost.
 
 ### API routes (registered in `gui/src-tauri/src/ports/http/server.rs`)
 
@@ -85,21 +91,21 @@ GET      /api/v1/status
 GET/POST /api/v1/sites
 POST     /api/v1/sites/scan
 POST     /api/v1/sites/bulk
-GET/PUT/DELETE /api/v1/sites/:id
-POST/DELETE    /api/v1/sites/:id/ssl
-GET            /api/v1/sites/:id/ssl/progress
-POST           /api/v1/sites/:id/refresh-config
-GET            /api/v1/sites/:id/info
-POST           /api/v1/sites/:id/open-folder
+GET/PUT/DELETE /api/v1/sites/{id}
+POST/DELETE    /api/v1/sites/{id}/ssl
+GET            /api/v1/sites/{id}/ssl/progress
+POST           /api/v1/sites/{id}/refresh-config
+GET            /api/v1/sites/{id}/info
+POST           /api/v1/sites/{id}/open-folder
 
 GET      /api/v1/php/versions
 GET      /api/v1/php/catalog
 POST     /api/v1/php/detect
 POST     /api/v1/php/install
-GET      /api/v1/php/install/:major/progress
-POST     /api/v1/php/versions/:version/start
-POST     /api/v1/php/versions/:version/stop
-GET/PUT  /api/v1/php/versions/:version/ini
+GET      /api/v1/php/install/{major}/progress
+POST     /api/v1/php/versions/{version}/start
+POST     /api/v1/php/versions/{version}/stop
+GET/PUT  /api/v1/php/versions/{version}/ini
 
 GET      /api/v1/nginx/status
 GET      /api/v1/nginx/info
@@ -126,18 +132,22 @@ CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format i
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `gui/src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages (`gui/src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (stub), Logs (stub).
+Pages (`gui/src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (stub), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
+
+Verify backend/runtime changes in the desktop app (`npm run tauri dev`), not by serving the React UI in a browser: there is no daemon there. Startup posts `/daemon/quit` to any running instance, so a dev launch closes the user's open Open Herd.
 
 ## Data persistence
 
 All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode — triggered when `data/config.json` exists next to the exe):
 
 - `config.json` — daemon config
-- `sites.json` — registered sites list (written atomically: tmp → rename)
-- `nginx/nginx.conf` — generated main nginx config
+- `sites.json` — registered sites list
+- `nginx/nginx.conf` — generated main nginx config, rewritten on every nginx start (previous content kept as `nginx.conf.bak`)
 - `nginx/sites/*.conf` — per-site configs (fully regenerated on refresh)
 - `certs/*.pem` — mkcert-issued certificates
 - `logs/` — nginx and PHP logs
+
+Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A `config.json` / `sites.json` that fails to parse is renamed to `*.corrupt-<timestamp>` (never overwritten) and reported in `load_warnings`; `sites.json` records that fail domain validation stay on disk but are hidden from the API. The system hosts file is edited under a global lock, with `hosts.open-herd.bak` written first. An install dir containing `.install-incomplete` is a half-extracted download and is not treated as installed.
 
 ## Project type detection
 
@@ -159,6 +169,12 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode 
 | mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
 | Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
 
+Linux support is currently deferred: PHP on Linux is not functional yet (it spawns the CLI `php`), and child processes are only tied to the app's lifetime on Windows.
+
+## Processes (Windows)
+
+nginx and php-cgi are spawned through `infrastructure/process_guard.rs`: created suspended, assigned to a Job Object with `KILL_ON_JOB_CLOSE`, then resumed — so they (nginx workers included) die with the app however it ends. php-cgi runs with `PHP_FCGI_MAX_REQUESTS=0`, and a supervisor task (`AppContainer::spawn_background_tasks`, every 2 s) restarts it if it exits, giving up after 5 restarts per minute. Shutdown goes through `config_handlers::graceful_shutdown` → `AppHandle::exit` (set via `AppContainer::set_exit_hook`).
+
 ## Async tasks
 
-SSL issuance and nginx/PHP downloads use Tokio tasks with progress stored in `DownloadState` / `SslTasks` (arc + mutex, on `AppState`). The frontend polls the corresponding `/progress` endpoints.
+SSL issuance and nginx/PHP downloads run as Tokio tasks; progress lives behind `SslTaskPort` / `DownloadProgressPort` as a `TaskState` enum (serialised as `"pending"`, `"downloading"`, `"done"`, …; `is_active()` is the "still in flight" check). The frontend polls the corresponding `/progress` endpoints. Downloads use async `reqwest` with connect + per-read timeouts only (an async `timeout()` is a total deadline).
