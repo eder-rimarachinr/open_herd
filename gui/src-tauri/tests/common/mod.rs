@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use axum_test::TestServer;
 use std::sync::Arc;
 use tempfile::TempDir;

@@ -110,6 +110,7 @@ impl AppContainer {
         // ── Adaptadores ──────────────────────────────────────────────────────
         let site_repo:    Arc<dyn SiteRepository>  = Arc::new(JsonSiteRepository::new(state.clone()));
         let logger: Arc<dyn LoggerPort> = InMemoryLogger::new();
+        for warning in &state.load_warnings { logger.log(warning.clone()); }
         let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone(), logger.clone()));
         let dns:          Arc<dyn DnsPort>          = Arc::new(HostsAdapter::new());
         let ssl:          Arc<dyn SslPort>          = Arc::new(MkcertAdapter::new(base_dir));

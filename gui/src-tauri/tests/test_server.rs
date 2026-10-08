@@ -1,5 +1,4 @@
 /// Tests that catch infrastructure-level bugs (port binding, routing).
-use axum_test::TestServer;
 use tempfile::TempDir;
 
 mod common;

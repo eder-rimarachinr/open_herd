@@ -3,6 +3,12 @@ use crate::infrastructure::dns::hosts;
 use crate::domain::{errors::InfrastructureError, ports::dns::DnsPort};
 
 pub struct HostsAdapter;
+impl Default for HostsAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HostsAdapter { pub fn new() -> Self { Self } }
 
 #[async_trait]

@@ -17,6 +17,10 @@ pub enum DomainError {
     SslAlreadyActive(String),
     #[error("No se puede activar SSL: {0}")]
     SslCannotEnable(String),
+    /// El repositorio no pudo leer o escribir (disco, registro dañado). No es un
+    /// error del usuario: se expone como 500, no como 4xx.
+    #[error("Error de persistencia: {0}")]
+    Persistence(String),
 }
 
 /// Errores originados en la capa de infraestructura (IO, procesos, red).

@@ -101,6 +101,13 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .with_state(container)
 }
 
+/// Fallback when `config.api_addr` does not parse.
+pub const DEFAULT_API_ADDR: std::net::SocketAddr =
+    std::net::SocketAddr::V4(std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 7878));
+
+// Panicking is intentional: `lib.rs` runs this inside `catch_unwind` and writes
+// the message to `logs/daemon-crash.log`, which the startup dialog then shows.
+#[allow(clippy::expect_used)]
 pub async fn start(container: Arc<AppContainer>) {
     let addr   = container.legacy.config.read().api_addr.clone();
     let router = build_router(container);
@@ -110,7 +117,7 @@ pub async fn start(container: Arc<AppContainer>) {
 }
 
 async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
-    let socket_addr: std::net::SocketAddr = addr.parse().unwrap_or_else(|_| "127.0.0.1:7878".parse().unwrap());
+    let socket_addr: std::net::SocketAddr = addr.parse().unwrap_or(DEFAULT_API_ADDR);
     let mut last_err = String::new();
     for attempt in 0..30 {
         let socket = if socket_addr.is_ipv4() { tokio::net::TcpSocket::new_v4() } else { tokio::net::TcpSocket::new_v6() };

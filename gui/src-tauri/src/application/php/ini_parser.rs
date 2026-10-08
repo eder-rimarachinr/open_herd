@@ -37,7 +37,7 @@ pub fn parse_extensions(content: &str) -> Vec<PhpExtension> {
 }
 
 pub fn apply_extension_changes(content: &str, updates: &[PhpExtension]) -> String {
-    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut lines: Vec<String> = content.lines().map(std::string::ToString::to_string).collect();
     for ext in updates {
         let ext_line  = format!("extension={}", ext.name);
         let commented = format!(";extension={}", ext.name);
@@ -146,18 +146,17 @@ pub fn validate_setting(key: &str, value: &str) -> Result<(), String> {
                 return Err(format!("'{}' must be a valid charset name like UTF-8", key));
             }
         }
-        "intl.default_locale" => {
-            if !value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')) {
+        "intl.default_locale"
+            if !value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')) => {
                 return Err(format!("'{}' must be a locale like es_PE", key));
             }
-        }
         _ => {}
     }
     Ok(())
 }
 
 pub fn apply_setting_changes(content: &str, updates: &[PhpSetting]) -> String {
-    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut lines: Vec<String> = content.lines().map(std::string::ToString::to_string).collect();
     for setting in updates {
         if validate_setting(&setting.key, &setting.value).is_err() { continue; }
         let new_line = format!("{} = {}", setting.key, setting.value);

@@ -8,6 +8,12 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct SystemPhpDetector;
+impl Default for SystemPhpDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemPhpDetector { pub fn new() -> Self { Self } }
 
 #[async_trait]

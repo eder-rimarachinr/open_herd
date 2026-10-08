@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::infrastructure::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -18,29 +20,18 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(base_dir: &PathBuf) -> Self {
-        let path = base_dir.join("config.json");
-        if let Ok(data) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = serde_json::from_str(&data) {
-                return cfg;
-            }
-        }
-        Self::default_with_base(base_dir)
+    /// A corrupt `config.json` is quarantined (see [`fs::load_json_or`]) rather
+    /// than silently replaced, and the returned warning should be shown to the user.
+    pub fn load(base_dir: &Path) -> fs::Loaded<Self> {
+        fs::load_json_or(&base_dir.join("config.json"), || Self::default_with_base(base_dir))
     }
 
-    pub fn save(&self, base_dir: &PathBuf) -> anyhow::Result<()> {
-        let path = base_dir.join("config.json");
-        let tmp  = path.with_extension("json.tmp");
-        let result = (|| -> anyhow::Result<()> {
-            std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
-            std::fs::rename(&tmp, &path)?;
-            Ok(())
-        })();
-        if result.is_err() { let _ = std::fs::remove_file(&tmp); }
-        result
+    pub fn save(&self, base_dir: &Path) -> anyhow::Result<()> {
+        fs::atomic_write(&base_dir.join("config.json"), &serde_json::to_vec_pretty(self)?)?;
+        Ok(())
     }
 
-    fn default_with_base(base_dir: &PathBuf) -> Self {
+    fn default_with_base(base_dir: &Path) -> Self {
         let base = base_dir.to_string_lossy().into_owned();
         Self {
             api_addr:        "127.0.0.1:7878".into(),

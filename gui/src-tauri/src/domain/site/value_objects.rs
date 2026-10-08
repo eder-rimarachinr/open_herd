@@ -5,6 +5,12 @@ use crate::domain::errors::DomainError;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SiteId(String);
 
+impl Default for SiteId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SiteId {
     pub fn new() -> Self {
         Self(uuid::Uuid::new_v4().to_string())
@@ -46,7 +52,7 @@ impl DomainName {
                 "solo se permiten letras ASCII, dígitos, guiones y puntos".into(),
             ));
         }
-        if raw.split('.').any(|label| label.is_empty()) {
+        if raw.split('.').any(str::is_empty) {
             return Err(DomainError::InvalidDomain("etiqueta vacía en el dominio".into()));
         }
         Ok(Self(raw.to_lowercase()))
@@ -114,7 +120,7 @@ impl SitePath {
         if raw.is_empty() {
             return Err(DomainError::InvalidPath("la ruta no puede estar vacía".into()));
         }
-        if raw.chars().any(|c| c.is_control()) {
+        if raw.chars().any(char::is_control) {
             return Err(DomainError::InvalidPath("la ruta contiene caracteres de control".into()));
         }
         let path = std::path::Path::new(raw);

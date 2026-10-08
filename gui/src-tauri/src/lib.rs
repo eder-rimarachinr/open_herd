@@ -10,6 +10,9 @@ use infrastructure::{
 };
 use ports::http::{config_handlers, server};
 
+// The remaining `expect`s are startup failures with no recovery path (no logs
+// dir, no runtime, no window icon); aborting with a clear message is the intent.
+#[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let base_dir = resolve_base_dir();
@@ -19,13 +22,14 @@ pub fn run() {
     std::fs::create_dir_all(&log_dir)
         .expect("Cannot create base/logs dir");
 
-    let config   = Config::load(&base_dir);
+    let infrastructure::fs::Loaded { value: config, warning: config_warning } = Config::load(&base_dir);
     let api_addr = config.api_addr.clone();
 
     try_shutdown_previous(&api_addr);
 
     let state     = AppState::new(base_dir.clone(), config);
     let container = AppContainer::new(state);
+    if let Some(w) = config_warning { container.logger.log(w); }
 
     let container_for_api  = container.clone();
     let container_for_tray = container.clone();
@@ -71,7 +75,8 @@ pub fn run() {
         })
         .setup(move |app| {
             use tauri::Manager;
-            #[cfg(debug_assertions)] { app.get_webview_window("main").unwrap().open_devtools(); }
+            #[cfg(debug_assertions)]
+            if let Some(w) = app.get_webview_window("main") { w.open_devtools(); }
 
             // -- System tray -------------------------------------------------------
             use tauri::menu::{Menu, MenuItem};
@@ -123,9 +128,7 @@ pub fn run() {
                 .unwrap_or_default();
 
             std::thread::spawn(move || {
-                let socket_addr: std::net::SocketAddr = addr
-                    .parse()
-                    .unwrap_or_else(|_| "127.0.0.1:7878".parse().unwrap());
+                let socket_addr: std::net::SocketAddr = addr.parse().unwrap_or(server::DEFAULT_API_ADDR);
 
                 // Wait up to 10 s (20 × 500 ms) for the daemon to bind.
                 let up = (0..20).any(|_| {
@@ -179,8 +182,9 @@ fn try_shutdown_previous(api_addr: &str) {
     cmd.args(["-s", "-X", "POST", "--max-time", "1", &url]);
     #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
     let _ = cmd.output();
+    let socket_addr: std::net::SocketAddr = api_addr.parse().unwrap_or(server::DEFAULT_API_ADDR);
     if let Ok(mut stream) = std::net::TcpStream::connect_timeout(
-        &api_addr.parse().unwrap_or("127.0.0.1:7878".parse().unwrap()),
+        &socket_addr,
         std::time::Duration::from_millis(300),
     ) {
         use std::io::Write;
@@ -189,7 +193,7 @@ fn try_shutdown_previous(api_addr: &str) {
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
-        if std::net::TcpStream::connect_timeout(&api_addr.parse().unwrap_or("127.0.0.1:7878".parse().unwrap()), std::time::Duration::from_millis(100)).is_err() { break; }
+        if std::net::TcpStream::connect_timeout(&socket_addr, std::time::Duration::from_millis(100)).is_err() { break; }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use axum::http::StatusCode;
 use tempfile::TempDir;
 
@@ -30,7 +32,7 @@ async fn create_site_returns_201() {
     resp.assert_status(StatusCode::CREATED);
     let body = resp.json::<serde_json::Value>();
     assert_eq!(body["domain"], "myapp.test");
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(!body["id"].as_str().unwrap().is_empty());
     assert_eq!(body["ssl_enabled"], false);
 }
 

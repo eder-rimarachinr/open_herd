@@ -3,19 +3,13 @@ use std::collections::HashMap;
 use crate::infrastructure::dto::Site;
 
 #[derive(Debug, serde::Serialize)]
+#[derive(Default)]
 pub struct SiteInfo {
     pub app_name: String, pub app_env: String, pub app_debug: bool,
     pub app_url: String, pub app_timezone: String, pub app_locale: String,
     pub framework_name: String, pub framework_version: String, pub maintenance_mode: bool,
 }
 
-impl Default for SiteInfo {
-    fn default() -> Self {
-        Self { app_name: String::new(), app_env: String::new(), app_debug: false,
-               app_url: String::new(), app_timezone: String::new(), app_locale: String::new(),
-               framework_name: String::new(), framework_version: String::new(), maintenance_mode: false }
-    }
-}
 
 pub fn read(site: &Site) -> SiteInfo {
     let p = Path::new(&site.path);

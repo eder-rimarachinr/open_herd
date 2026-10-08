@@ -52,7 +52,7 @@ impl UpdatePhpIniUseCase {
         let after_ext   = ini_parser::apply_extension_changes(&content, &cmd.extension_changes);
         let new_content = ini_parser::apply_setting_changes(&after_ext, &cmd.setting_changes);
 
-        std::fs::write(&ini_path, &new_content)
+        crate::infrastructure::fs::atomic_write(&ini_path, new_content.as_bytes())
             .map_err(crate::domain::errors::InfrastructureError::Io)?;
 
         // Secuencia: stop PHP → reload nginx (limpia conexiones FastCGI) → restart PHP

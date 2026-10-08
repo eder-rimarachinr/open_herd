@@ -203,8 +203,8 @@ where F: FnMut(&Arc<DownloadState>, u8, &str) {
         if n == 0 { break; }
         file.write_all(&buf[..n])?;
         downloaded += n as u64;
-        if total > 0 {
-            let pct = (8 + (downloaded * 60 / total).min(60)) as u8;
+        if let Some(ratio) = (downloaded * 60).checked_div(total) {
+            let pct = (8 + ratio.min(60)) as u8;
             on_progress(progress, pct, &format!("Downloading… {:.1} / {:.1} MB", downloaded as f64 / 1_048_576.0, total as f64 / 1_048_576.0));
         }
     }

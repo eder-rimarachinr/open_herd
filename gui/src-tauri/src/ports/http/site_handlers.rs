@@ -21,15 +21,16 @@ pub type ContainerRef = Arc<AppContainer>;
 
 // ── Error helper ──────────────────────────────────────────────────────────────
 
-fn domain_err(e: ApplicationError) -> impl IntoResponse {
-    let (status, msg) = match &e {
+fn domain_err(e: &ApplicationError) -> impl IntoResponse {
+    let (status, msg) = match e {
         ApplicationError::Domain(de) => {
             use crate::domain::errors::DomainError::*;
             let code = match de {
                 SiteNotFound(_)        => StatusCode::NOT_FOUND,
                 DomainAlreadyExists(_) => StatusCode::CONFLICT,
                 InvalidTld | InvalidDomain(_) | InvalidPath(_) => StatusCode::BAD_REQUEST,
-                _ => StatusCode::UNPROCESSABLE_ENTITY,
+                Persistence(_)         => StatusCode::INTERNAL_SERVER_ERROR,
+                SslAlreadyActive(_) | SslCannotEnable(_) => StatusCode::UNPROCESSABLE_ENTITY,
             };
             (code, e.to_string())
         }
@@ -50,7 +51,7 @@ pub async fn list_sites(State(container): State<ContainerRef>) -> impl IntoRespo
             let legacy: Vec<_> = sites.iter().map(site_mapper::to_legacy).collect();
             Json(legacy).into_response()
         }
-        Err(e) => domain_err(ApplicationError::Domain(e)).into_response(),
+        Err(e) => domain_err(&ApplicationError::Domain(e)).into_response(),
     }
 }
 
@@ -64,7 +65,7 @@ pub async fn get_site(
     match container.site_repo.find_by_id(&sid).await {
         Ok(Some(site)) => Json(site_mapper::to_legacy(&site)).into_response(),
         Ok(None)       => not_found("site not found").into_response(),
-        Err(e)         => domain_err(ApplicationError::Domain(e)).into_response(),
+        Err(e)         => domain_err(&ApplicationError::Domain(e)).into_response(),
     }
 }
 
@@ -92,7 +93,7 @@ pub async fn create_site(
             container.logger.log(format!("Site created: {}", legacy.domain));
             (StatusCode::CREATED, Json(legacy)).into_response()
         }
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 
@@ -110,7 +111,7 @@ pub async fn update_site(
     };
     match container.update_site_uc.execute(cmd).await {
         Ok(site) => Json(site_mapper::to_legacy(&site)).into_response(),
-        Err(e)   => domain_err(e).into_response(),
+        Err(e)   => domain_err(&e).into_response(),
     }
 }
 
@@ -125,7 +126,7 @@ pub async fn delete_site(
             container.logger.log(format!("Site deleted: {}", id));
             Json(serde_json::json!({ "ok": true })).into_response()
         }
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 
@@ -176,7 +177,7 @@ pub async fn disable_ssl(
                 None    => Json(serde_json::json!({ "ok": true })).into_response(),
             }
         }
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 
@@ -224,10 +225,10 @@ pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoRespo
             }
             match container.site_repo.list_all().await {
                 Ok(sites) => Json(sites.iter().map(site_mapper::to_legacy).collect::<Vec<_>>()).into_response(),
-                Err(e) => domain_err(ApplicationError::Domain(e)).into_response(),
+                Err(e) => domain_err(&ApplicationError::Domain(e)).into_response(),
             }
         }
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 
@@ -245,7 +246,7 @@ pub async fn bulk_add_sites(
     }).collect();
     match container.bulk_add_sites_uc.execute(items, Some(default_php)).await {
         Ok(sites) => Json(sites.iter().map(site_mapper::to_legacy).collect::<Vec<_>>()).into_response(),
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 
@@ -260,7 +261,7 @@ pub async fn refresh_site_config(
             container.logger.log(format!("Config refreshed: {} (type: {})", site.domain, site.project_type));
             Json(site_mapper::to_legacy(&site)).into_response()
         }
-        Err(e) => domain_err(e).into_response(),
+        Err(e) => domain_err(&e).into_response(),
     }
 }
 

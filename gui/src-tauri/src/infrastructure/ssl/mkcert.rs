@@ -64,7 +64,7 @@ pub fn issue_cert(mkcert: &Path, domain: &str, certs_dir: &Path) -> Result<CertP
     let cert   = certs_dir.join(format!("{}.pem", domain));
     let key    = certs_dir.join(format!("{}-key.pem", domain));
     #[allow(unused_mut)] let mut cmd = Command::new(mkcert);
-    cmd.args(["-cert-file", &cert.to_string_lossy().to_string(), "-key-file", &key.to_string_lossy().to_string(), domain]);
+    cmd.args(["-cert-file", cert.to_string_lossy().as_ref(), "-key-file", key.to_string_lossy().as_ref(), domain]);
     #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
     let output = cmd.output().map_err(|e| format!("Failed to run mkcert: {}", e))?;
     if !output.status.success() { return Err(format!("mkcert cert issuance failed: {}", String::from_utf8_lossy(&output.stderr).trim())); }

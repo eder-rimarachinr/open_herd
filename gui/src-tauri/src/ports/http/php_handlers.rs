@@ -154,10 +154,7 @@ pub async fn update_php_ini(
 
     let cmd = UpdatePhpIniCommand { major: major.clone(), php_dir, extension_changes, setting_changes };
 
-    match container.update_php_ini_uc.execute(cmd).await {
-        Err(e) => return infra_err(e).into_response(),
-        Ok(()) => {}
-    }
+    if let Err(e) = container.update_php_ini_uc.execute(cmd).await { return infra_err(e).into_response() }
 
     container.logger.log(format!("php.ini updated for PHP {}", major));
 
