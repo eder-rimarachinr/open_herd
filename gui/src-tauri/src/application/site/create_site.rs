@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 
 use crate::domain::{
@@ -65,14 +66,10 @@ impl CreateSiteUseCase {
         self.site_repo.save(&site).await?;
 
         // 6. DNS (no-fatal: loguear pero no revertir)
-        if let Err(e) = self.dns.add_entry(site.domain.as_str()).await {
-            eprintln!("[warn] DNS add_entry failed for {}: {}", site.domain, e);
-        }
+        best_effort(self.dns.add_entry(site.domain.as_str()).await, format_args!("DNS add_entry failed for {}", site.domain));
 
         // 7. Recargar nginx
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[warn] nginx reload failed after create_site: {}", e);
-        }
+        best_effort(self.web_server.reload().await, format_args!("nginx reload failed after create_site"));
 
         Ok(site)
     }

@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 
 use crate::domain::{
@@ -5,7 +6,7 @@ use crate::domain::{
     ports::{dns::DnsPort, web_server::WebServerPort},
     site::{entity::Site, repository::SiteRepository, value_objects::{DomainName, SitePath}},
 };
-use super::project_type_detector;
+use super::{project_type_detector, register_new_site};
 
 pub struct ScanSitesCommand {
     /// Directorios a escanear — leídos de `config.scanned_dirs` por el handler.
@@ -92,17 +93,9 @@ impl ScanSitesUseCase {
                 }
 
                 // Crear vhost; si falla este sitio se salta pero continúa el scan
-                if let Err(e) = self.web_server.create_vhost(&site).await {
-                    eprintln!("[scan] vhost error for {}: {}", site.domain, e);
-                    continue;
-                }
-                if let Err(e) = self.dns.add_entry(site.domain.as_str()).await {
-                    eprintln!("[scan] DNS error for {}: {}", site.domain, e);
-                }
-                if let Err(e) = self.site_repo.save(&site).await {
-                    eprintln!("[scan] persist error for {}: {}", site.domain, e);
-                    continue;
-                }
+                if !register_new_site(self.site_repo.as_ref(), self.web_server.as_ref(), self.dns.as_ref(), &site).await {
+                continue;
+            }
 
                 seen_domains.insert(domain_str);
                 added.push(site);
@@ -111,9 +104,7 @@ impl ScanSitesUseCase {
 
         // Un solo reload al final para todos los sitios del scan
         if !added.is_empty() {
-            if let Err(e) = self.web_server.reload().await {
-                eprintln!("[scan] nginx reload error: {}", e);
-            }
+            best_effort(self.web_server.reload().await, format_args!("nginx reload error"));
         }
 
         Ok(ScanSitesResult { added, not_found })

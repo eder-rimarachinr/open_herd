@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::{path::PathBuf, sync::Arc};
 
 use crate::domain::{
@@ -54,9 +55,7 @@ impl EnableSslUseCase {
 
         // Regenerar vhost con SSL y recargar nginx
         self.web_server.create_vhost(&site).await?;
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[warn] nginx reload failed after enable_ssl: {}", e);
-        }
+        best_effort(self.web_server.reload().await, format_args!("nginx reload failed after enable_ssl"));
 
         Ok(())
     }

@@ -32,6 +32,8 @@ zip = "2"
 sha2 = "0.10"
 hex = "0.4"
 thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 async-trait = "0.1"
 
 [target.'cfg(windows)'.dependencies]

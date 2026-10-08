@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 use crate::domain::{
     errors::ApplicationError,
@@ -41,15 +42,11 @@ impl StartServicesUseCase {
         if let Some(v) = versions.iter().find(|v| {
             v.major == cmd.default_php || v.version.starts_with(&cmd.default_php)
         }) {
-            if let Err(e) = self.php_proc.start(v).await {
-                eprintln!("[services] PHP start warning: {}", e);
-            }
+            best_effort(self.php_proc.start(v).await, format_args!("PHP start warning"));
         }
 
         // 3. Iniciar nginx (non-fatal — puede que ya esté corriendo)
-        if let Err(e) = self.web_server.start().await {
-            eprintln!("[services] Nginx start warning: {}", e);
-        }
+        best_effort(self.web_server.start().await, format_args!("Nginx start warning"));
 
         Ok(())
     }

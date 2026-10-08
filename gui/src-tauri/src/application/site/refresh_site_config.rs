@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 
 use crate::domain::{
@@ -42,13 +43,9 @@ impl RefreshSiteConfigUseCase {
         self.web_server.create_vhost(&site).await?;
 
         // Asegurar entrada DNS (idempotente)
-        if let Err(e) = self.dns.add_entry(site.domain.as_str()).await {
-            eprintln!("[refresh] DNS error for {}: {}", site.domain, e);
-        }
+        best_effort(self.dns.add_entry(site.domain.as_str()).await, format_args!("DNS error for {}", site.domain));
 
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[refresh] nginx reload error: {}", e);
-        }
+        best_effort(self.web_server.reload().await, format_args!("nginx reload error"));
 
         Ok(site)
     }

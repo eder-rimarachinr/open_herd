@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 
 use crate::domain::{
@@ -47,12 +48,8 @@ impl UpdateSiteUseCase {
 
         // Persistir y regenerar config de nginx
         self.site_repo.save(&site).await?;
-        if let Err(e) = self.web_server.create_vhost(&site).await {
-            eprintln!("[warn] create_vhost failed after update_site: {}", e);
-        }
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[warn] nginx reload failed after update_site: {}", e);
-        }
+        best_effort(self.web_server.create_vhost(&site).await, format_args!("create_vhost failed after update_site"));
+        best_effort(self.web_server.reload().await, format_args!("nginx reload failed after update_site"));
 
         Ok(site)
     }

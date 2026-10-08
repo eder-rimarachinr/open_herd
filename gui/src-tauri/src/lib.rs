@@ -29,6 +29,7 @@ pub fn run() {
 
     let state     = AppState::with_warnings(base_dir.clone(), config, config_warning.into_iter().collect());
     let container = AppContainer::new(state);
+    infrastructure::logging::init_tracing(container.logger.clone());
 
     let container_for_api  = container.clone();
     let container_for_tray = container.clone();

@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::{path::PathBuf, sync::Arc};
 
 use crate::domain::{
@@ -39,9 +40,7 @@ impl DisableSslUseCase {
         }
 
         // Revocar archivos de certificado
-        if let Err(e) = self.ssl.revoke_certificate(site.domain.as_str(), &self.certs_dir).await {
-            eprintln!("[warn] revoke_certificate failed for {}: {}", site.domain, e);
-        }
+        best_effort(self.ssl.revoke_certificate(site.domain.as_str(), &self.certs_dir).await, format_args!("revoke_certificate failed for {}", site.domain));
 
         // Actualizar entidad
         site.disable_ssl();
@@ -49,9 +48,7 @@ impl DisableSslUseCase {
         // Persistir y regenerar vhost HTTP-only
         self.site_repo.save(&site).await?;
         self.web_server.create_vhost(&site).await?;
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[warn] nginx reload failed after disable_ssl: {}", e);
-        }
+        best_effort(self.web_server.reload().await, format_args!("nginx reload failed after disable_ssl"));
 
         Ok(())
     }

@@ -1,35 +1,80 @@
 use parking_lot::RwLock;
+use std::collections::VecDeque;
+use std::fmt::Write as _;
 use std::sync::Arc;
+use tracing::{field::{Field, Visit}, Event, Level, Subscriber};
+use tracing_subscriber::{layer::Context, Layer};
 
 use crate::domain::ports::logger::LoggerPort;
 
+const CAPACITY: usize = 200;
+
 pub struct InMemoryLogger {
-    entries: RwLock<Vec<String>>,
+    entries: RwLock<VecDeque<String>>,
 }
 
 impl InMemoryLogger {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { entries: RwLock::new(Vec::new()) })
+        Arc::new(Self { entries: RwLock::new(VecDeque::with_capacity(CAPACITY)) })
     }
 }
 
 impl LoggerPort for InMemoryLogger {
     fn log(&self, message: String) {
-        let mut log = self.entries.write();
         let entry = format!("[{}] {}", chrono::Local::now().format("%H:%M:%S"), message);
         eprintln!("{}", entry);
-        log.push(entry);
-        if log.len() > 200 {
-            let excess = log.len() - 200;
-            log.drain(0..excess);
-        }
+        let mut log = self.entries.write();
+        if log.len() == CAPACITY { log.pop_front(); }
+        log.push_back(entry);
     }
 
     fn recent(&self, limit: usize) -> Vec<String> {
         let log = self.entries.read();
         let start = log.len().saturating_sub(limit);
-        log[start..].to_vec()
+        log.range(start..).cloned().collect()
     }
+}
+
+/// Forwards this crate's `tracing` events (INFO and above) into the daemon
+/// log the GUI shows. Release builds have no console, so without this every
+/// `tracing::warn!` from the use cases would be invisible.
+pub struct ForwardToLogger { logger: Arc<dyn LoggerPort> }
+
+impl ForwardToLogger {
+    pub fn new(logger: Arc<dyn LoggerPort>) -> Self { Self { logger } }
+}
+
+impl<S: Subscriber> Layer<S> for ForwardToLogger {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let meta = event.metadata();
+        if *meta.level() > Level::INFO || !meta.target().starts_with(env!("CARGO_CRATE_NAME")) {
+            return;
+        }
+        let mut text = EventText::default();
+        event.record(&mut text);
+        let line = if *meta.level() == Level::INFO { text.0 } else { format!("{}: {}", meta.level(), text.0) };
+        self.logger.log(line);
+    }
+}
+
+#[derive(Default)]
+struct EventText(String);
+
+impl Visit for EventText {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            let _ = write!(self.0, "{value:?}");
+        } else {
+            let _ = write!(self.0, " {}={value:?}", field.name());
+        }
+    }
+}
+
+/// Installs the global subscriber. Call once, after the logger exists.
+pub fn init_tracing(logger: Arc<dyn LoggerPort>) {
+    use tracing_subscriber::layer::SubscriberExt;
+    let subscriber = tracing_subscriber::registry().with(ForwardToLogger::new(logger));
+    let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
 #[cfg(test)]
@@ -64,5 +109,22 @@ mod tests {
         let all = logger.recent(1000);
         assert_eq!(all.len(), 200);
         assert!(all[0].contains("entry 50"), "oldest 50 entries should have been dropped");
+    }
+
+    #[test]
+    fn warnings_from_this_crate_reach_the_gui_log() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let logger = InMemoryLogger::new();
+        let subscriber = tracing_subscriber::registry().with(ForwardToLogger::new(logger.clone()));
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::warn!("DNS add_entry failed for {}: {}", "app.test", "access denied");
+            tracing::debug!("too verbose for the GUI");
+            tracing::warn!(target: "some_dependency", "not ours");
+        });
+
+        let log = logger.recent(10);
+        assert_eq!(log.len(), 1, "got: {log:?}");
+        assert!(log[0].ends_with("WARN: DNS add_entry failed for app.test: access denied"));
     }
 }

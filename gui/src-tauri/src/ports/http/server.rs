@@ -113,7 +113,7 @@ pub async fn start(container: Arc<AppContainer>) {
     container.spawn_background_tasks();
     let router = build_router(container);
     let listener = bind_with_retry(&addr).await;
-    println!("Daemon API listening on http://{}", addr);
+    tracing::info!("Daemon API listening on http://{}", addr);
     axum::serve(listener, router).await.expect("Server error");
 }
 
@@ -136,9 +136,9 @@ async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
             Err(e) => last_err = e.to_string(),
         }
         if attempt < 9 {
-            eprintln!("[open-herd] port {} busy (attempt {}), retrying…", addr, attempt + 1);
+            tracing::warn!("port {} busy (attempt {}), retrying…", addr, attempt + 1);
         } else if attempt == 9 {
-            eprintln!("[open-herd] port {} still busy after 10 attempts; hint: run `netstat -ano | findstr :{}` to find the process holding it.", addr, socket_addr.port());
+            tracing::warn!("port {} still busy after 10 attempts; hint: run `netstat -ano | findstr :{}` to find the process holding it.", addr, socket_addr.port());
         }
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }

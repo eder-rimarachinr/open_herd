@@ -1,3 +1,4 @@
+use crate::application::best_effort;
 use std::sync::Arc;
 
 use crate::domain::{
@@ -34,19 +35,13 @@ impl DeleteSiteUseCase {
         self.site_repo.delete(&id).await?;
 
         // 3. Eliminar vhost (non-fatal)
-        if let Err(e) = self.web_server.remove_vhost(&site).await {
-            eprintln!("[warn] remove_vhost failed for {}: {}", site.domain, e);
-        }
+        best_effort(self.web_server.remove_vhost(&site).await, format_args!("remove_vhost failed for {}", site.domain));
 
         // 4. Eliminar entrada DNS (non-fatal)
-        if let Err(e) = self.dns.remove_entry(site.domain.as_str()).await {
-            eprintln!("[warn] DNS remove_entry failed for {}: {}", site.domain, e);
-        }
+        best_effort(self.dns.remove_entry(site.domain.as_str()).await, format_args!("DNS remove_entry failed for {}", site.domain));
 
         // 5. Recargar nginx
-        if let Err(e) = self.web_server.reload().await {
-            eprintln!("[warn] nginx reload failed after delete_site: {}", e);
-        }
+        best_effort(self.web_server.reload().await, format_args!("nginx reload failed after delete_site"));
 
         Ok(())
     }
