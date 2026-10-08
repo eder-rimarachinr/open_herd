@@ -34,19 +34,23 @@ pub async fn update_config(
     State(container): State<ContainerRef>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let mut cfg = container.legacy.config.write();
-    if let Some(v) = body["default_php"].as_str()    { cfg.default_php  = v.to_string(); }
-    if let Some(v) = body["http_port"].as_u64()      { cfg.http_port    = v as u16; }
-    if let Some(v) = body["https_port"].as_u64()     { cfg.https_port   = v as u16; }
-    if let Some(arr) = body["scanned_dirs"].as_array() {
-        cfg.scanned_dirs = arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
-    }
-    if let Some(arr) = body["custom_php_dirs"].as_array() {
-        cfg.custom_php_dirs = arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
-    }
-    let updated = cfg.clone();
-    drop(cfg);
-    let _ = updated.save(&container.legacy.base_dir);
+    let updated = {
+        let mut cfg = container.legacy.config.write();
+        if let Some(v) = body["default_php"].as_str()    { cfg.default_php  = v.to_string(); }
+        if let Some(v) = body["http_port"].as_u64()      { cfg.http_port    = v as u16; }
+        if let Some(v) = body["https_port"].as_u64()     { cfg.https_port   = v as u16; }
+        if let Some(arr) = body["scanned_dirs"].as_array() {
+            cfg.scanned_dirs = arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        }
+        if let Some(arr) = body["custom_php_dirs"].as_array() {
+            cfg.custom_php_dirs = arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        }
+        cfg.clone()
+    };
+    let to_save  = updated.clone();
+    let base_dir = container.legacy.base_dir.clone();
+    // TODO(fase 3): report save failures to the caller instead of ignoring them.
+    let _ = tokio::task::spawn_blocking(move || to_save.save(&base_dir)).await;
     Json(updated)
 }
 
@@ -66,12 +70,12 @@ pub async fn quit_daemon(State(container): State<ContainerRef>) -> impl IntoResp
     Json(serde_json::json!({ "ok": true }))
 }
 
-/// Detiene nginx y PHP y luego termina el proceso.
-/// Llamado tanto desde el endpoint /quit como desde el evento CloseRequested.
+/// Detiene nginx y PHP y luego cierra la app (vía Tauri, para que limpie el
+/// icono de bandeja y la WebView). Llamado desde el endpoint /quit y desde la
+/// opción "Salir" del menú de bandeja.
 pub async fn graceful_shutdown(container: &AppContainer) {
-    use crate::infrastructure::{nginx::process as nginx_mgr, php::process as php_mgr};
-    php_mgr::stop_all(&container.legacy, &container.legacy.php_proc, &container.logger);
-    let _ = nginx_mgr::stop(&container.legacy, &container.legacy.nginx_proc, &container.logger);
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    std::process::exit(0);
+    if let Err(e) = container.stop_services_uc.execute().await {
+        container.logger.log(format!("Shutdown: stopping services failed: {}", e));
+    }
+    container.exit_app();
 }

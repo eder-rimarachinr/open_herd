@@ -35,6 +35,16 @@ hex = "0.4"
 thiserror = "1"
 async-trait = "0.1"
 
+[target.'cfg(windows)'.dependencies]
+# Job Object that kills nginx/php-cgi when the app exits (see infrastructure/process_guard.rs).
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 axum-test = "15"
 tempfile = "3"

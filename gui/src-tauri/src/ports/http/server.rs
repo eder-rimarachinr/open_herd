@@ -110,6 +110,7 @@ pub const DEFAULT_API_ADDR: std::net::SocketAddr =
 #[allow(clippy::expect_used)]
 pub async fn start(container: Arc<AppContainer>) {
     let addr   = container.legacy.config.read().api_addr.clone();
+    container.spawn_background_tasks();
     let router = build_router(container);
     let listener = bind_with_retry(&addr).await;
     println!("Daemon API listening on http://{}", addr);

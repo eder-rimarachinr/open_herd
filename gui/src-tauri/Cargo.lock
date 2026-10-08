@@ -3196,6 +3196,7 @@ dependencies = [
  "tower-http 0.5.2",
  "uuid",
  "which",
+ "windows-sys 0.59.0",
  "zip",
 ]
 

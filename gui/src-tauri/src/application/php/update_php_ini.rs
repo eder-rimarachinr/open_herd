@@ -46,14 +46,14 @@ impl UpdatePhpIniUseCase {
         }
 
         let ini_path = PathBuf::from(&cmd.php_dir).join(&cmd.major).join("php.ini");
-        let content = std::fs::read_to_string(&ini_path)
-            .map_err(crate::domain::errors::InfrastructureError::Io)?;
-
-        let after_ext   = ini_parser::apply_extension_changes(&content, &cmd.extension_changes);
-        let new_content = ini_parser::apply_setting_changes(&after_ext, &cmd.setting_changes);
-
-        crate::infrastructure::fs::atomic_write(&ini_path, new_content.as_bytes())
-            .map_err(crate::domain::errors::InfrastructureError::Io)?;
+        let (extension_changes, setting_changes) = (cmd.extension_changes, cmd.setting_changes);
+        crate::infrastructure::blocking::run(move || {
+            let content = std::fs::read_to_string(&ini_path)?;
+            let after_ext   = ini_parser::apply_extension_changes(&content, &extension_changes);
+            let new_content = ini_parser::apply_setting_changes(&after_ext, &setting_changes);
+            crate::infrastructure::fs::atomic_write(&ini_path, new_content.as_bytes())?;
+            Ok(())
+        }).await?;
 
         // Secuencia: stop PHP → reload nginx (limpia conexiones FastCGI) → restart PHP
         let was_running = self.php_proc.is_running(&cmd.major).await;

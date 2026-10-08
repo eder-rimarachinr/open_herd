@@ -27,10 +27,13 @@ pub async fn nginx_status(State(container): State<ContainerRef>) -> impl IntoRes
 
 pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoResponse {
     let nginx_dir = container.legacy.config.read().nginx_dir.clone();
-    let binary    = nginx_mgr::find_nginx_binary(&nginx_dir);
     let running   = container.web_server.status().await.running;
-    let version     = binary.as_ref().and_then(|b| nginx_mgr::get_nginx_version(b)).unwrap_or_default();
-    let binary_path = binary.map(|b| b.to_string_lossy().to_string()).unwrap_or_default();
+    // Probing the binary runs `nginx -v`: keep it off the async workers.
+    let (binary_path, version) = tokio::task::spawn_blocking(move || {
+        let binary  = nginx_mgr::find_nginx_binary(&nginx_dir);
+        let version = binary.as_ref().and_then(|b| nginx_mgr::get_nginx_version(b)).unwrap_or_default();
+        (binary.map(|b| b.to_string_lossy().to_string()).unwrap_or_default(), version)
+    }).await.unwrap_or_default();
     Json(NginxInfo {
         installed: !binary_path.is_empty(), running, version, binary_path,
         config_valid: None, config_error: String::new(), error_log: String::new(),
@@ -97,20 +100,19 @@ pub async fn start_services(State(container): State<ContainerRef>) -> impl IntoR
     use crate::application::services::start_services::StartServicesCommand;
     let default_php = container.legacy.config.read().default_php.clone();
     let cmd = StartServicesCommand { default_php };
-    let container2 = container.clone();
-    tokio::task::spawn_blocking(move || {
-        tokio::runtime::Handle::current().block_on(container2.start_services_uc.execute(cmd))
-    }).await.ok();
+    // The adapters offload their blocking work themselves.
+    if let Err(e) = container.start_services_uc.execute(cmd).await {
+        container.logger.log(format!("Start services failed: {}", e));
+    }
     Json(build_service_status(&container).await)
 }
 
 // ── POST /api/v1/services/stop ────────────────────────────────────────────────
 
 pub async fn stop_services(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let container2 = container.clone();
-    tokio::task::spawn_blocking(move || {
-        tokio::runtime::Handle::current().block_on(container2.stop_services_uc.execute())
-    }).await.ok();
+    if let Err(e) = container.stop_services_uc.execute().await {
+        container.logger.log(format!("Stop services failed: {}", e));
+    }
     Json(build_service_status(&container).await)
 }
 

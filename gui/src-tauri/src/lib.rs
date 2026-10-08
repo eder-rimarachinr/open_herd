@@ -32,6 +32,7 @@ pub fn run() {
 
     let container_for_api  = container.clone();
     let container_for_tray = container.clone();
+    let container_for_setup = container.clone();
     let crash_log = log_dir.join("daemon-crash.log");
     let crash_log_thread = crash_log.clone();
 
@@ -74,6 +75,11 @@ pub fn run() {
         })
         .setup(move |app| {
             use tauri::Manager;
+
+            // Graceful shutdown ends the app through Tauri (removes the tray
+            // icon, closes the WebView) instead of `std::process::exit`.
+            let exit_handle = app.handle().clone();
+            container_for_setup.set_exit_hook(move || exit_handle.exit(0));
             #[cfg(debug_assertions)]
             if let Some(w) = app.get_webview_window("main") { w.open_devtools(); }
 
@@ -99,10 +105,8 @@ pub fn run() {
                     }
                     "quit" => {
                         let container = container_for_tray.clone();
-                        std::thread::spawn(move || {
-                            tokio::runtime::Runtime::new()
-                                .expect("tokio rt for shutdown")
-                                .block_on(config_handlers::graceful_shutdown(&container));
+                        tauri::async_runtime::spawn(async move {
+                            config_handlers::graceful_shutdown(&container).await;
                         });
                     }
                     _ => {}

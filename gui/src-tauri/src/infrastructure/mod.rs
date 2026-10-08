@@ -1,3 +1,4 @@
+pub mod blocking;
 pub mod config;
 pub mod container;
 pub mod dns;
@@ -8,6 +9,7 @@ pub mod logging;
 pub mod nginx;
 pub mod persistence;
 pub mod php;
+pub mod process_guard;
 pub mod site_info;
 pub mod ssl;
 pub mod state;

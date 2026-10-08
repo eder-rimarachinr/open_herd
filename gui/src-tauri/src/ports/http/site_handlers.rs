@@ -271,8 +271,13 @@ pub async fn get_site_info(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match container.legacy.sites.read().get(&id).cloned() {
-        Some(site) => Json(crate::infrastructure::site_info::read(&site)).into_response(),
+    let site = container.legacy.sites.read().get(&id).cloned();
+    match site {
+        // Reads several files from the project: keep it off the async workers.
+        Some(site) => match tokio::task::spawn_blocking(move || crate::infrastructure::site_info::read(&site)).await {
+            Ok(info) => Json(info).into_response(),
+            Err(e)   => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        },
         None => not_found("site not found").into_response(),
     }
 }

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::{Arc, OnceLock}, time::Duration};
 
 use crate::{
     application::{
@@ -49,7 +49,7 @@ use crate::infrastructure::{
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
     logging::InMemoryLogger,
-    php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, version_repository::InMemoryPhpVersionRepository},
+    php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, process as php_process, version_repository::InMemoryPhpVersionRepository},
     ssl::mkcert_adapter::MkcertAdapter,
     ssl::task_tracker::InMemorySslTaskTracker,
 };
@@ -100,6 +100,11 @@ pub struct AppContainer {
     // ── Casos de uso — Services ──────────────────────────────────────────────
     pub start_services_uc: StartServicesUseCase,
     pub stop_services_uc:  StopServicesUseCase,
+
+    /// Cómo terminar la app tras un apagado ordenado. `lib.rs` lo fija con
+    /// `AppHandle::exit` para que Tauri limpie (icono de bandeja, WebView);
+    /// sin hook (tests, antes de `setup`) se usa `std::process::exit`.
+    exit_hook: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 /// Adaptadores que modifican la máquina fuera de `base_dir` (el archivo hosts
@@ -174,7 +179,37 @@ impl AppContainer {
             install_php_uc, update_php_ini_uc,
             start_nginx_uc, stop_nginx_uc, reload_nginx_uc, download_nginx_uc,
             start_services_uc, stop_services_uc,
+            exit_hook: OnceLock::new(),
         })
+    }
+
+    pub fn set_exit_hook(&self, exit: impl Fn() + Send + Sync + 'static) {
+        let _ = self.exit_hook.set(Box::new(exit));
+    }
+
+    /// Termina la app; ver `exit_hook`.
+    pub fn exit_app(&self) {
+        match self.exit_hook.get() {
+            Some(exit) => exit(),
+            None => std::process::exit(0),
+        }
+    }
+
+    /// Tareas de mantenimiento que viven en el runtime del daemon. Debe
+    /// llamarse una vez, desde dentro de ese runtime.
+    pub fn spawn_background_tasks(&self) {
+        let php    = self.legacy.php_proc.clone();
+        let logger = self.logger.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(2));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                let (php, logger) = (php.clone(), logger.clone());
+                // supervise() may spawn processes: keep it off the async workers.
+                let _ = tokio::task::spawn_blocking(move || php_process::supervise(&php, logger.as_ref())).await;
+            }
+        });
     }
 }
 

@@ -2,67 +2,66 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::infrastructure::{
+    blocking,
     nginx::{process as ng, vhost_config},
     state::AppState,
 };
-use crate::domain::{errors::InfrastructureError, ports::web_server::WebServerPort, site::entity::Site};
+use crate::domain::{
+    errors::InfrastructureError,
+    ports::{logger::LoggerPort, web_server::{WebServerPort, WebServerStatus}},
+    site::entity::Site,
+};
 use super::super::persistence::site_mapper;
 
-pub struct NginxAdapter { state: Arc<AppState>, logger: Arc<dyn crate::domain::ports::logger::LoggerPort> }
+pub struct NginxAdapter { state: Arc<AppState>, logger: Arc<dyn LoggerPort> }
 impl NginxAdapter {
-    pub fn new(state: Arc<AppState>, logger: Arc<dyn crate::domain::ports::logger::LoggerPort>) -> Self {
+    pub fn new(state: Arc<AppState>, logger: Arc<dyn LoggerPort>) -> Self {
         Self { state, logger }
+    }
+
+    /// Runs one of the blocking `nginx::process` operations off the async workers.
+    async fn process_op(
+        &self,
+        op: fn(&AppState, &ng::NginxProcess, &dyn LoggerPort) -> Result<(), String>,
+    ) -> Result<(), InfrastructureError> {
+        let (state, logger) = (self.state.clone(), self.logger.clone());
+        blocking::run(move || {
+            op(&state, &state.nginx_proc, logger.as_ref()).map_err(InfrastructureError::ProcessFailed)
+        }).await
     }
 }
 
 #[async_trait]
 impl WebServerPort for NginxAdapter {
     async fn create_vhost(&self, site: &Site) -> Result<(), InfrastructureError> {
-        let config = self.state.config.read();
-        let nginx_dir = config.nginx_dir.clone(); let http_port = config.http_port; let certs_dir = config.certs_dir.clone();
-        drop(config);
+        let (nginx_dir, http_port, certs_dir) = {
+            let config = self.state.config.read();
+            (config.nginx_dir.clone(), config.http_port, config.certs_dir.clone())
+        };
         let legacy = site_mapper::to_legacy(site);
-        let result = if site.ssl.is_enabled() { vhost_config::generate_with_certs(&legacy, &nginx_dir, http_port, Some(&certs_dir)) } else { vhost_config::generate(&legacy, &nginx_dir, http_port) };
-        result.map_err(|e| InfrastructureError::Io(std::io::Error::other(e)))
+        let ssl    = site.ssl.is_enabled();
+        blocking::run(move || {
+            let result = if ssl { vhost_config::generate_with_certs(&legacy, &nginx_dir, http_port, Some(&certs_dir)) } else { vhost_config::generate(&legacy, &nginx_dir, http_port) };
+            result.map_err(|e| InfrastructureError::Io(std::io::Error::other(e)))
+        }).await
     }
 
     async fn remove_vhost(&self, site: &Site) -> Result<(), InfrastructureError> {
         let nginx_dir = self.state.config.read().nginx_dir.clone();
-        vhost_config::remove(&site_mapper::to_legacy(site), &nginx_dir);
-        Ok(())
+        let legacy    = site_mapper::to_legacy(site);
+        blocking::run(move || { vhost_config::remove(&legacy, &nginx_dir); Ok(()) }).await
     }
 
-    async fn reload(&self) -> Result<(), InfrastructureError> {
-        // En Windows, `nginx -s reload` abre un named event basado en el PID
-        // del proceso maestro. Si nginx no está corriendo, el evento no existe
-        // y el comando falla con "OpenEvent failed". Skip reload si no está activo.
-        if !ng::is_running(&self.state.nginx_proc) {
-            return Ok(());
-        }
-        ng::reload(&self.state, &self.logger).map_err(InfrastructureError::ProcessFailed)
-    }
+    async fn reload(&self) -> Result<(), InfrastructureError> { self.process_op(ng::reload).await }
 
-    async fn is_running(&self) -> bool { ng::is_running(&self.state.nginx_proc) }
+    async fn is_running(&self) -> bool { self.state.nginx_proc.is_running() }
 
-    async fn start(&self) -> Result<(), InfrastructureError> {
-        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone(); let logger = self.logger.clone();
-        tokio::task::spawn_blocking(move || ng::start(&state, &nginx_proc, &logger).map_err(InfrastructureError::ProcessFailed))
-            .await.unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
-    }
+    async fn start(&self) -> Result<(), InfrastructureError> { self.process_op(ng::start).await }
 
-    async fn stop(&self) -> Result<(), InfrastructureError> {
-        let state = self.state.clone(); let nginx_proc = self.state.nginx_proc.clone(); let logger = self.logger.clone();
-        tokio::task::spawn_blocking(move || ng::stop(&state, &nginx_proc, &logger).map_err(InfrastructureError::ProcessFailed))
-            .await.unwrap_or_else(|_| Err(InfrastructureError::ProcessFailed("spawn_blocking panicked".into())))
-    }
+    async fn stop(&self) -> Result<(), InfrastructureError> { self.process_op(ng::stop).await }
 
-    async fn status(&self) -> crate::domain::ports::web_server::WebServerStatus {
-        use crate::domain::ports::web_server::WebServerStatus;
-        let running = ng::is_running(&self.state.nginx_proc);
-        WebServerStatus {
-            running,
-            version: self.state.nginx_proc.version.lock().clone(),
-            pid: *self.state.nginx_proc.pid.lock(),
-        }
+    async fn status(&self) -> WebServerStatus {
+        let snap = self.state.nginx_proc.snapshot();
+        WebServerStatus { running: snap.running, version: snap.version, pid: snap.pid }
     }
 }

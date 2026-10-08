@@ -117,7 +117,7 @@ pub async fn get_php_ini(
             Json(serde_json::json!({ "error": "php.ini not found — install this PHP version first" })))
             .into_response();
     }
-    match std::fs::read_to_string(&ini_path) {
+    match tokio::fs::read_to_string(&ini_path).await {
         Ok(content) => Json(PhpIniConfig {
             major,
             ini_path: ini_path.to_string_lossy().to_string(),
@@ -159,7 +159,7 @@ pub async fn update_php_ini(
     container.logger.log(format!("php.ini updated for PHP {}", major));
 
     // Devolver config actualizada
-    let updated = std::fs::read_to_string(&ini_path).unwrap_or_default();
+    let updated = tokio::fs::read_to_string(&ini_path).await.unwrap_or_default();
     Json(PhpIniConfig {
         major,
         ini_path: ini_path.to_string_lossy().to_string(),
