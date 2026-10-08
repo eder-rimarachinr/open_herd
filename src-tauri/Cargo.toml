@@ -1,6 +1,6 @@
 [package]
 name = "open-herd"
-version = "0.1.1"
+version = "0.2.0"
 description = "Open Herd — Local PHP development environment manager"
 authors = []
 edition = "2021"

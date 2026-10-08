@@ -117,8 +117,10 @@ if (-not (Test-Path $builtExe)) {
     exit 1
 }
 
-if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
-New-Item -ItemType Directory -Path $distDir | Out-Null
+# Keep earlier releases: only replace this version's artifacts.
+if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
+Get-ChildItem $distDir -Filter "open-herd-v$version-*" -ErrorAction SilentlyContinue | Remove-Item -Force
+Remove-Item (Join-Path $distDir "_portable_stage") -Recurse -Force -ErrorAction SilentlyContinue
 
 # -- Instalador NSIS ----------------------------------------------------------
 # Tauri genera: "{productName}_{version}_x64-setup.exe"
