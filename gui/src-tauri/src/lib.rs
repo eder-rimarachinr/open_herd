@@ -182,9 +182,14 @@ fn try_shutdown_previous(api_addr: &str) {
         &socket_addr,
         std::time::Duration::from_millis(300),
     ) {
-        use std::io::Write;
+        use std::io::{Read, Write};
         let req = format!("POST /api/v1/daemon/quit HTTP/1.0\r\nHost: {}\r\nContent-Length: 0\r\n\r\n", api_addr);
         let _ = stream.write_all(req.as_bytes());
+        // Wait for the response before closing: hyper cancels a request whose
+        // client has already hung up, so closing right after the write meant
+        // the quit handler never ran.
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+        let _ = stream.read(&mut [0u8; 256]);
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while std::time::Instant::now() < deadline {

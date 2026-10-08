@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::time::Duration;
 use std::path::Path;
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -27,15 +27,20 @@ impl DownloadState {
 
 // ── HTTP client ───────────────────────────────────────────────────────────────
 
-fn make_client() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder()
+/// Async client for every download. In async reqwest `timeout()` is a *total*
+/// deadline and would cut off a slow-but-steady 30 MB download, so only the
+/// connect phase and each individual read are bounded: a stalled connection
+/// fails after 30 s, a slow one keeps going.
+pub(crate) fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
         .user_agent("open-herd/0.1")
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(30))
+        .read_timeout(Duration::from_secs(30))
         .build().unwrap_or_default()
 }
 
-fn url_exists(client: &reqwest::blocking::Client, url: &str) -> bool {
-    client.head(url).send().map(|r| r.status().is_success()).unwrap_or(false)
+async fn url_exists(client: &reqwest::Client, url: &str) -> bool {
+    client.head(url).send().await.map(|r| r.status().is_success()).unwrap_or(false)
 }
 
 // ── SHA-256 ───────────────────────────────────────────────────────────────────
@@ -75,13 +80,15 @@ fn known_php_hash(filename: &str) -> Option<&'static str> {
 
 // ── Nginx download ────────────────────────────────────────────────────────────
 
+/// Starts the download as a task on the current Tokio runtime and returns at
+/// once; progress is published through `progress`.
 pub fn download_nginx(dest_dir: &Path, progress: Arc<DownloadState>) {
     let dest_dir = dest_dir.to_path_buf();
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         set_nginx(&progress, TaskState::Downloading, &format!("Downloading nginx {}…", NGINX_VERSION), 5);
         match fetch_zip(NGINX_URL, &dest_dir, &format!("nginx-{}/", NGINX_VERSION), Some(NGINX_SHA256), &progress, |p, pct, msg| {
             set_nginx(p, TaskState::Downloading, msg, pct);
-        }) {
+        }).await {
             Ok(())  => set_nginx(&progress, TaskState::Done, "Nginx ready", 100),
             Err(e)  => *progress.nginx.lock() = Some(DownloadProgress::error(&e.to_string())),
         }
@@ -112,17 +119,19 @@ fn compiler_variants(major: &str) -> &'static [&'static str] {
     }
 }
 
-fn resolve_php_url(client: &reqwest::blocking::Client, major: &str, version: &str) -> Option<(String, String)> {
+async fn resolve_php_url(client: &reqwest::Client, major: &str, version: &str) -> Option<(String, String)> {
     let base = "https://windows.php.net/downloads/releases";
     let arc  = "https://windows.php.net/downloads/releases/archives";
     for vs in compiler_variants(major) {
         let f = format!("php-{}-nts-Win32-{}-x64.zip", version, vs);
-        if url_exists(client, &format!("{}/{}", base, f)) { return Some((format!("{}/{}", base, f), f)); }
-        if url_exists(client, &format!("{}/{}", arc, f))  { return Some((format!("{}/{}", arc, f), f)); }
+        if url_exists(client, &format!("{}/{}", base, f)).await { return Some((format!("{}/{}", base, f), f)); }
+        if url_exists(client, &format!("{}/{}", arc, f)).await  { return Some((format!("{}/{}", arc, f), f)); }
     }
     None
 }
 
+/// Starts the download as a task on the current Tokio runtime and returns at
+/// once; progress is published through `progress`.
 pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     let major   = major.to_string();
     let php_dir = php_dir.to_path_buf();
@@ -130,12 +139,11 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
         Some(r) => r,
         None => { set_php(&progress, &major, TaskState::Error, &format!("Unknown PHP version: {}", major), 0); return; }
     };
-    std::thread::spawn(move || {
-        let client = make_client();
+    tokio::spawn(async move {
+        let client = http_client();
         let dest   = php_dir.join(&release.major);
-        std::fs::create_dir_all(&dest).ok();
         set_php(&progress, &major, TaskState::Downloading, &format!("Locating PHP {} on windows.php.net…", release.version), 3);
-        let (url, filename) = match resolve_php_url(&client, &release.major, &release.version) {
+        let (url, filename) = match resolve_php_url(&client, &release.major, &release.version).await {
             Some(p) => p,
             None => { set_php(&progress, &major, TaskState::Error, &format!("PHP {} not found on windows.php.net", release.version), 0); return; }
         };
@@ -153,9 +161,14 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
         let major2 = major.clone();
         let result = fetch_zip(&url, &dest, "", Some(expected_hash), &progress, move |p, pct, msg| {
             set_php(p, &major2, TaskState::Downloading, msg, pct);
-        });
+        }).await;
         match result {
-            Ok(()) => { set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92); configure_ini(&dest); set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100); }
+            Ok(()) => {
+                set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92);
+                let dest = dest.clone();
+                let _ = tokio::task::spawn_blocking(move || configure_ini(&dest)).await;
+                set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100);
+            }
             Err(e) => set_php(&progress, &major, TaskState::Error, &e.to_string(), 0),
         }
     });
@@ -195,40 +208,45 @@ pub fn is_install_complete(dir: &Path) -> bool {
     !dir.join(INSTALL_INCOMPLETE_MARKER).exists()
 }
 
-fn fetch_zip<F>(url: &str, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
-where F: FnMut(&Arc<DownloadState>, u8, &str) {
-    std::fs::create_dir_all(dest_dir)?;
+async fn fetch_zip<F>(url: &str, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
+where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
+    tokio::fs::create_dir_all(dest_dir).await?;
     let zip_path = dest_dir.join("_download.zip");
-    let result = download_and_extract(url, &zip_path, dest_dir, strip_prefix, expected_sha256, progress, on_progress);
+    let result = download_and_extract(url, &zip_path, dest_dir, strip_prefix, expected_sha256, progress, on_progress).await;
     // The archive is only a temporary: never leave it behind, success or not.
-    let _ = std::fs::remove_file(&zip_path);
+    let _ = tokio::fs::remove_file(&zip_path).await;
     result
 }
 
-fn download_and_extract<F>(url: &str, zip_path: &Path, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
-where F: FnMut(&Arc<DownloadState>, u8, &str) {
-    use std::io::Read;
-    let client   = make_client();
-    let mut resp = client.get(url).send()?;
+async fn download_and_extract<F>(url: &str, zip_path: &Path, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
+where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
+    use tokio::io::AsyncWriteExt;
+    let mut resp = http_client().get(url).send().await?;
     if !resp.status().is_success() { return Err(anyhow::anyhow!("HTTP {} for {}", resp.status(), url)); }
     let total    = resp.content_length().unwrap_or(0);
-    let mut file = std::fs::File::create(zip_path)?;
+    let mut file = tokio::fs::File::create(zip_path).await?;
     let mut downloaded = 0u64;
-    let mut buf = [0u8; 32768];
-    loop {
-        let n = resp.read(&mut buf)?;
-        if n == 0 { break; }
-        file.write_all(&buf[..n])?;
-        downloaded += n as u64;
+    while let Some(chunk) = resp.chunk().await? {
+        file.write_all(&chunk).await?;
+        downloaded += chunk.len() as u64;
         if let Some(ratio) = (downloaded * 60).checked_div(total) {
             let pct = (8 + ratio.min(60)) as u8;
             on_progress(progress, pct, &format!("Downloading… {:.1} / {:.1} MB", downloaded as f64 / 1_048_576.0, total as f64 / 1_048_576.0));
         }
     }
+    // tokio's File buffers writes: flush before the blocking code reopens it.
+    file.flush().await?;
     drop(file);
-    if let Some(expected) = expected_sha256 { on_progress(progress, 72, "Verifying integrity…"); verify_sha256(zip_path, expected)?; }
+
+    if expected_sha256.is_some() { on_progress(progress, 72, "Verifying integrity…"); }
+    let (zip, dest, strip, expected) =
+        (zip_path.to_path_buf(), dest_dir.to_path_buf(), strip_prefix.to_owned(), expected_sha256.map(str::to_owned));
+    // Hashing and extracting ~30 MB is CPU/disk work: keep it off the async workers.
     on_progress(progress, 73, "Extracting…");
-    extract_zip(zip_path, dest_dir, strip_prefix)
+    tokio::task::spawn_blocking(move || {
+        if let Some(expected) = expected { verify_sha256(&zip, &expected)?; }
+        extract_zip(&zip, &dest, &strip)
+    }).await?
 }
 
 /// Extracts over `dest_dir` (keeping files the archive does not contain, e.g.
@@ -264,6 +282,7 @@ fn extract_zip(zip_path: &Path, dest_dir: &Path, strip_prefix: &str) -> anyhow::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use tempfile::TempDir;
 
     fn write_zip(path: &Path, files: &[(&str, &[u8])]) {
@@ -301,5 +320,30 @@ mod tests {
 
         assert!(extract_zip(&zip_path, &dest, "").is_err());
         assert!(!is_install_complete(&dest));
+    }
+
+    /// Real network: downloads PHP 8.5 (~30 MB) from windows.php.net into a temp
+    /// dir. Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "downloads ~30 MB from windows.php.net"]
+    async fn real_php_download_installs_into_temp_dir() {
+        let tmp = TempDir::new().unwrap();
+        let state = DownloadState::new();
+        download_php("8.5", tmp.path(), state.clone());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(600);
+        let final_state = loop {
+            let p = state.php.lock().get("8.5").cloned();
+            if let Some(p) = p.filter(|p| !p.state.is_active()) { break p; }
+            assert!(std::time::Instant::now() < deadline, "download did not finish in time");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        };
+
+        assert_eq!(final_state.state, TaskState::Done, "{}", final_state.message);
+        let dest = tmp.path().join("8.5");
+        assert!(dest.join("php-cgi.exe").exists());
+        assert!(dest.join("php.ini").exists(), "configure_ini must have run");
+        assert!(is_install_complete(&dest));
+        assert!(!dest.join("_download.zip").exists());
     }
 }

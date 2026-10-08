@@ -149,10 +149,8 @@ pub async fn enable_ssl(
     container.ssl_tasks.set(&id, TaskState::Pending, "Starting SSL issuance…", None);
     let container2 = container.clone();
     let site_id    = id.clone();
-    // The use case is fully async and offloads its blocking mkcert work via
-    // spawn_blocking internally, so run it directly on the runtime. Do NOT wrap it
-    // in spawn_blocking + Handle::block_on — re-entering the runtime panics when the
-    // inner reqwest::blocking runtime is dropped, which strands the task on "running".
+    // The use case is fully async (the mkcert download is async reqwest and the
+    // mkcert subprocesses run on the blocking pool), so spawn it directly.
     tokio::spawn(async move {
         container2.ssl_tasks.set(&site_id, TaskState::Running, "Issuing SSL certificate…", None);
         match container2.enable_ssl_uc.execute(&site_id).await {

@@ -11,23 +11,18 @@ impl MkcertAdapter {
 #[async_trait]
 impl SslPort for MkcertAdapter {
     async fn issue_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(String, String), InfrastructureError> {
-        // `ensure_mkcert` uses reqwest::blocking (which spins up and drops its own
-        // runtime) and mkcert runs as a blocking subprocess. Run the whole sequence
-        // on a blocking thread so we never create/drop a runtime inside the async
-        // executor — that panics ("Cannot drop a runtime…") and strands the task.
-        let base_dir  = self.base_dir.clone();
+        // Download (async) first, then run the mkcert subprocesses on the
+        // blocking pool.
+        let mkcert = legacy_ssl::ensure_mkcert(&self.base_dir).await
+            .map_err(|e| InfrastructureError::NotFound(format!("mkcert: {}", e)))?;
         let domain    = domain.to_string();
         let certs_dir = certs_dir.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            let mkcert = legacy_ssl::ensure_mkcert(&base_dir)
-                .map_err(|e| InfrastructureError::NotFound(format!("mkcert: {}", e)))?;
+        crate::infrastructure::blocking::run(move || {
             legacy_ssl::install_ca(&mkcert).map_err(InfrastructureError::ProcessFailed)?;
             let paths = legacy_ssl::issue_cert(&mkcert, &domain, &certs_dir)
                 .map_err(InfrastructureError::ProcessFailed)?;
             Ok((paths.cert.to_string_lossy().into_owned(), paths.key.to_string_lossy().into_owned()))
-        })
-        .await
-        .map_err(|e| InfrastructureError::ProcessFailed(format!("SSL task panicked: {}", e)))?
+        }).await
     }
     async fn revoke_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(), InfrastructureError> {
         let (domain, certs_dir) = (domain.to_owned(), certs_dir.to_path_buf());
