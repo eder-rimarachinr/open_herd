@@ -57,7 +57,8 @@ impl NginxProcess {
 
 pub fn find_nginx_binary(nginx_dir: &str) -> Option<PathBuf> {
     let win = Path::new(nginx_dir).join("nginx.exe");
-    if win.exists() { return Some(win); }
+    // A half-extracted download must not count as installed.
+    if win.exists() && crate::infrastructure::download::is_install_complete(Path::new(nginx_dir)) { return Some(win); }
     for p in &["/usr/sbin/nginx", "/usr/local/sbin/nginx", "/opt/homebrew/bin/nginx"] {
         if Path::new(p).exists() { return Some(PathBuf::from(p)); }
     }
@@ -133,7 +134,8 @@ pub fn start(state: &AppState, nginx_proc: &NginxProcess, logger: &dyn LoggerPor
         let sites = state.sites.read().values().cloned().collect::<Vec<_>>();
         vhost_config::ensure_fastcgi_params(&nginx_dir);
         for site in &sites {
-            let _ = vhost_config::generate_with_certs(site, &nginx_dir, http_port, Some(&certs_dir));
+            let ports = vhost_config::ListenPorts { http: http_port, https: https_port };
+            let _ = vhost_config::generate_with_certs(site, &nginx_dir, ports, Some(&certs_dir));
         }
     }
 

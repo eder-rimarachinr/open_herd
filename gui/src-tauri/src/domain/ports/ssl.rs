@@ -13,6 +13,6 @@ pub trait SslPort: Send + Sync {
         certs_dir: &Path,
     ) -> Result<(String, String), InfrastructureError>;
 
-    /// Revoca (elimina) el certificado del dominio.
-    async fn revoke_certificate(&self, domain: &str) -> Result<(), InfrastructureError>;
+    /// Revoca (elimina) el certificado del dominio emitido en `certs_dir`.
+    async fn revoke_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(), InfrastructureError>;
 }

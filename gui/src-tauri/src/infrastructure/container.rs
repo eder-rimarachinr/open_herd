@@ -133,7 +133,7 @@ impl AppContainer {
         let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
-        let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new());
+        let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new(state.clone()));
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();
         let downloads: Arc<dyn DownloadProgressPort> = DownloadTracker::new();
         let ssl_tasks: Arc<dyn SslTaskPort> = InMemorySslTaskTracker::new();
@@ -142,15 +142,15 @@ impl AppContainer {
         let create_site_uc = CreateSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
         let delete_site_uc = DeleteSiteUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
         let update_site_uc = UpdateSiteUseCase::new(site_repo.clone(), web_server.clone());
-        let enable_ssl_uc  = EnableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone(), certs_dir);
-        let disable_ssl_uc = DisableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone());
+        let enable_ssl_uc  = EnableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone(), certs_dir.clone());
+        let disable_ssl_uc = DisableSslUseCase::new(site_repo.clone(), ssl.clone(), web_server.clone(), certs_dir);
         let scan_sites_uc  = ScanSitesUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
         let bulk_add_sites_uc      = BulkAddSitesUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
         let refresh_site_config_uc = RefreshSiteConfigUseCase::new(site_repo.clone(), web_server.clone(), dns.clone());
 
         // ── Use cases — PHP ──────────────────────────────────────────────────
         let detect_php_uc = DetectPhpUseCase::new(php_detector.clone(), php_version_repo.clone());
-        let start_php_uc  = StartPhpUseCase::new(php_detector.clone(), php_process_port.clone());
+        let start_php_uc  = StartPhpUseCase::new(php_detector.clone(), php_process_port.clone(), php_version_repo.clone());
         let stop_php_uc   = StopPhpUseCase::new(php_process_port.clone());
 
         // ── Use cases — PHP (extra) ──────────────────────────────────────────
@@ -166,7 +166,7 @@ impl AppContainer {
         let download_nginx_uc = DownloadNginxUseCase::new(downloads.clone());
 
         // ── Use cases — Services ─────────────────────────────────────────────
-        let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone());
+        let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone(), php_version_repo.clone());
         let stop_services_uc  = StopServicesUseCase::new(php_process_port.clone(), web_server.clone());
 
         Arc::new(Self {

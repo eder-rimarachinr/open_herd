@@ -126,7 +126,7 @@ impl SslPort for StubSsl {
         ))
     }
 
-    async fn revoke_certificate(&self, _domain: &str) -> Result<(), InfrastructureError> {
+    async fn revoke_certificate(&self, _domain: &str, _certs_dir: &Path) -> Result<(), InfrastructureError> {
         Ok(())
     }
 }
@@ -269,7 +269,7 @@ async fn disable_ssl_is_idempotent() {
     let create_uc = CreateSiteUseCase::new(repo.clone(), web.clone(), dns.clone());
     let site = create_uc.execute(create_cmd("myapp.test")).await.unwrap();
 
-    let disable_uc = DisableSslUseCase::new(repo.clone(), Arc::new(StubSsl), web.clone());
+    let disable_uc = DisableSslUseCase::new(repo.clone(), Arc::new(StubSsl), web.clone(), PathBuf::from("/certs"));
 
     // Deshabilitar cuando ya está deshabilitado: no error
     disable_uc.execute(site.id.as_str()).await.unwrap();
@@ -290,9 +290,40 @@ async fn disable_ssl_after_enable_marks_disabled() {
     );
     ssl_uc.execute(site.id.as_str()).await.unwrap();
 
-    let disable_uc = DisableSslUseCase::new(repo.clone(), Arc::new(StubSsl), web.clone());
+    let disable_uc = DisableSslUseCase::new(repo.clone(), Arc::new(StubSsl), web.clone(), PathBuf::from("/certs"));
     disable_uc.execute(site.id.as_str()).await.unwrap();
 
     let updated = repo.find_by_id(&site.id).await.unwrap().unwrap();
     assert!(!updated.ssl.is_enabled());
+}
+
+/// Records where revocation was asked to delete certificates.
+#[derive(Default)]
+struct RecordingSsl { revoked_in: Mutex<Vec<PathBuf>> }
+
+#[async_trait]
+impl SslPort for RecordingSsl {
+    async fn issue_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(String, String), InfrastructureError> {
+        StubSsl.issue_certificate(domain, certs_dir).await
+    }
+    async fn revoke_certificate(&self, _domain: &str, certs_dir: &Path) -> Result<(), InfrastructureError> {
+        self.revoked_in.lock().unwrap().push(certs_dir.to_path_buf());
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn disable_ssl_revokes_in_the_configured_certs_dir() {
+    let (repo, web, dns) = make_deps();
+    let site = CreateSiteUseCase::new(repo.clone(), web.clone(), dns.clone())
+        .execute(create_cmd("myapp.test")).await.unwrap();
+    let certs = PathBuf::from("/custom/certs");
+    let ssl = Arc::new(RecordingSsl::default());
+    EnableSslUseCase::new(repo.clone(), ssl.clone(), web.clone(), certs.clone())
+        .execute(site.id.as_str()).await.unwrap();
+
+    DisableSslUseCase::new(repo.clone(), ssl.clone(), web.clone(), certs.clone())
+        .execute(site.id.as_str()).await.unwrap();
+
+    assert_eq!(*ssl.revoked_in.lock().unwrap(), vec![certs]);
 }

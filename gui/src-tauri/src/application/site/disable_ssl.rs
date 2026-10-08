@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::domain::{
     errors::ApplicationError,
@@ -10,6 +10,9 @@ pub struct DisableSslUseCase {
     site_repo:  Arc<dyn SiteRepository>,
     ssl:        Arc<dyn SslPort>,
     web_server: Arc<dyn WebServerPort>,
+    /// Same directory `EnableSslUseCase` issues into, so revocation deletes
+    /// the files that were actually created.
+    certs_dir:  PathBuf,
 }
 
 impl DisableSslUseCase {
@@ -17,8 +20,9 @@ impl DisableSslUseCase {
         site_repo:  Arc<dyn SiteRepository>,
         ssl:        Arc<dyn SslPort>,
         web_server: Arc<dyn WebServerPort>,
+        certs_dir:  PathBuf,
     ) -> Self {
-        Self { site_repo, ssl, web_server }
+        Self { site_repo, ssl, web_server, certs_dir }
     }
 
     pub async fn execute(&self, site_id: &str) -> Result<(), ApplicationError> {
@@ -35,7 +39,7 @@ impl DisableSslUseCase {
         }
 
         // Revocar archivos de certificado
-        if let Err(e) = self.ssl.revoke_certificate(site.domain.as_str()).await {
+        if let Err(e) = self.ssl.revoke_certificate(site.domain.as_str(), &self.certs_dir).await {
             eprintln!("[warn] revoke_certificate failed for {}: {}", site.domain, e);
         }
 

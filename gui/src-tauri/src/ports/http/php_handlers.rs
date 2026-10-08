@@ -18,7 +18,7 @@ fn bad_request(msg: &str) -> axum::response::Response {
 /// A PHP `major` arrives from a URL path segment and is concatenated into a
 /// filesystem path (`php_dir/<major>/php.ini`). Restrict it to `N.N` so it can
 /// never contain `/`, `..` or other traversal sequences.
-fn valid_major(s: &str) -> bool {
+pub(crate) fn valid_major(s: &str) -> bool {
     let mut parts = s.split('.');
     let major = parts.next();
     let minor = parts.next();
@@ -90,8 +90,9 @@ pub async fn install_php_progress(
         }
         None => {
             let php_dir   = container.legacy.config.read().php_dir.clone();
-            let installed = std::path::Path::new(&php_dir).join(&major).join("php-cgi.exe").exists()
-                || std::path::Path::new(&php_dir).join(&major).join("php.exe").exists();
+            let dir       = std::path::Path::new(&php_dir).join(&major);
+            let installed = crate::infrastructure::download::is_install_complete(&dir)
+                && (dir.join("php-cgi.exe").exists() || dir.join("php.exe").exists());
             Json(InstallProgress {
                 major,
                 state: if installed { "done".into() } else { "idle".into() },
@@ -175,8 +176,7 @@ pub async fn start_php_fpm(
     Path(version): Path<String>,
 ) -> impl IntoResponse {
     if !valid_major(&version) { return bad_request("invalid PHP version"); }
-    let known = Some(container.php_version_repo.list().await);
-    match container.start_php_uc.execute(&version, known).await {
+    match container.start_php_uc.execute(&version).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => infra_err(e).into_response(),
     }

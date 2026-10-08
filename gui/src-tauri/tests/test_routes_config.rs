@@ -80,3 +80,38 @@ async fn status_reports_corrupt_sites_json() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].as_str().unwrap().contains("sites.json"));
 }
+
+#[tokio::test]
+async fn update_config_rejects_invalid_values_and_keeps_previous_config() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    for body in [
+        serde_json::json!({ "http_port": 70000 }),        // would have wrapped to 4464
+        serde_json::json!({ "http_port": 0 }),
+        serde_json::json!({ "https_port": "443" }),
+        serde_json::json!({ "https_port": 8080 }),         // same as http_port
+        serde_json::json!({ "default_php": "latest" }),
+        serde_json::json!({ "scanned_dirs": ["C:/ok", 42] }),
+    ] {
+        server.put("/api/v1/config").json(&body).await
+            .assert_status(axum::http::StatusCode::BAD_REQUEST);
+    }
+    let cfg = server.get("/api/v1/config").await.json::<serde_json::Value>();
+    assert_eq!(cfg["http_port"], 8080);
+    assert_eq!(cfg["https_port"], 8443);
+    assert_eq!(cfg["default_php"], "8.2");
+    assert!(!tmp.path().join("config.json").exists(), "nothing invalid may reach disk");
+}
+
+#[tokio::test]
+async fn update_config_persists_valid_ports() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    server.put("/api/v1/config")
+        .json(&serde_json::json!({ "http_port": 8081, "https_port": 8444 })).await
+        .assert_status_ok();
+    let saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(saved["http_port"], 8081);
+    assert_eq!(saved["https_port"], 8444);
+}

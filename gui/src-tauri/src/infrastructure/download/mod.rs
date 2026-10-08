@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
@@ -186,16 +186,33 @@ fn minimal_php_ini() -> &'static str {
 
 // ── Shared fetch + extract ────────────────────────────────────────────────────
 
-fn fetch_zip<F>(url: &str, dest_dir: &PathBuf, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
+/// Present in an install dir while its archive is being extracted. A dir that
+/// still has it after a failure is half-installed and must not be treated as a
+/// usable PHP / nginx (the next install attempt overwrites it).
+pub const INSTALL_INCOMPLETE_MARKER: &str = ".install-incomplete";
+
+pub fn is_install_complete(dir: &Path) -> bool {
+    !dir.join(INSTALL_INCOMPLETE_MARKER).exists()
+}
+
+fn fetch_zip<F>(url: &str, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
+where F: FnMut(&Arc<DownloadState>, u8, &str) {
+    std::fs::create_dir_all(dest_dir)?;
+    let zip_path = dest_dir.join("_download.zip");
+    let result = download_and_extract(url, &zip_path, dest_dir, strip_prefix, expected_sha256, progress, on_progress);
+    // The archive is only a temporary: never leave it behind, success or not.
+    let _ = std::fs::remove_file(&zip_path);
+    result
+}
+
+fn download_and_extract<F>(url: &str, zip_path: &Path, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
 where F: FnMut(&Arc<DownloadState>, u8, &str) {
     use std::io::Read;
-    std::fs::create_dir_all(dest_dir)?;
     let client   = make_client();
     let mut resp = client.get(url).send()?;
     if !resp.status().is_success() { return Err(anyhow::anyhow!("HTTP {} for {}", resp.status(), url)); }
     let total    = resp.content_length().unwrap_or(0);
-    let zip_path = dest_dir.join("_download.zip");
-    let mut file = std::fs::File::create(&zip_path)?;
+    let mut file = std::fs::File::create(zip_path)?;
     let mut downloaded = 0u64;
     let mut buf = [0u8; 32768];
     loop {
@@ -209,9 +226,17 @@ where F: FnMut(&Arc<DownloadState>, u8, &str) {
         }
     }
     drop(file);
-    if let Some(expected) = expected_sha256 { on_progress(progress, 72, "Verifying integrity…"); verify_sha256(&zip_path, expected)?; }
+    if let Some(expected) = expected_sha256 { on_progress(progress, 72, "Verifying integrity…"); verify_sha256(zip_path, expected)?; }
     on_progress(progress, 73, "Extracting…");
-    let file = std::fs::File::open(&zip_path)?;
+    extract_zip(zip_path, dest_dir, strip_prefix)
+}
+
+/// Extracts over `dest_dir` (keeping files the archive does not contain, e.g.
+/// a user-edited php.ini or nginx `sites/`), flagged incomplete until it ends.
+fn extract_zip(zip_path: &Path, dest_dir: &Path, strip_prefix: &str) -> anyhow::Result<()> {
+    let marker = dest_dir.join(INSTALL_INCOMPLETE_MARKER);
+    std::fs::write(&marker, "extraction in progress or interrupted\n")?;
+    let file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
@@ -232,6 +257,49 @@ where F: FnMut(&Arc<DownloadState>, u8, &str) {
             std::io::copy(&mut entry, &mut out)?;
         }
     }
-    let _ = std::fs::remove_file(&zip_path);
+    std::fs::remove_file(&marker)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn write_zip(path: &Path, files: &[(&str, &[u8])]) {
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for (name, data) in files {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn successful_extraction_is_complete_and_keeps_extra_files() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("8.2");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("php.ini"), "user edits").unwrap();
+        let zip_path = tmp.path().join("php.zip");
+        write_zip(&zip_path, &[("php.exe", b"bin"), ("ext/php_curl.dll", b"dll")]);
+
+        extract_zip(&zip_path, &dest, "").unwrap();
+
+        assert!(is_install_complete(&dest));
+        assert_eq!(std::fs::read(dest.join("ext/php_curl.dll")).unwrap(), b"dll");
+        assert_eq!(std::fs::read_to_string(dest.join("php.ini")).unwrap(), "user edits");
+    }
+
+    #[test]
+    fn corrupt_archive_leaves_install_flagged_incomplete() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("8.2");
+        std::fs::create_dir_all(&dest).unwrap();
+        let zip_path = tmp.path().join("php.zip");
+        std::fs::write(&zip_path, b"not a zip").unwrap();
+
+        assert!(extract_zip(&zip_path, &dest, "").is_err());
+        assert!(!is_install_complete(&dest));
+    }
 }

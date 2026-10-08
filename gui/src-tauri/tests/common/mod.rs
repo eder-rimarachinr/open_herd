@@ -61,7 +61,7 @@ impl SslPort for FakeSsl {
         let key  = certs_dir.join(format!("{domain}-key.pem"));
         Ok((cert.to_string_lossy().into_owned(), key.to_string_lossy().into_owned()))
     }
-    async fn revoke_certificate(&self, _domain: &str) -> Result<(), InfrastructureError> { Ok(()) }
+    async fn revoke_certificate(&self, _domain: &str, _certs_dir: &Path) -> Result<(), InfrastructureError> { Ok(()) }
 }
 
 /// Real container over a temp `base_dir`, with the system-touching adapters

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use crate::domain::{
     errors::ApplicationError,
     ports::{
-        process_manager::{PhpDetectorPort, PhpProcessPort},
+        process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         web_server::WebServerPort,
     },
 };
@@ -18,6 +18,7 @@ pub struct StartServicesUseCase {
     detector:  Arc<dyn PhpDetectorPort>,
     php_proc:  Arc<dyn PhpProcessPort>,
     web_server: Arc<dyn WebServerPort>,
+    versions:  Arc<dyn PhpVersionRepository>,
 }
 
 impl StartServicesUseCase {
@@ -25,13 +26,16 @@ impl StartServicesUseCase {
         detector:   Arc<dyn PhpDetectorPort>,
         php_proc:   Arc<dyn PhpProcessPort>,
         web_server: Arc<dyn WebServerPort>,
+        versions:   Arc<dyn PhpVersionRepository>,
     ) -> Self {
-        Self { detector, php_proc, web_server }
+        Self { detector, php_proc, web_server, versions }
     }
 
     pub async fn execute(&self, cmd: StartServicesCommand) -> Result<(), ApplicationError> {
-        // 1. Detectar PHP instalado
+        // 1. Detectar PHP instalado y refrescar la caché: el estado de servicios
+        //    toma de ahí la versión completa ("8.2.31", no "8.2").
         let versions = self.detector.detect().await;
+        self.versions.replace(versions.clone()).await;
 
         // 2. Iniciar la versión por defecto (non-fatal si no existe)
         if let Some(v) = versions.iter().find(|v| {

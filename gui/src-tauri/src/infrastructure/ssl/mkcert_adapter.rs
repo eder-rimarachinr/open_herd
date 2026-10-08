@@ -29,7 +29,8 @@ impl SslPort for MkcertAdapter {
         .await
         .map_err(|e| InfrastructureError::ProcessFailed(format!("SSL task panicked: {}", e)))?
     }
-    async fn revoke_certificate(&self, domain: &str) -> Result<(), InfrastructureError> {
-        legacy_ssl::revoke_cert(domain, &self.base_dir.join("certs")); Ok(())
+    async fn revoke_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(), InfrastructureError> {
+        let (domain, certs_dir) = (domain.to_owned(), certs_dir.to_path_buf());
+        crate::infrastructure::blocking::run(move || { legacy_ssl::revoke_cert(&domain, &certs_dir); Ok(()) }).await
     }
 }

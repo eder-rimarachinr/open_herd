@@ -34,14 +34,15 @@ impl NginxAdapter {
 #[async_trait]
 impl WebServerPort for NginxAdapter {
     async fn create_vhost(&self, site: &Site) -> Result<(), InfrastructureError> {
-        let (nginx_dir, http_port, certs_dir) = {
+        let (nginx_dir, ports, certs_dir) = {
             let config = self.state.config.read();
-            (config.nginx_dir.clone(), config.http_port, config.certs_dir.clone())
+            let ports = vhost_config::ListenPorts { http: config.http_port, https: config.https_port };
+            (config.nginx_dir.clone(), ports, config.certs_dir.clone())
         };
         let legacy = site_mapper::to_legacy(site);
         let ssl    = site.ssl.is_enabled();
         blocking::run(move || {
-            let result = if ssl { vhost_config::generate_with_certs(&legacy, &nginx_dir, http_port, Some(&certs_dir)) } else { vhost_config::generate(&legacy, &nginx_dir, http_port) };
+            let result = if ssl { vhost_config::generate_with_certs(&legacy, &nginx_dir, ports, Some(&certs_dir)) } else { vhost_config::generate(&legacy, &nginx_dir, ports) };
             result.map_err(|e| InfrastructureError::Io(std::io::Error::other(e)))
         }).await
     }
