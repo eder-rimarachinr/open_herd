@@ -4,10 +4,12 @@
 #   - Instalador completo : NSIS setup.exe  (datos en %USERPROFILE%\.phpenv)
 #   - ZIP portable        : extraer y ejecutar (datos en ./data/ junto al exe)
 #
-# Uso:
-#   .\build-portable.ps1
-#   .\build-portable.ps1 -SkipIcons        # salta la regeneracion de iconos
-#   .\build-portable.ps1 -SkipFrontend     # reutiliza el build de npm anterior
+# Uso (desde la raiz del repo):
+#   .\scripts\build-portable.ps1
+#   .\scripts\build-portable.ps1 -SkipIcons        # salta la regeneracion de iconos
+#   .\scripts\build-portable.ps1 -SkipFrontend     # reutiliza el build de npm anterior
+#
+# Salida en release/ (dist/ es la salida de Vite).
 
 param(
     [switch]$SkipIcons,
@@ -18,7 +20,7 @@ param(
 if ($Help) {
     Write-Host "build-portable.ps1 -- Construye el instalador y ZIP portable de Open Herd"
     Write-Host ""
-    Write-Host "  -SkipIcons      No regenera iconos desde logo.png"
+    Write-Host "  -SkipIcons      No regenera iconos desde assets\logo.png"
     Write-Host "  -SkipFrontend   Reutiliza el bundle de npm/Vite anterior"
     Write-Host "  -Help           Muestra esta ayuda"
     exit 0
@@ -26,12 +28,11 @@ if ($Help) {
 
 $ErrorActionPreference = "Stop"
 
-$root    = $PSScriptRoot
-$guiDir  = Join-Path $root "gui"
-$distDir = Join-Path $root "dist"
+$root    = Split-Path $PSScriptRoot -Parent
+$distDir = Join-Path $root "release"
 
 # -- Leer version desde Cargo.toml (unica fuente de verdad) -------------------
-$cargoToml = Get-Content (Join-Path $root "gui\src-tauri\Cargo.toml") -Raw
+$cargoToml = Get-Content (Join-Path $root "src-tauri\Cargo.toml") -Raw
 if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
     $version = $Matches[1]
 } else {
@@ -39,7 +40,7 @@ if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
     exit 1
 }
 
-$releaseDir = Join-Path $root "gui\src-tauri\target\release"
+$releaseDir = Join-Path $root "src-tauri\target\release"
 $appExe     = "phpenv-gui.exe"
 
 Write-Host ""
@@ -58,10 +59,10 @@ foreach ($cmd in @("node", "npm", "cargo", "rustc")) {
     }
 }
 
-$logoSrc = Join-Path $root "logo.png"
+$logoSrc = Join-Path $root "assets\logo.png"
 if (-not (Test-Path $logoSrc)) {
-    Write-Host "ERROR: logo.png no encontrado en la raiz del proyecto." -ForegroundColor Red
-    Write-Host "       Coloca un PNG cuadrado (1024x1024 recomendado) como logo.png" -ForegroundColor Yellow
+    Write-Host "ERROR: assets\logo.png no encontrado." -ForegroundColor Red
+    Write-Host "       Coloca un PNG cuadrado (1024x1024 recomendado) como assets\logo.png" -ForegroundColor Yellow
     exit 1
 }
 
@@ -73,9 +74,9 @@ Write-Host ""
 
 # -- 1. Iconos ----------------------------------------------------------------
 if (-not $SkipIcons) {
-    Write-Host "[1/4] Generando iconos desde logo.png..." -ForegroundColor Yellow
-    Set-Location $guiDir
-    npx tauri icon "..\logo.png"
+    Write-Host "[1/4] Generando iconos desde assets\logo.png..." -ForegroundColor Yellow
+    Set-Location $root
+    npx tauri icon "assets\logo.png"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: tauri icon fallo." -ForegroundColor Red; exit 1
     }
@@ -86,13 +87,13 @@ if (-not $SkipIcons) {
 
 # -- 2. Limpiar cache ---------------------------------------------------------
 Write-Host "[2/4] Limpiando cache de build..." -ForegroundColor Yellow
-$stalePattern = Join-Path $root "gui\src-tauri\target\release\build\phpenv-gui-*"
+$stalePattern = Join-Path $root "src-tauri\target\release\build\phpenv-gui-*"
 Get-Item $stalePattern -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Write-Host "  Cache limpio." -ForegroundColor Green
 
 # -- 3. Build frontend + Tauri ------------------------------------------------
 Write-Host "[3/4] Compilando frontend + Tauri..." -ForegroundColor Yellow
-Set-Location $guiDir
+Set-Location $root
 
 if (-not $SkipFrontend) {
     Write-Host "  npm install..." -ForegroundColor DarkGray
@@ -181,7 +182,7 @@ Write-Host "  Portable   : open-herd-v$version-portable.zip  ($zipSizeMB MB)" -F
 # -- Resumen ------------------------------------------------------------------
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "  Listo -- archivos en dist/" -ForegroundColor Cyan
+Write-Host "  Listo -- archivos en release/" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Instalador: datos en %USERPROFILE%\.phpenv" -ForegroundColor White

@@ -3,7 +3,7 @@
 A local PHP development environment manager for Windows and Linux — similar to Laravel Herd.
 Manage nginx, PHP versions, SSL certificates and `.test` domains from a single desktop app.
 
-![Open Herd](logo.png)
+![Open Herd](assets/logo.png)
 
 ---
 
@@ -35,10 +35,26 @@ Open Herd is a **single Tauri application**. There is no separate daemon process
 └─────────────────────────────────────────────┘
 ```
 
-The backend follows **Hexagonal Architecture (Ports & Adapters)** with DDD principles:
+### Repository layout
 
 ```
-src/
+open_herd/
+├── src/                 # React + TypeScript frontend (Vite)
+├── src-tauri/           # Rust: Tauri shell + embedded daemon
+│   ├── src/             #   domain / application / infrastructure / ports
+│   ├── tests/           #   HTTP integration tests (axum-test)
+│   └── tauri.conf.json
+├── scripts/             # dev.ps1, build-portable.ps1, create-icon.ps1
+├── installer/           # install.ps1 / install.sh (download a release)
+├── assets/logo.png      # source for the app icons
+├── docs/
+└── package.json         # frontend + Tauri CLI scripts (run from the root)
+```
+
+The backend (`src-tauri/src/`) follows **Hexagonal Architecture (Ports & Adapters)** with DDD principles:
+
+```
+src-tauri/src/
 ├── domain/          # Pure business rules — no external dependencies
 │   ├── ports/       # Traits: WebServerPort, SslPort, DnsPort, PhpProcessPort
 │   └── site/        # Site entity, value objects, SiteRepository trait
@@ -55,7 +71,7 @@ src/
 |-------|-----------|
 | Desktop shell | [Tauri v2](https://tauri.app) |
 | Frontend | React 18 + TypeScript + Vite |
-| Backend | Rust — axum, tokio, sqlx, parking_lot |
+| Backend | Rust — axum, tokio, reqwest, tracing, parking_lot |
 | Build | Cargo + npm |
 
 ---
@@ -103,15 +119,15 @@ OPENHERD_FORMAT=deb curl -fsSL https://raw.githubusercontent.com/eder-rimarachin
 
 ```powershell
 # Windows — start everything (hot-reload)
-.\dev.ps1
+.\scripts\dev.ps1
 
-# Equivalent:
-cd gui && npm run tauri dev
+# Equivalent (from the repo root):
+npm run tauri dev
 ```
 
 ```bash
-# Frontend only (no Tauri shell, hot-reload at http://localhost:1420)
-cd gui && npm run dev
+# Frontend only (no Tauri shell and no daemon, hot-reload at http://localhost:1420)
+npm run dev
 ```
 
 ---
@@ -119,11 +135,11 @@ cd gui && npm run dev
 ## Building
 
 ```powershell
-# Windows — produces dist/open-herd-v0.1.0-setup.exe + portable zip
-.\build-portable.ps1
+# Windows — produces release/open-herd-vX.Y.Z-setup.exe, .msi and portable zip
+.\scripts\build-portable.ps1
 ```
 
-Requires `logo.png` at the project root and a production Tauri build environment.
+Requires `assets/logo.png` and a production Tauri build environment.
 
 ---
 
@@ -160,12 +176,13 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode 
 ## Testing
 
 ```bash
-# Unit tests (domain + application — no external deps)
-cd gui/src-tauri
-cargo test --lib
+cd src-tauri
+cargo test                # unit + integration tests (full HTTP stack with axum-test)
+cargo test -- --ignored   # real-network download tests (PHP, mkcert) into temp dirs
+cargo clippy --all-targets
 
-# Integration tests (full HTTP stack with axum-test)
-cargo test
+# Frontend (from the repo root)
+npm test && npm run lint
 ```
 
 ---

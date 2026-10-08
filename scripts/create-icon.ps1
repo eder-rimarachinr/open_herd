@@ -1,6 +1,6 @@
 $base64 = "AAABAAEAAQEAAAEAIAAwAAAAFgAAACgAAAABAAAAAgAAAAEAIAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAA=="
 $bytes = [Convert]::FromBase64String($base64)
-$iconsDir = Join-Path $PSScriptRoot "gui\src-tauri\icons"
+$iconsDir = Join-Path (Split-Path $PSScriptRoot -Parent) "src-tauri\icons"
 if (-not (Test-Path $iconsDir)) {
     New-Item -ItemType Directory -Path $iconsDir | Out-Null
 }

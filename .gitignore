@@ -1,20 +1,22 @@
-# Node / Tauri GUI
-gui/node_modules/
-gui/dist/
-gui/.vite/
-gui/src-tauri/target/
-gui/src-tauri/WixTools/
-gui/src-tauri/gen/
+# Node / Vite frontend
+node_modules/
+dist/
+.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/gen/
 
 # Rust binaries sueltos (artefactos de desarrollo)
-gui/src-tauri/*.exe
-gui/src-tauri/*.exe~
-gui/src-tauri/*.dll
-gui/src-tauri/*.so
-gui/src-tauri/*.dylib
+src-tauri/*.exe
+src-tauri/*.exe~
+src-tauri/*.dll
+src-tauri/*.so
+src-tauri/*.dylib
 
-# Build output (producido por build-portable.ps1)
-dist/
+# Installers / portable zip (produced by scripts/build-portable.ps1)
+release/
 
 # IDE
 .vscode/

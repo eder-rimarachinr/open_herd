@@ -10,44 +10,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Component | Language | Entry point |
 |-----------|----------|-------------|
-| `gui/src-tauri/src/` | Rust (axum + tokio, hexagonal architecture) | `gui/src-tauri/src/lib.rs` |
-| `gui/src/` | React/TypeScript (Tauri v2) | `gui/src/main.tsx` |
+| `src-tauri/src/` | Rust (axum + tokio, hexagonal architecture) | `src-tauri/src/lib.rs` |
+| `src/` | React/TypeScript (Tauri v2) | `src/main.tsx` |
 
 Key dependencies: backend uses `axum`, `tokio`, `parking_lot`, `serde_json`, `anyhow`, `thiserror`, `async-trait`, `uuid`, `chrono`, `reqwest`; GUI uses React 18 + react-router-dom v6 + Tauri 2.
 
 ## Development commands
 
+Standard Tauri layout: `package.json`, Vite and the Tauri CLI live at the repo root; run npm commands from there.
+
 ### Run in dev mode
 ```powershell
-.\dev.ps1
-# equivalent to:
-cd gui && npm run tauri dev
+.\scripts\dev.ps1
+# equivalent to (repo root):
+npm run tauri dev
 ```
 
 ### Build for production (Windows)
 ```powershell
-.\build-portable.ps1
+.\scripts\build-portable.ps1
 ```
-Produces `dist/open-herd-v0.1.0-setup.exe` (NSIS installer) and `dist/open-herd-v0.1.0-portable.zip`. Requires `logo.png` at project root.
+Produces `release/open-herd-vX.Y.Z-setup.exe` (NSIS), `-x64.msi` and `-portable.zip`. Requires `assets/logo.png`. (`dist/` is Vite's output, not the release folder.)
 
-### Frontend only (hot-reload, no Tauri shell)
+### Frontend only (hot-reload, no Tauri shell, no daemon)
 ```bash
-cd gui
 npm run dev   # serves at http://localhost:1420
 ```
 
 ## Tests
 
-Backend, from `gui/src-tauri`:
+Backend, from `src-tauri`:
 ```bash
 cargo test                 # unit tests (src/) + integration tests (tests/: real AppContainer + axum-test)
 cargo test -- --ignored    # real-network tests: download PHP 8.5 and mkcert into temp dirs
 ```
 Integration tests build the container with `tests/common::make_container`, which swaps the hosts-file and mkcert adapters for fakes (`AppContainer::with_adapters`) — never let tests edit the system hosts file or run `mkcert -install`.
 
-`cargo clippy --all-targets` must stay warning-free. It enforces `unwrap_used`, `expect_used`, and cognitive-complexity (see `[lints.clippy]` in `gui/src-tauri/Cargo.toml`; `clippy.toml` allows unwrap/expect in tests) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
+`cargo clippy --all-targets` must stay warning-free. It enforces `unwrap_used`, `expect_used`, and cognitive-complexity (see `[lints.clippy]` in `src-tauri/Cargo.toml`; `clippy.toml` allows unwrap/expect in tests) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
 
-Frontend, from `gui`:
+Frontend, from the repo root:
 ```bash
 npm test        # vitest run
 npm run test:ui # vitest --ui
@@ -58,10 +59,10 @@ npm run lint    # eslint src
 
 ### Backend: hexagonal architecture (ports & adapters)
 
-The backend is **not a separate process** — it runs as a background Tokio thread inside the Tauri app, started in `gui/src-tauri/src/lib.rs`. It exposes an HTTP API on `127.0.0.1:7878` (axum router). The GUI talks to it via `fetch` through `gui/src/api/client.ts`.
+The backend is **not a separate process** — it runs as a background Tokio thread inside the Tauri app, started in `src-tauri/src/lib.rs`. It exposes an HTTP API on `127.0.0.1:7878` (axum router). The GUI talks to it via `fetch` through `src/api/client.ts`.
 
 ```
-gui/src-tauri/src/
+src-tauri/src/
 ├── domain/          # Pure business rules, no external deps
 │   ├── site/        # Site aggregate (entity.rs), value objects, SiteRepository trait
 │   ├── ports/        # Traits: WebServerPort, SslPort, DnsPort, PhpProcessPort, PhpDetectorPort
@@ -83,7 +84,7 @@ Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs ever
 
 **Logging:** use cases log non-fatal failures with `application::best_effort(result, format_args!(...))` / `tracing::warn!`. `infrastructure::logging::ForwardToLogger` copies this crate's INFO+ events into the in-memory daemon log (`GET /daemon/logs`, Logs page) — release builds have no console, so `eprintln!` output is lost.
 
-### API routes (registered in `gui/src-tauri/src/ports/http/server.rs`)
+### API routes (registered in `src-tauri/src/ports/http/server.rs`)
 
 ```text
 GET      /api/v1/status
@@ -128,11 +129,11 @@ POST     /api/v1/daemon/quit
 
 CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format its `Origin` consistently across dev/release. The real boundary is the `local_guard` middleware, applied to every route: it rejects requests whose `Host` isn't loopback (blocks DNS rebinding) and requests carrying a non-webview `Origin` (blocks CSRF from arbitrary websites hitting `127.0.0.1:7878`). Keep this in mind before loosening CORS instead of extending `local_guard`.
 
-### GUI (`gui/src/`)
+### GUI (`src/`)
 
-Plain React with `react-router-dom`. No state management library. All API calls go through `gui/src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
+Plain React with `react-router-dom`. No state management library. All API calls go through `src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages (`gui/src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (stub), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
+Pages (`src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (stub), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
 
 Verify backend/runtime changes in the desktop app (`npm run tauri dev`), not by serving the React UI in a browser: there is no daemon there. Startup posts `/daemon/quit` to any running instance, so a dev launch closes the user's open Open Herd.
 
