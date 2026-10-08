@@ -54,12 +54,17 @@ function setupDefaults(overrides: { sites?: any[]; phpVersions?: any[]; config?:
     m.config.get.mockResolvedValue(overrides.config ?? mockConfig());
 }
 
+/// The project type is shown in the list row, the header badge and the Type
+/// row; this picks the header badge.
+const typeBadge = (label: string) =>
+    screen.getAllByText(label).find((el) => el.classList.contains("badge"));
+
 async function renderAndSelect(site = mockSite()) {
     setupDefaults({ sites: [site] });
     renderSites();
     await waitFor(() => screen.getByText(site.domain));
     await userEvent.click(screen.getByText(site.domain));
-    await waitFor(() => screen.getByText("Open folder"));
+    await waitFor(() => screen.getByRole("button", { name: "Folder" }));
 }
 
 beforeEach(() => {
@@ -117,10 +122,10 @@ describe("Site list", () => {
         });
     });
 
-    it("shows 🔒 for SSL-enabled sites", async () => {
+    it("marks SSL-enabled sites in the list", async () => {
         setupDefaults({ sites: [mockSite({ ssl_enabled: true })] });
         renderSites();
-        await waitFor(() => expect(screen.getByText("🔒")).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByRole("img", { name: "HTTPS enabled" })).toBeInTheDocument());
     });
 });
 
@@ -131,24 +136,24 @@ describe("Site detail panel", () => {
         setupDefaults();
         renderSites();
         await waitFor(() =>
-            expect(screen.getByText(/Select a site from the list/i)).toBeInTheDocument()
+            expect(screen.getByText(/Select a site or/i)).toBeInTheDocument()
         );
     });
 
     it("shows site details after selecting", async () => {
         await renderAndSelect();
         expect(screen.getByText("D:\\projects\\myapp")).toBeInTheDocument();
-        expect(screen.getByText("http://myapp.test ↗")).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: "http://myapp.test" }).length).toBeGreaterThan(0);
     });
 
     it("shows HTTPS badge for SSL sites", async () => {
         await renderAndSelect(mockSite({ ssl_enabled: true }));
-        expect(screen.getByText("🔒 HTTPS")).toBeInTheDocument();
+        expect(screen.getByText("HTTPS")).toBeInTheDocument();
     });
 
     it("shows project type badge", async () => {
         await renderAndSelect(mockSite({ project_type: "laravel" }));
-        expect(screen.getByText("Laravel")).toBeInTheDocument();
+        expect(typeBadge("Laravel")).toBeInTheDocument();
     });
 
     it("resets confirm delete when switching sites", async () => {
@@ -174,15 +179,15 @@ describe("Site detail panel", () => {
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 describe("Actions", () => {
-    it("calls openFolder when Open folder clicked", async () => {
+    it("calls openFolder when Folder clicked", async () => {
         await renderAndSelect();
-        await userEvent.click(screen.getByText("Open folder"));
+        await userEvent.click(screen.getByRole("button", { name: "Folder" }));
         expect(m.sites.openFolder).toHaveBeenCalledWith("site-1");
     });
 
     it("calls refreshConfig when Refresh config clicked", async () => {
         await renderAndSelect();
-        await userEvent.click(screen.getByText("↺ Refresh config"));
+        await userEvent.click(screen.getByRole("button", { name: "Refresh config" }));
         await waitFor(() => expect(m.sites.refreshConfig).toHaveBeenCalledWith("site-1"));
     });
 
@@ -292,12 +297,12 @@ describe("Scan", () => {
         );
     });
 
-    it("removes a scanned dir on ✕ click", async () => {
+    it("removes a scanned dir with its remove button", async () => {
         setupDefaults({ config: mockConfig({ scanned_dirs: ["D:\\projects"] }) });
         m.config.update.mockResolvedValue(mockConfig({ scanned_dirs: [] }));
         renderSites();
         await waitFor(() => screen.getByText("D:\\projects"));
-        await userEvent.click(screen.getByText("✕"));
+        await userEvent.click(screen.getByRole("button", { name: "Remove D:\\projects" }));
         await waitFor(() =>
             expect(m.config.update).toHaveBeenCalledWith(
                 expect.objectContaining({ scanned_dirs: [] })
@@ -326,7 +331,7 @@ describe("Information tab", () => {
         render(<MemoryRouter><Sites /></MemoryRouter>);
         await waitFor(() => screen.getByText("myapp.test"));
         await userEvent.click(screen.getByText("myapp.test"));
-        await waitFor(() => screen.getByText("Open folder"));
+        await waitFor(() => screen.getByRole("button", { name: "Folder" }));
         await userEvent.click(screen.getByText("Information"));
         await waitFor(() => {
             expect(screen.getByText("My Laravel App")).toBeInTheDocument();
@@ -338,7 +343,7 @@ describe("Information tab", () => {
         await renderAndSelect();
         await userEvent.click(screen.getByText("Information"));
         await waitFor(() =>
-            expect(screen.getByText(/No application info available/i)).toBeInTheDocument()
+            expect(screen.getByText(/No application metadata available/i)).toBeInTheDocument()
         );
     });
 });
@@ -349,8 +354,8 @@ describe("Project type badges", () => {
     const types = [
         { type: "laravel",      label: "Laravel" },
         { type: "wordpress",    label: "WordPress" },
-        { type: "codeigniter4", label: "CodeIgniter 4" },
-        { type: "codeigniter3", label: "CodeIgniter 3" },
+        { type: "codeigniter4", label: "CI4" },
+        { type: "codeigniter3", label: "CI3" },
         { type: "spa",          label: "SPA" },
         { type: "static",       label: "Static" },
         { type: "generic",      label: "Generic" },
@@ -359,7 +364,7 @@ describe("Project type badges", () => {
     for (const { type, label } of types) {
         it(`shows "${label}" badge for ${type} project`, async () => {
             await renderAndSelect(mockSite({ project_type: type as any }));
-            expect(screen.getByText(label)).toBeInTheDocument();
+            expect(typeBadge(label)).toBeInTheDocument();
         });
     }
 });
@@ -372,8 +377,8 @@ describe("Refresh config", () => {
         m.sites.refreshConfig.mockResolvedValue(updated);
         await renderAndSelect(mockSite({ project_type: "generic" }));
 
-        expect(screen.getByText("Generic")).toBeInTheDocument();
-        await userEvent.click(screen.getByText("↺ Refresh config"));
+        expect(typeBadge("Generic")).toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: "Refresh config" }));
 
         await waitFor(() => {
             expect(m.sites.refreshConfig).toHaveBeenCalledWith("site-1");
@@ -383,7 +388,7 @@ describe("Refresh config", () => {
     it("disables Refresh config button while in progress", async () => {
         m.sites.refreshConfig.mockReturnValue(new Promise(() => {}));
         await renderAndSelect();
-        const btn = screen.getByText("↺ Refresh config").closest("button")!;
+        const btn = screen.getByRole("button", { name: "Refresh config" });
         await userEvent.click(btn);
         // Button is disabled while loading (shows spinner, text gone)
         await waitFor(() => expect(btn).toBeDisabled());
@@ -392,7 +397,7 @@ describe("Refresh config", () => {
     it("shows error if refreshConfig fails", async () => {
         m.sites.refreshConfig.mockRejectedValue(new Error("nginx error"));
         await renderAndSelect();
-        await userEvent.click(screen.getByText("↺ Refresh config"));
+        await userEvent.click(screen.getByRole("button", { name: "Refresh config" }));
         await waitFor(() => expect(screen.getByText("nginx error")).toBeInTheDocument());
     });
 });

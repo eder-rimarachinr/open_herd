@@ -119,7 +119,7 @@ export default function Sites() {
       setSites(result);
       toast(`Found ${result.length} site(s)`);
     }
-    catch (e: any) { setError(e.message); }
+    catch (e: any) { setError(e.message); toast(e.message, "error"); }
     finally { setScanning(false); }
   }
 
@@ -260,7 +260,7 @@ export default function Sites() {
             Sites <span style={{ color: "var(--text-3)", fontWeight: 400 }}>({sites.length})</span>
           </span>
           <div style={{ display: "flex", gap: 5 }}>
-            <button className={s.scanBtn} onClick={showNewForm} title="Add site">
+            <button className={s.scanBtn} onClick={showNewForm} title="Add site" aria-label="Add site">
               <Plus size={11} />
             </button>
             <button className={s.scanBtn} onClick={scan} disabled={scanning}>
@@ -305,7 +305,9 @@ export default function Sites() {
                   <span className={s.siteType}>{TYPE_LABELS[site.project_type] ?? site.project_type}</span>
                 </div>
                 <div className={s.siteIcons}>
-                  {site.ssl_enabled && <ShieldCheck size={12} className={s.siteSSL} />}
+                  {site.ssl_enabled && (
+                    <ShieldCheck size={12} className={s.siteSSL} role="img" aria-label="HTTPS enabled" />
+                  )}
                 </div>
               </button>
             );
@@ -318,7 +320,12 @@ export default function Sites() {
           {(config?.scanned_dirs ?? []).map((path: string) => (
             <div key={path} className={s.dirRow}>
               <span className={s.dirPath}>{path}</span>
-              <button className={s.dirRemove} onClick={() => removeScannedDir(path)}>
+              <button
+                className={s.dirRemove}
+                onClick={() => removeScannedDir(path)}
+                title="Remove directory"
+                aria-label={`Remove ${path}`}
+              >
                 <X size={10} />
               </button>
             </div>
@@ -331,7 +338,7 @@ export default function Sites() {
               onChange={(e) => setNewDir(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addScannedDir()}
             />
-            <button className={s.dirBrowse} onClick={pickAndAddDir} title="Browse">
+            <button className={s.dirBrowse} onClick={pickAndAddDir} title="Browse" aria-label="Browse for a directory">
               <FolderPlus size={13} />
             </button>
           </div>
@@ -340,6 +347,9 @@ export default function Sites() {
 
       {/* ── Right: detail / new-site panel ──────────────────────────── */}
       <div className={s.detailPanel}>
+        {/* Shown in every view: a failed Scan with no site selected used to be invisible. */}
+        {error && <div className={s.error} role="alert">{error}</div>}
+
         {/* ── New site form ─────────────────────────────────────────── */}
         {view === "new" && (
           <div className="fade-in">
@@ -354,8 +364,6 @@ export default function Sites() {
                 <X size={13} /> Cancel
               </button>
             </div>
-
-            {error && <div className={s.error}>{error}</div>}
 
             <div className={s.propGrid} style={{ marginBottom: 20 }}>
               <PropRow label="Domain">
@@ -426,8 +434,6 @@ export default function Sites() {
 
         {view === "detail" && selected && (
           <div className="fade-in">
-            {error && <div className={s.error}>{error}</div>}
-
             <div className={s.detailHeader}>
               <div>
                 <h1 className={s.detailTitle}>{selected.name || selected.domain}</h1>
@@ -501,7 +507,7 @@ export default function Sites() {
                   <button className={[s.actionBtn, s.actionBtnPrimary].join(" ")} onClick={() => openUrl(siteUrl)}>
                     <ExternalLink size={13} /> Open site
                   </button>
-                  <button className={s.actionBtn} onClick={openFolder} disabled={folderLoading}>
+                  <button className={s.actionBtn} onClick={openFolder} disabled={folderLoading} title="Open folder in the file manager">
                     {folderLoading ? <span className="spinner" /> : <FolderOpen size={13} />}
                     Folder
                   </button>
