@@ -28,3 +28,7 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Claude Code: per-user settings (shared ones live in .claude/settings.json)
+.claude/settings.local.json
+.superpowers/
