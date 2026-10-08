@@ -189,4 +189,4 @@ Linux and macOS support is planned; until then `installer/install.sh` has no rel
 
 ## License
 
-MIT
+[MIT](LICENSE) © Eder R

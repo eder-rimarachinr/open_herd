@@ -2,7 +2,9 @@
 name = "open-herd"
 version = "0.2.0"
 description = "Open Herd — Local PHP development environment manager"
-authors = []
+authors = ["Eder R"]
+license = "MIT"
+repository = "https://github.com/eder-rimarachinr/open_herd"
 edition = "2021"
 
 [lib]

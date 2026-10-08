@@ -1,6 +1,11 @@
 {
   "name": "open-herd",
   "version": "0.2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eder-rimarachinr/open_herd.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {
