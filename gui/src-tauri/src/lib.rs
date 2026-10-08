@@ -175,17 +175,8 @@ pub fn run() {
 }
 
 fn try_shutdown_previous(api_addr: &str) {
-    #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-    #[cfg(target_os = "windows")]
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-    let url = format!("http://{}/api/v1/daemon/quit", api_addr);
-    #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new("curl");
-    cmd.args(["-s", "-X", "POST", "--max-time", "1", &url]);
-    #[cfg(target_os = "windows")] cmd.creation_flags(CREATE_NO_WINDOW);
-    let _ = cmd.output();
+    // Ask a previous instance (if any) to shut down, over a raw HTTP/1.0
+    // request so this needs neither an HTTP client nor an external `curl`.
     let socket_addr: std::net::SocketAddr = api_addr.parse().unwrap_or(server::DEFAULT_API_ADDR);
     if let Ok(mut stream) = std::net::TcpStream::connect_timeout(
         &socket_addr,

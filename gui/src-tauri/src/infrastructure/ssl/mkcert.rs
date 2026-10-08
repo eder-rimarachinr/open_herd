@@ -34,7 +34,7 @@ pub fn ensure_mkcert(base_dir: &Path) -> Result<PathBuf, String> {
     let resp   = client.get(MKCERT_URL).send().map_err(|e| format!("Failed to download mkcert {}: {}", MKCERT_VERSION, e))?;
     if !resp.status().is_success() { return Err(format!("mkcert download returned HTTP {}", resp.status())); }
     let bytes  = resp.bytes().map_err(|e| e.to_string())?;
-    let actual = hex::encode(Sha256::digest(&bytes));
+    let actual = format!("{:x}", Sha256::digest(&bytes));
     if actual != MKCERT_SHA256 {
         return Err(format!(
             "mkcert SHA-256 mismatch — refusing to run an untrusted binary.\n  expected: {}\n  actual:   {}",

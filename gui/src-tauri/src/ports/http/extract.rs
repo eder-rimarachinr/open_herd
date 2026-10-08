@@ -1,5 +1,4 @@
 use axum::{
-    async_trait,
     extract::{FromRequest, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -12,7 +11,6 @@ use serde::de::DeserializeOwned;
 /// instead of axum's default plain-text 400/415/422.
 pub struct ApiJson<T>(pub T);
 
-#[async_trait]
 impl<T, S> FromRequest<S> for ApiJson<T>
 where
     T: DeserializeOwned,

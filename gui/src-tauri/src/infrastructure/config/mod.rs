@@ -76,7 +76,7 @@ pub fn resolve_base_dir() -> PathBuf {
             return portable;
         }
     }
-    dirs_next::home_dir()
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".phpenv")
 }
