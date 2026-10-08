@@ -109,7 +109,7 @@ pub const DEFAULT_API_ADDR: std::net::SocketAddr =
 // the message to `logs/daemon-crash.log`, which the startup dialog then shows.
 #[allow(clippy::expect_used)]
 pub async fn start(container: Arc<AppContainer>) {
-    let addr   = container.legacy.config.read().api_addr.clone();
+    let addr   = container.config.get().api_addr;
     container.spawn_background_tasks();
     let router = build_router(container);
     let listener = bind_with_retry(&addr).await;

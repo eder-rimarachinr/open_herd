@@ -17,7 +17,7 @@ use crate::{
         scan_sites::ScanSitesCommand,
         update_site::UpdateSiteCommand,
     },
-    domain::errors::ApplicationError,
+    domain::{errors::ApplicationError, site::{entity::Site, value_objects::SiteId}},
     infrastructure::{container::AppContainer, persistence::site_mapper},
 };
 
@@ -47,6 +47,15 @@ fn not_found(msg: &str) -> impl IntoResponse {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": msg }))).into_response()
 }
 
+/// Loads a site through the repository; the `Err` is the ready-made 404 / 500.
+async fn find_site(container: &ContainerRef, id: &str) -> Result<Site, axum::response::Response> {
+    match container.site_repo.find_by_id(&SiteId::from_string(id)).await {
+        Ok(Some(site)) => Ok(site),
+        Ok(None)       => Err(not_found("site not found").into_response()),
+        Err(e)         => Err(domain_err(&ApplicationError::Domain(e)).into_response()),
+    }
+}
+
 // ── GET /api/v1/sites ─────────────────────────────────────────────────────────
 
 pub async fn list_sites(State(container): State<ContainerRef>) -> impl IntoResponse {
@@ -65,11 +74,9 @@ pub async fn get_site(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let sid = crate::domain::site::value_objects::SiteId::from_string(&id);
-    match container.site_repo.find_by_id(&sid).await {
-        Ok(Some(site)) => Json(site_mapper::to_legacy(&site)).into_response(),
-        Ok(None)       => not_found("site not found").into_response(),
-        Err(e)         => domain_err(&ApplicationError::Domain(e)).into_response(),
+    match find_site(&container, &id).await {
+        Ok(site)  => Json(site_mapper::to_legacy(&site)).into_response(),
+        Err(resp) => resp,
     }
 }
 
@@ -85,7 +92,7 @@ pub async fn create_site(
     State(container): State<ContainerRef>,
     ApiJson(body): ApiJson<CreateSiteRequest>,
 ) -> impl IntoResponse {
-    let default_php = container.legacy.config.read().default_php.clone();
+    let default_php = container.config.get().default_php;
     let cmd = CreateSiteCommand { domain: body.domain, path: body.path, default_php: Some(default_php) };
     match container.create_site_uc.execute(cmd).await {
         Ok(site) => {
@@ -173,10 +180,9 @@ pub async fn disable_ssl(
         Ok(()) => {
             container.ssl_tasks.remove(&id);
             container.logger.log(format!("SSL disabled: {}", id));
-            let site_opt = container.legacy.sites.read().get(&id).cloned();
-            match site_opt {
-                Some(s) => Json(s).into_response(),
-                None    => Json(serde_json::json!({ "ok": true })).into_response(),
+            match find_site(&container, &id).await {
+                Ok(site) => Json(site_mapper::to_legacy(&site)).into_response(),
+                Err(_)   => Json(serde_json::json!({ "ok": true })).into_response(),
             }
         }
         Err(e) => domain_err(&e).into_response(),
@@ -193,24 +199,21 @@ pub async fn ssl_progress(
     if let Some(task) = container.ssl_tasks.get(&id) {
         return Json(AsyncTask { state: task.state, message: task.message, error: task.error }).into_response();
     }
-    match container.legacy.sites.read().get(&id) {
-        Some(s) => Json(AsyncTask {
+    match find_site(&container, &id).await {
+        Ok(site) => Json(AsyncTask {
             state:   TaskState::Done,
-            message: if s.ssl_enabled { "SSL active".into() } else { "SSL disabled".into() },
+            message: if site.ssl.is_enabled() { "SSL active".into() } else { "SSL disabled".into() },
             error:   None,
         }).into_response(),
-        None => not_found("site not found").into_response(),
+        Err(resp) => resp,
     }
-
 }
 
 // ── POST /api/v1/sites/scan ───────────────────────────────────────────────────
 
 pub async fn scan_sites(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let (scan_dirs, default_php) = {
-        let cfg = container.legacy.config.read();
-        (cfg.scanned_dirs.clone(), cfg.default_php.clone())
-    };
+    let cfg = container.config.get();
+    let (scan_dirs, default_php) = (cfg.scanned_dirs, cfg.default_php);
     if scan_dirs.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
             "error": "No scanned directories configured. Add a directory first."
@@ -248,7 +251,7 @@ pub async fn bulk_add_sites(
     State(container): State<ContainerRef>,
     ApiJson(body): ApiJson<Vec<BulkSiteRequest>>,
 ) -> impl IntoResponse {
-    let default_php = container.legacy.config.read().default_php.clone();
+    let default_php = container.config.get().default_php;
     let items: Vec<BulkSiteItem> = body.into_iter()
         .map(|item| BulkSiteItem { domain: item.domain, path: item.path })
         .collect();
@@ -279,14 +282,14 @@ pub async fn get_site_info(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let site = container.legacy.sites.read().get(&id).cloned();
-    match site {
-        // Reads several files from the project: keep it off the async workers.
-        Some(site) => match tokio::task::spawn_blocking(move || crate::infrastructure::site_info::read(&site)).await {
-            Ok(info) => Json(info).into_response(),
-            Err(e)   => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
-        },
-        None => not_found("site not found").into_response(),
+    let site = match find_site(&container, &id).await {
+        Ok(site)  => site_mapper::to_legacy(&site),
+        Err(resp) => return resp,
+    };
+    // Reads several files from the project: keep it off the async workers.
+    match tokio::task::spawn_blocking(move || crate::infrastructure::site_info::read(&site)).await {
+        Ok(info) => Json(info).into_response(),
+        Err(e)   => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
 }
 
@@ -296,17 +299,15 @@ pub async fn open_site_folder(
     State(container): State<ContainerRef>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let path = container.legacy.sites.read().get(&id).map(|s| s.path.clone());
-    match path {
-        Some(p) => {
-            tokio::task::spawn_blocking(move || {
-                #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("explorer").arg(&p).spawn();
-                #[cfg(not(target_os = "windows"))]
-                let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
-            });
-            Json(serde_json::json!({ "ok": true })).into_response()
-        }
-        None => not_found("site not found").into_response(),
-    }
+    let path = match find_site(&container, &id).await {
+        Ok(site)  => site.path.as_path().to_path_buf(),
+        Err(resp) => return resp,
+    };
+    tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("explorer").arg(&path).spawn();
+        #[cfg(not(target_os = "windows"))]
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    });
+    Json(serde_json::json!({ "ok": true })).into_response()
 }

@@ -1,7 +1,26 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::infrastructure::fs;
+use crate::infrastructure::{fs, state::AppState};
+
+/// The live configuration, for HTTP handlers. Reads return a snapshot;
+/// `replace` writes `config.json` first and publishes only after the write
+/// succeeded, so memory and disk never disagree.
+pub struct ConfigStore { state: Arc<AppState> }
+
+impl ConfigStore {
+    pub fn new(state: Arc<AppState>) -> Self { Self { state } }
+
+    pub fn get(&self) -> Config { self.state.config.read().clone() }
+
+    pub async fn replace(&self, new: Config) -> anyhow::Result<()> {
+        let (to_save, base_dir) = (new.clone(), self.state.base_dir.clone());
+        tokio::task::spawn_blocking(move || to_save.save(&base_dir)).await??;
+        *self.state.config.write() = new;
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {

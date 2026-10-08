@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::{Arc, OnceLock}, time::Duration};
+use std::{path::PathBuf, sync::{Arc, OnceLock}, time::{Duration, Instant}};
 
 use crate::{
     application::{
@@ -30,7 +30,7 @@ use crate::{
             update_site::UpdateSiteUseCase,
         },
     },
-    infrastructure::state::AppState,
+    infrastructure::{config::ConfigStore, state::AppState},
     domain::ports::{
         dns::DnsPort,
         download::DownloadProgressPort,
@@ -55,16 +55,21 @@ use crate::infrastructure::{
 };
 
 pub struct AppContainer {
-    /// Estado legacy — existirá hasta que todos los handlers estén migrados.
-    pub legacy: Arc<AppState>,
+    /// Estado compartido de los adaptadores. Privado: los handlers usan los
+    /// puertos y `config`, nunca `AppState` directamente.
+    legacy: Arc<AppState>,
+
+    /// Configuración viva (lectura = copia; `replace` guarda y luego publica).
+    pub config: ConfigStore,
+    /// Problemas al cargar config.json / sites.json al arrancar.
+    pub load_warnings: Vec<String>,
+    pub started_at: Instant,
 
     // ── Puertos concretos ────────────────────────────────────────────────────
     pub site_repo:  Arc<dyn SiteRepository>,
     pub web_server: Arc<dyn WebServerPort>,
     pub dns:        Arc<dyn DnsPort>,
     pub ssl:        Arc<dyn SslPort>,
-    /// Renombrado con sufijo `_port` para evitar shadowing del campo `php_proc`
-    /// de `AppState` que los handlers legacy acceden a través del Deref.
     pub php_process_port: Arc<dyn PhpProcessPort>,
     pub php_detector:     Arc<dyn PhpDetectorPort>,
     pub php_version_repo: Arc<dyn PhpVersionRepository>,
@@ -170,6 +175,9 @@ impl AppContainer {
         let stop_services_uc  = StopServicesUseCase::new(php_process_port.clone(), web_server.clone());
 
         Arc::new(Self {
+            config: ConfigStore::new(state.clone()),
+            load_warnings: state.load_warnings.clone(),
+            started_at: state.started_at,
             legacy: state,
             site_repo, web_server, dns, ssl, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
             create_site_uc, delete_site_uc, update_site_uc,
@@ -211,9 +219,4 @@ impl AppContainer {
             }
         });
     }
-}
-
-impl std::ops::Deref for AppContainer {
-    type Target = AppState;
-    fn deref(&self) -> &Self::Target { &self.legacy }
 }

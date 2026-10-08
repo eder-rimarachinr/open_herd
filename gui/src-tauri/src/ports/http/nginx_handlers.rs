@@ -6,7 +6,6 @@ use crate::{
         container::AppContainer,
         dto::{AsyncTask, NginxInfo, PhpVersionStatus, ServiceStatus},
         nginx::process as nginx_mgr,
-        php::process as php,
     },
 };
 
@@ -27,7 +26,7 @@ pub async fn nginx_status(State(container): State<ContainerRef>) -> impl IntoRes
 // ── GET /api/v1/nginx/info ────────────────────────────────────────────────────
 
 pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let nginx_dir = container.legacy.config.read().nginx_dir.clone();
+    let nginx_dir = container.config.get().nginx_dir;
     let running   = container.web_server.status().await.running;
     // Probing the binary runs `nginx -v`: keep it off the async workers.
     let (binary_path, version) = tokio::task::spawn_blocking(move || {
@@ -45,7 +44,7 @@ pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoRespo
 // ── POST /api/v1/nginx/download ───────────────────────────────────────────────
 
 pub async fn download_nginx(State(container): State<ContainerRef>) -> impl IntoResponse {
-    let nginx_dir = container.legacy.config.read().nginx_dir.clone();
+    let nginx_dir = container.config.get().nginx_dir;
     container.logger.log(format!("Starting nginx download to {}", nginx_dir));
     match container.download_nginx_uc.execute(&nginx_dir).await {
         Ok(state) => Json(AsyncTask { state, message: "Download started".into(), error: None }).into_response(),
@@ -99,7 +98,7 @@ pub async fn services_status(State(container): State<ContainerRef>) -> impl Into
 
 pub async fn start_services(State(container): State<ContainerRef>) -> impl IntoResponse {
     use crate::application::services::start_services::StartServicesCommand;
-    let default_php = container.legacy.config.read().default_php.clone();
+    let default_php = container.config.get().default_php;
     let cmd = StartServicesCommand { default_php };
     // The adapters offload their blocking work themselves.
     if let Err(e) = container.start_services_uc.execute(cmd).await {
@@ -121,7 +120,7 @@ pub async fn stop_services(State(container): State<ContainerRef>) -> impl IntoRe
 
 async fn build_service_status(container: &ContainerRef) -> ServiceStatus {
     let nginx_running = container.web_server.status().await.running;
-    let running = php::running_versions(&container.legacy.php_proc);
+    let running = container.php_process_port.running_majors().await;
     let versions = container.php_version_repo.list().await;
     let php_status: Vec<PhpVersionStatus> = running.iter().map(|major| {
         let ver = versions.iter()

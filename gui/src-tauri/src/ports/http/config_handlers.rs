@@ -9,10 +9,10 @@ pub type ContainerRef = Arc<AppContainer>;
 // ── GET /api/v1/status ────────────────────────────────────────────────────────
 
 pub async fn get_status(State(container): State<ContainerRef>) -> impl IntoResponse {
-    use crate::infrastructure::{dto::NginxRunning, php::process as php_mgr};
-    let uptime   = container.legacy.started_at.elapsed().as_secs();
+    use crate::infrastructure::dto::NginxRunning;
+    let uptime   = container.started_at.elapsed().as_secs();
     let nginx    = container.web_server.status().await;
-    let php_vers = php_mgr::running_versions(&container.legacy.php_proc);
+    let php_vers = container.php_process_port.running_majors().await;
     Json(DaemonStatus {
         status:       "ok".into(),
         version:      env!("CARGO_PKG_VERSION").into(),
@@ -20,14 +20,14 @@ pub async fn get_status(State(container): State<ContainerRef>) -> impl IntoRespo
         os:           std::env::consts::OS.into(),
         php_versions: php_vers,
         nginx:        NginxRunning { running: nginx.running },
-        warnings:     container.legacy.load_warnings.clone(),
+        warnings:     container.load_warnings.clone(),
     })
 }
 
 // ── GET /api/v1/config ────────────────────────────────────────────────────────
 
 pub async fn get_config(State(container): State<ContainerRef>) -> impl IntoResponse {
-    Json(container.legacy.config.read().clone())
+    Json(container.config.get())
 }
 
 // ── PUT /api/v1/config ────────────────────────────────────────────────────────
@@ -38,20 +38,14 @@ pub async fn update_config(
     State(container): State<ContainerRef>,
     ApiJson(patch): ApiJson<ConfigPatch>,
 ) -> Response {
-    let mut updated = container.legacy.config.read().clone();
+    let mut updated = container.config.get();
     if let Err(msg) = patch.apply(&mut updated) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg }))).into_response();
     }
-    let to_save  = updated.clone();
-    let base_dir = container.legacy.base_dir.clone();
-    let saved = tokio::task::spawn_blocking(move || to_save.save(&base_dir)).await
-        .map_err(anyhow::Error::from)
-        .and_then(|r| r);
-    if let Err(e) = saved {
+    if let Err(e) = container.config.replace(updated.clone()).await {
         return (StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("could not save config.json: {e}") }))).into_response();
     }
-    *container.legacy.config.write() = updated.clone();
     Json(updated).into_response()
 }
 

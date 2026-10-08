@@ -45,7 +45,7 @@ pub async fn php_catalog(State(container): State<ContainerRef>) -> impl IntoResp
     container.detect_php_uc.execute().await.ok();
     let versions: Vec<_> = container.php_version_repo.list().await.iter()
         .map(crate::infrastructure::php::version_mapper::to_legacy).collect();
-    let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
+    let running  = container.php_process_port.running_majors().await;
     Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
 
@@ -55,7 +55,7 @@ pub async fn detect_php(State(container): State<ContainerRef>) -> impl IntoRespo
     let installs = container.detect_php_uc.execute().await.unwrap_or_default();
     container.logger.log(format!("PHP detect: found {} version(s)", installs.len()));
     let versions: Vec<_> = installs.iter().map(crate::infrastructure::php::version_mapper::to_legacy).collect();
-    let running  = crate::infrastructure::php::process::running_versions(&container.legacy.php_proc);
+    let running  = container.php_process_port.running_majors().await;
     Json(crate::infrastructure::php::catalog::build_catalog(&versions, &running))
 }
 
@@ -71,7 +71,7 @@ pub async fn install_php(
     ApiJson(InstallPhpRequest { major }): ApiJson<InstallPhpRequest>,
 ) -> impl IntoResponse {
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let php_dir = container.legacy.config.read().php_dir.clone();
+    let php_dir = container.config.get().php_dir;
     container.logger.log(format!("Starting PHP {} download", major));
     match container.install_php_uc.execute(&major, &php_dir).await {
         Ok(state) => Json(serde_json::json!({ "ok": true, "state": state.as_str() })).into_response(),
@@ -93,7 +93,7 @@ pub async fn install_php_progress(
                 .into_response()
         }
         None => {
-            let php_dir   = container.legacy.config.read().php_dir.clone();
+            let php_dir   = container.config.get().php_dir;
             let dir       = std::path::Path::new(&php_dir).join(&major);
             let installed = crate::infrastructure::download::is_install_complete(&dir)
                 && (dir.join("php-cgi.exe").exists() || dir.join("php.exe").exists());
@@ -115,7 +115,7 @@ pub async fn get_php_ini(
     Path(major): Path<String>,
 ) -> impl IntoResponse {
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let php_dir  = container.legacy.config.read().php_dir.clone();
+    let php_dir  = container.config.get().php_dir;
     let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
     if !ini_path.exists() {
         return (StatusCode::NOT_FOUND,
@@ -151,7 +151,7 @@ pub async fn update_php_ini(
     use crate::application::php::update_php_ini::UpdatePhpIniCommand;
 
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let php_dir = container.legacy.config.read().php_dir.clone();
+    let php_dir = container.config.get().php_dir;
     let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
     if !ini_path.exists() {
         return (StatusCode::NOT_FOUND,
