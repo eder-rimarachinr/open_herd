@@ -42,13 +42,29 @@ impl SiteRepository for JsonSiteRepository {
     }
     async fn save(&self, site: &Site) -> Result<(), DomainError> {
         let legacy = site_mapper::to_legacy(site);
-        self.state.update_sites(|sites| { sites.insert(legacy.id.clone(), legacy); true })
+        self.update_off_runtime(move |sites| { sites.insert(legacy.id.clone(), legacy); true })
+            .await
             .map(|_| ())
-            .map_err(|e| write_failed(&e))
     }
     async fn delete(&self, id: &SiteId) -> Result<(), DomainError> {
-        let removed = self.state.update_sites(|sites| sites.remove(id.as_str()).is_some())
-            .map_err(|e| write_failed(&e))?;
+        let key = id.as_str().to_owned();
+        let removed = self.update_off_runtime(move |sites| sites.remove(&key).is_some()).await?;
         if removed { Ok(()) } else { Err(DomainError::SiteNotFound(id.to_string())) }
+    }
+}
+
+impl JsonSiteRepository {
+    /// `update_sites` writes the file while holding the sites lock; run it on a
+    /// blocking thread so neither the disk write nor a waiter on that lock
+    /// stalls a Tokio worker.
+    async fn update_off_runtime(
+        &self,
+        change: impl FnOnce(&mut std::collections::HashMap<String, LegacySite>) -> bool + Send + 'static,
+    ) -> Result<bool, DomainError> {
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || state.update_sites(change))
+            .await
+            .map_err(|e| DomainError::Persistence(format!("la tarea de guardado falló: {e}")))?
+            .map_err(|e| write_failed(&e))
     }
 }

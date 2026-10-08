@@ -3,7 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   Globe, Cpu, Server, ShieldCheck, Terminal,
   Settings, Sun, Moon, Play, Square, Power,
-  Circle, AlertTriangle,
+  Circle, AlertTriangle, X,
 } from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
 import { useTheme } from "../hooks/useTheme";
@@ -27,6 +27,8 @@ export default function Layout() {
   const [initialized, setInitialized] = useState(false);
   const [startError,  setStartError]  = useState<string | null>(null);
   const [, setFailCount] = useState(0);
+  const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
+  const [warningsDismissed, setWarningsDismissed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchStatus = useCallback(async () => {
@@ -50,6 +52,17 @@ export default function Layout() {
     return () => clearInterval(intervalRef.current);
   }, [fetchStatus]);
 
+  const daemonUp   = status !== null;
+
+  // Load warnings only change when the daemon restarts, so fetch them once per
+  // connection instead of on every status poll.
+  useEffect(() => {
+    if (!daemonUp) return;
+    api.status()
+      .then((s) => setLoadWarnings(s.warnings ?? []))
+      .catch(() => {});
+  }, [daemonUp]);
+
   async function handleStart() {
     setBusy(true); setStartError(null);
     try { const s = await api.services.start(); setStatus(s); }
@@ -70,7 +83,6 @@ export default function Layout() {
     finally { setBusy(false); }
   }
 
-  const daemonUp   = status !== null;
   const allRunning = status?.all_running ?? false;
 
   return (
@@ -176,6 +188,27 @@ export default function Layout() {
           <div className={styles.daemonBanner}>
             <AlertTriangle size={14} />
             Daemon offline — launch the app or run <code>phpenv open</code> in your terminal.
+          </div>
+        )}
+        {/* Data that could not be loaded at startup (kept on disk, see Logs) */}
+        {daemonUp && loadWarnings.length > 0 && !warningsDismissed && (
+          <div className={styles.warningBanner} role="alert">
+            <AlertTriangle size={14} className={styles.warningIcon} />
+            <div className={styles.warningBody}>
+              <strong>Some saved data could not be loaded.</strong> Nothing was deleted — the
+              originals were kept on disk. <NavLink to="/logs">Open logs</NavLink>
+              <ul className={styles.warningList}>
+                {loadWarnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </div>
+            <button
+              className={styles.warningDismiss}
+              onClick={() => setWarningsDismissed(true)}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
         <Outlet />

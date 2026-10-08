@@ -61,3 +61,22 @@ async fn update_config_partial_leaves_other_fields() {
     assert_eq!(body["default_php"], "8.0");
     assert_eq!(body["http_port"], 8080, "http_port should be unchanged");
 }
+
+#[tokio::test]
+async fn status_reports_no_warnings_on_clean_start() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let body = server.get("/api/v1/status").await.json::<serde_json::Value>();
+    assert_eq!(body["warnings"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn status_reports_corrupt_sites_json() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("sites.json"), "{ truncated").unwrap();
+    let server = make_server(&tmp);
+    let body = server.get("/api/v1/status").await.json::<serde_json::Value>();
+    let warnings = body["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].as_str().unwrap().contains("sites.json"));
+}

@@ -54,6 +54,8 @@ export interface DaemonStatus {
   os: string;
   php_versions: string[];
   nginx: { running: boolean };
+  /** Problems found while loading config.json / sites.json at startup. */
+  warnings: string[];
 }
 
 export interface Site {

@@ -182,19 +182,11 @@ async fn enable_ssl_starts_task_and_reports_progress() {
     let body = resp.json::<serde_json::Value>();
     assert_eq!(body["state"], "pending");
 
-    // Wait for the background task to finish (done or error — mkcert may not be in CI)
-    let final_state = wait_ssl(&server, &id).await;
-    assert!(
-        final_state == "done" || final_state == "error",
-        "unexpected final state: {}", final_state
-    );
-
-    // If mkcert succeeded, ssl_enabled must be true
-    if final_state == "done" {
-        let site = server.get(&format!("/api/v1/sites/{id}")).await
-            .json::<serde_json::Value>();
-        assert_eq!(site["ssl_enabled"], true);
-    }
+    // The SSL adapter is a fake (see common::FakeSsl), so issuance always succeeds.
+    assert_eq!(wait_ssl(&server, &id).await, "done");
+    let site = server.get(&format!("/api/v1/sites/{id}")).await
+        .json::<serde_json::Value>();
+    assert_eq!(site["ssl_enabled"], true);
 }
 
 #[tokio::test]
@@ -205,8 +197,10 @@ async fn disable_ssl_clears_flag() {
         .post("/api/v1/sites").json(&site_body(&tmp)).await
         .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
 
-    // Start (and possibly fail) SSL, then immediately disable
+    // Let issuance finish first; otherwise the background task could re-enable
+    // SSL after the DELETE and make this test racy.
     server.post(&format!("/api/v1/sites/{id}/ssl")).await;
+    assert_eq!(wait_ssl(&server, &id).await, "done");
     server.delete(&format!("/api/v1/sites/{id}/ssl")).await.assert_status_ok();
 
     let site = server.get(&format!("/api/v1/sites/{id}")).await

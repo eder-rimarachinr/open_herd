@@ -68,6 +68,8 @@ pub struct DaemonStatus {
     pub os: String,
     pub php_versions: Vec<String>,
     pub nginx: NginxRunning,
+    /// Problems detected while loading persisted data at startup.
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

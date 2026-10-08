@@ -307,3 +307,40 @@
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+.warningBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--amber-surface);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 10px 9px 14px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+.warningIcon { color: var(--amber); flex-shrink: 0; margin-top: 2px; }
+.warningBody { flex: 1; min-width: 0; }
+.warningBody a { color: var(--accent); }
+.warningList {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.warningDismiss {
+  flex-shrink: 0;
+  display: flex;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.warningDismiss:hover { color: var(--text); background: var(--surface-2); }

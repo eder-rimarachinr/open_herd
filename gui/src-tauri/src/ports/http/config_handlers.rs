@@ -18,6 +18,7 @@ pub async fn get_status(State(container): State<ContainerRef>) -> impl IntoRespo
         os:           std::env::consts::OS.into(),
         php_versions: php_vers,
         nginx:        NginxRunning { running: nginx.running },
+        warnings:     container.legacy.load_warnings.clone(),
     })
 }
 

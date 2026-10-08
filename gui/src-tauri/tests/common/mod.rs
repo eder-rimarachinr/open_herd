@@ -1,13 +1,21 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// Each integration test crate compiles this module and uses a different subset.
+#![allow(dead_code)]
 
+use async_trait::async_trait;
 use axum_test::TestServer;
+use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 
 use phpenv_gui_lib::{
+    domain::{
+        errors::InfrastructureError,
+        ports::{dns::DnsPort, ssl::SslPort},
+    },
     infrastructure::{
         config::Config,
-        container::AppContainer,
+        container::{AppContainer, SystemAdapters},
         state::AppState,
     },
     ports::http::server::build_router,
@@ -33,9 +41,38 @@ pub fn make_state(tmp: &TempDir) -> Arc<AppState> {
     AppState::new(base, config)
 }
 
+/// Never touches the system hosts file.
+struct NoopDns;
+
+#[async_trait]
+impl DnsPort for NoopDns {
+    async fn add_entry(&self, _domain: &str) -> Result<(), InfrastructureError> { Ok(()) }
+    async fn remove_entry(&self, _domain: &str) -> Result<(), InfrastructureError> { Ok(()) }
+}
+
+/// Never downloads mkcert nor runs `mkcert -install` (which would add a root
+/// CA to the developer's trust store); reports where the cert would live.
+struct FakeSsl;
+
+#[async_trait]
+impl SslPort for FakeSsl {
+    async fn issue_certificate(&self, domain: &str, certs_dir: &Path) -> Result<(String, String), InfrastructureError> {
+        let cert = certs_dir.join(format!("{domain}.pem"));
+        let key  = certs_dir.join(format!("{domain}-key.pem"));
+        Ok((cert.to_string_lossy().into_owned(), key.to_string_lossy().into_owned()))
+    }
+    async fn revoke_certificate(&self, _domain: &str) -> Result<(), InfrastructureError> { Ok(()) }
+}
+
+/// Real container over a temp `base_dir`, with the system-touching adapters
+/// (hosts file, trust store) replaced by fakes.
+pub fn make_container(tmp: &TempDir) -> Arc<AppContainer> {
+    AppContainer::with_adapters(make_state(tmp), SystemAdapters {
+        dns: Some(Arc::new(NoopDns)),
+        ssl: Some(Arc::new(FakeSsl)),
+    })
+}
+
 pub fn make_server(tmp: &TempDir) -> TestServer {
-    let state     = make_state(tmp);
-    let container = AppContainer::new(state);
-    let router    = build_router(container);
-    TestServer::new(router).unwrap()
+    TestServer::new(build_router(make_container(tmp))).unwrap()
 }

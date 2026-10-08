@@ -20,16 +20,24 @@ pub struct AppState {
     pub nginx_proc:  Arc<NginxProcess>,
     pub php_proc:    Arc<PhpProcesses>,
     pub started_at:  Instant,
-    /// Problems found while loading `sites.json` (quarantined file, records that
-    /// fail validation). `AppContainer::new` forwards them to the logger.
+    /// Problems found while loading `config.json` / `sites.json` (quarantined
+    /// files, records that fail validation). `AppContainer` forwards them to the
+    /// logger and `GET /status` returns them so the GUI can show a banner.
     pub load_warnings: Vec<String>,
 }
 
 impl AppState {
     pub fn new(base_dir: PathBuf, config: Config) -> Arc<Self> {
+        Self::with_warnings(base_dir, config, Vec::new())
+    }
+
+    /// `warnings` are earlier load problems (e.g. from `Config::load`) to report
+    /// alongside the ones found while loading `sites.json`.
+    pub fn with_warnings(base_dir: PathBuf, config: Config, warnings: Vec<String>) -> Arc<Self> {
         let certs_dir = config.certs_dir.clone();
         let fs::Loaded { value: sites, warning } = load_sites(&base_dir);
-        let load_warnings = warning.into_iter()
+        let load_warnings = warnings.into_iter()
+            .chain(warning)
             .chain(invalid_site_warnings(&sites, &certs_dir))
             .collect();
         Arc::new(Self {

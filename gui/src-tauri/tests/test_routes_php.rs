@@ -1,11 +1,8 @@
 use axum_test::TestServer;
 use tempfile::TempDir;
-use phpenv_gui_lib::{
-    infrastructure::container::AppContainer,
-    ports::http::server::build_router,
-};
+use phpenv_gui_lib::ports::http::server::build_router;
 mod common;
-use common::{make_server, make_state};
+use common::{make_container, make_server};
 
 #[tokio::test]
 async fn php_versions_returns_array() {
@@ -62,8 +59,7 @@ async fn php_install_progress_returns_done_for_unknown() {
 #[tokio::test]
 async fn php_start_stop_return_ok() {
     let tmp = TempDir::new().unwrap();
-    let state = make_state(&tmp);
-    let container = AppContainer::new(state);
+    let container = make_container(&tmp);
 
     // Pre-registrar PHP 8.2 para que start_php_fpm pueda encontrarlo.
     container.php_version_repo.replace(vec![

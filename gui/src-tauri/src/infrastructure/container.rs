@@ -102,8 +102,21 @@ pub struct AppContainer {
     pub stop_services_uc:  StopServicesUseCase,
 }
 
+/// Adaptadores que modifican la máquina fuera de `base_dir` (el archivo hosts
+/// del sistema, el almacén de confianza del SO vía `mkcert -install`). Los tests
+/// los sustituyen por dobles; `None` usa el adaptador real.
+#[derive(Default)]
+pub struct SystemAdapters {
+    pub dns: Option<Arc<dyn DnsPort>>,
+    pub ssl: Option<Arc<dyn SslPort>>,
+}
+
 impl AppContainer {
     pub fn new(state: Arc<AppState>) -> Arc<Self> {
+        Self::with_adapters(state, SystemAdapters::default())
+    }
+
+    pub fn with_adapters(state: Arc<AppState>, system: SystemAdapters) -> Arc<Self> {
         let certs_dir = PathBuf::from(state.config.read().certs_dir.clone());
         let base_dir  = state.base_dir.clone();
 
@@ -112,8 +125,8 @@ impl AppContainer {
         let logger: Arc<dyn LoggerPort> = InMemoryLogger::new();
         for warning in &state.load_warnings { logger.log(warning.clone()); }
         let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone(), logger.clone()));
-        let dns:          Arc<dyn DnsPort>          = Arc::new(HostsAdapter::new());
-        let ssl:          Arc<dyn SslPort>          = Arc::new(MkcertAdapter::new(base_dir));
+        let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
+        let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
         let php_detector: Arc<dyn PhpDetectorPort> = Arc::new(SystemPhpDetector::new());
         let php_version_repo: Arc<dyn PhpVersionRepository> = InMemoryPhpVersionRepository::new();

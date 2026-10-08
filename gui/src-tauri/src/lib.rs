@@ -27,9 +27,8 @@ pub fn run() {
 
     try_shutdown_previous(&api_addr);
 
-    let state     = AppState::new(base_dir.clone(), config);
+    let state     = AppState::with_warnings(base_dir.clone(), config, config_warning.into_iter().collect());
     let container = AppContainer::new(state);
-    if let Some(w) = config_warning { container.logger.log(w); }
 
     let container_for_api  = container.clone();
     let container_for_tray = container.clone();
