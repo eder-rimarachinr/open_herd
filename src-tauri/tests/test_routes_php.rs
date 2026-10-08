@@ -1,6 +1,6 @@
 use axum_test::TestServer;
 use tempfile::TempDir;
-use phpenv_gui_lib::ports::http::server::build_router;
+use open_herd_lib::ports::http::server::build_router;
 mod common;
 use common::{make_container, make_server};
 
@@ -63,7 +63,7 @@ async fn php_start_stop_return_ok() {
 
     // Pre-registrar PHP 8.2 para que start_php_fpm pueda encontrarlo.
     container.php_version_repo.replace(vec![
-        phpenv_gui_lib::domain::ports::process_manager::PhpInstallation {
+        open_herd_lib::domain::ports::process_manager::PhpInstallation {
             major: "8.2".into(), version: "8.2.31".into(), binary_path: "php".into(),
         }
     ]).await;

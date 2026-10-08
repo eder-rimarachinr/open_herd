@@ -1,12 +1,12 @@
 [package]
-name = "phpenv-gui"
+name = "open-herd"
 version = "0.1.1"
 description = "Open Herd — Local PHP development environment manager"
 authors = []
 edition = "2021"
 
 [lib]
-name = "phpenv_gui_lib"
+name = "open_herd_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

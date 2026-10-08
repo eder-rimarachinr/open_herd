@@ -41,7 +41,7 @@ if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
 }
 
 $releaseDir = Join-Path $root "src-tauri\target\release"
-$appExe     = "phpenv-gui.exe"
+$appExe     = "open-herd.exe"
 
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Cyan
@@ -87,7 +87,7 @@ if (-not $SkipIcons) {
 
 # -- 2. Limpiar cache ---------------------------------------------------------
 Write-Host "[2/4] Limpiando cache de build..." -ForegroundColor Yellow
-$stalePattern = Join-Path $root "src-tauri\target\release\build\phpenv-gui-*"
+$stalePattern = Join-Path $root "src-tauri\target\release\build\open-herd-*"
 Get-Item $stalePattern -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Write-Host "  Cache limpio." -ForegroundColor Green
 

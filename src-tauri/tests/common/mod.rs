@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use phpenv_gui_lib::{
+use open_herd_lib::{
     domain::{
         errors::InfrastructureError,
         ports::{dns::DnsPort, ssl::SslPort},
