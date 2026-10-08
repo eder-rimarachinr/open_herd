@@ -1,0 +1,94 @@
+name: Release
+
+# Builds the Windows installers and attaches them to a *draft* GitHub release.
+# Review the draft on GitHub and publish it by hand: installer/install.ps1 only
+# sees published releases.
+#
+#   git tag -a v0.3.0 -m "..." && git push origin v0.3.0
+#
+# The tag must match the version in Cargo.toml / tauri.conf.json /
+# package.json. To rebuild an existing tag, run this workflow manually from
+# the Actions tab and pass the tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write # create the release and upload assets
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows installers
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      # Same check that bit v0.1.1 (its installer registered itself as 0.1.0).
+      - name: Tag matches the app version everywhere
+        shell: pwsh
+        run: |
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $npm   = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "Cargo.toml=$cargo tauri.conf.json=$tauri package.json=$npm tag=$env:TAG"
+          foreach ($v in @($cargo, $tauri, $npm)) {
+            if ("v$v" -ne $env:TAG) { Write-Error "Version mismatch: tag $env:TAG vs $v"; exit 1 }
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Backend tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Frontend tests
+        run: npm test
+
+      # Same script as a local release build, so asset names match what
+      # installer/install.ps1 downloads: open-herd-vX.Y.Z-{setup.exe,x64.msi,portable.zip}.
+      # Tauri fetches NSIS and WiX itself on the runner.
+      - name: Build installers
+        shell: pwsh
+        run: ./scripts/build-portable.ps1 -SkipIcons -SkipFrontend
+
+      - name: Create or update the draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = @(Get-ChildItem release -Filter "open-herd-$env:TAG-*" | ForEach-Object FullName)
+          if ($files.Count -lt 3) { Write-Error "Expected setup.exe, .msi and portable.zip, found: $files"; exit 1 }
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG @files --clobber
+          } else {
+            # --notes-from-tag: the annotated tag message becomes the release notes.
+            gh release create $env:TAG @files --draft --verify-tag --title "Open Herd $env:TAG" --notes-from-tag
+          }

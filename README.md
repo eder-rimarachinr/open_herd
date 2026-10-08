@@ -141,6 +141,10 @@ npm run dev
 
 Requires `assets/logo.png` and a production Tauri build environment.
 
+### Releasing
+
+Pushing a tag `vX.Y.Z` (matching the version in `Cargo.toml`, `tauri.conf.json` and `package.json`) runs `.github/workflows/release.yml`, which tests, builds the installers on GitHub Actions and attaches them to a draft release for review.
+
 ---
 
 ## Data directory

@@ -30,7 +30,10 @@ npm run tauri dev
 ```powershell
 .\scripts\build-portable.ps1
 ```
-Produces `release/open-herd-vX.Y.Z-setup.exe` (NSIS), `-x64.msi` and `-portable.zip`. Requires `assets/logo.png`. (`dist/` is Vite's output, not the release folder.)
+Produces `release/open-herd-vX.Y.Z-setup.exe` (NSIS), `-x64.msi` and `-portable.zip`. Requires `assets/logo.png`. (`dist/` is Vite's output, not the release folder.) Those exact names are what `installer/install.ps1` downloads — don't rename them.
+
+### Release
+Bump the version in `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `package.json` (must all match), commit, then push an annotated tag `vX.Y.Z`. `.github/workflows/release.yml` checks the versions, runs the tests, builds with `build-portable.ps1` and creates a **draft** GitHub release (notes = tag message). Publish the draft by hand.
 
 ### Frontend only (hot-reload, no Tauri shell, no daemon)
 ```bash
