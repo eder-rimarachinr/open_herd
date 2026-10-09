@@ -48,11 +48,11 @@ fn not_found(msg: &str) -> impl IntoResponse {
 }
 
 /// Loads a site through the repository; the `Err` is the ready-made 404 / 500.
-async fn find_site(container: &ContainerRef, id: &str) -> Result<Site, axum::response::Response> {
+async fn find_site(container: &ContainerRef, id: &str) -> Result<Site, Box<axum::response::Response>> {
     match container.site_repo.find_by_id(&SiteId::from_string(id)).await {
         Ok(Some(site)) => Ok(site),
-        Ok(None)       => Err(not_found("site not found").into_response()),
-        Err(e)         => Err(domain_err(&ApplicationError::Domain(e)).into_response()),
+        Ok(None)       => Err(Box::new(not_found("site not found").into_response())),
+        Err(e)         => Err(Box::new(domain_err(&ApplicationError::Domain(e)).into_response())),
     }
 }
 
@@ -76,7 +76,7 @@ pub async fn get_site(
 ) -> impl IntoResponse {
     match find_site(&container, &id).await {
         Ok(site)  => Json(site_mapper::to_legacy(&site)).into_response(),
-        Err(resp) => resp,
+        Err(resp) => *resp,
     }
 }
 
@@ -203,7 +203,7 @@ pub async fn ssl_progress(
             message: if site.ssl.is_enabled() { "SSL active".into() } else { "SSL disabled".into() },
             error:   None,
         }).into_response(),
-        Err(resp) => resp,
+        Err(resp) => *resp,
     }
 }
 
@@ -282,7 +282,7 @@ pub async fn get_site_info(
 ) -> impl IntoResponse {
     let site = match find_site(&container, &id).await {
         Ok(site)  => site_mapper::to_legacy(&site),
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     // Reads several files from the project: keep it off the async workers.
     match tokio::task::spawn_blocking(move || crate::infrastructure::site_info::read(&site)).await {
@@ -299,7 +299,7 @@ pub async fn open_site_folder(
 ) -> impl IntoResponse {
     let site = match find_site(&container, &id).await {
         Ok(site)  => site,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     match container.file_manager.open_folder(site.path.as_path()).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
