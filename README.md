@@ -189,4 +189,10 @@ Linux and macOS support is planned; until then `installer/install.sh` has no rel
 
 ## License
 
-[MIT](LICENSE) © Eder R
+Copyright © 2025-2026 Eder R
+
+Open Herd is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License, version 3](LICENSE), as published by the Free Software Foundation.
+
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [GNU General Public License](LICENSE) for more details.
+
+In short: you may use, study, change and share Open Herd, including commercially, but if you distribute it or a modified version, you must do so under the GPL-3.0 and make the source code available.

@@ -3,7 +3,7 @@ name = "open-herd"
 version = "0.2.0"
 description = "Open Herd — Local PHP development environment manager"
 authors = ["Eder R"]
-license = "MIT"
+license = "GPL-3.0-only"
 repository = "https://github.com/eder-rimarachinr/open_herd"
 edition = "2021"
 
