@@ -95,7 +95,7 @@ If `config.json` or `sites.json` ever becomes unreadable, Open Herd renames it t
 
 ## Development
 
-Requirements: **Rust** stable (1.88 or newer), **Node.js 20+**, Windows 10/11. The production installer additionally needs `assets/logo.png`; Tauri downloads NSIS/WiX by itself.
+Requirements: **Rust** stable (1.88 or newer), **Node.js 24** (npm 11 — the lockfile depends on it), Windows 10/11. The production installer additionally needs `assets/logo.png`; Tauri downloads NSIS/WiX by itself.
 
 ```powershell
 npm install

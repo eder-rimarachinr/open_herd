@@ -50,7 +50,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # same major as local dev: npm 10 (Node 20) and npm 11 disagree on optional peers in package-lock.json
           cache: npm
           cache-dependency-path: package-lock.json
 
