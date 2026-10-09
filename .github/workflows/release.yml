@@ -34,7 +34,7 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
@@ -50,7 +50,7 @@ jobs:
             if ("v$v" -ne $env:TAG) { Write-Error "Version mismatch: tag $env:TAG vs $v"; exit 1 }
           }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24 # same major as local dev: npm 10 (Node 20) and npm 11 disagree on optional peers in package-lock.json
           cache: npm
