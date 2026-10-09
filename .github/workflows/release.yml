@@ -55,7 +55,7 @@ jobs:
           node-version: 24 # same major as local dev: npm 10 (Node 20) and npm 11 disagree on optional peers in package-lock.json
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0 # same pinned toolchain as ci.yml
 
       - uses: Swatinem/rust-cache@v2
         with:
