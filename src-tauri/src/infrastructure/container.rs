@@ -5,6 +5,7 @@ use crate::{
         nginx::{
             download_nginx::DownloadNginxUseCase,
             reload_nginx::ReloadNginxUseCase,
+            restart_nginx::RestartNginxUseCase,
             start_nginx::StartNginxUseCase,
             stop_nginx::StopNginxUseCase,
         },
@@ -106,6 +107,7 @@ pub struct AppContainer {
     pub start_nginx_uc:    StartNginxUseCase,
     pub stop_nginx_uc:     StopNginxUseCase,
     pub reload_nginx_uc:   ReloadNginxUseCase,
+    pub restart_nginx_uc:  RestartNginxUseCase,
     pub download_nginx_uc: DownloadNginxUseCase,
 
     // ── Casos de uso — Services ──────────────────────────────────────────────
@@ -127,6 +129,8 @@ pub struct SystemAdapters {
     pub dns: Option<Arc<dyn DnsPort>>,
     pub ssl: Option<Arc<dyn SslPort>>,
     pub file_manager: Option<Arc<dyn FileManagerPort>>,
+    /// nginx: binds ports 80/443 and spawns processes on the real machine.
+    pub web_server: Option<Arc<dyn WebServerPort>>,
 }
 
 impl AppContainer {
@@ -142,7 +146,7 @@ impl AppContainer {
         let site_repo:    Arc<dyn SiteRepository>  = Arc::new(JsonSiteRepository::new(state.clone()));
         let logger: Arc<dyn LoggerPort> = InMemoryLogger::new();
         for warning in &state.load_warnings { logger.log(warning.clone()); }
-        let web_server:   Arc<dyn WebServerPort>   = Arc::new(NginxAdapter::new(state.clone(), logger.clone()));
+        let web_server:   Arc<dyn WebServerPort>   = system.web_server.unwrap_or_else(|| Arc::new(NginxAdapter::new(state.clone(), logger.clone())));
         let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let file_manager: Arc<dyn FileManagerPort> = system.file_manager.unwrap_or_else(|| Arc::new(SystemFileManager));
@@ -179,6 +183,7 @@ impl AppContainer {
         let start_nginx_uc    = StartNginxUseCase::new(web_server.clone());
         let stop_nginx_uc     = StopNginxUseCase::new(web_server.clone());
         let reload_nginx_uc   = ReloadNginxUseCase::new(web_server.clone());
+        let restart_nginx_uc  = RestartNginxUseCase::new(web_server.clone());
         let download_nginx_uc = DownloadNginxUseCase::new(downloads.clone());
 
         // ── Use cases — Services ─────────────────────────────────────────────
@@ -196,7 +201,7 @@ impl AppContainer {
             bulk_add_sites_uc, refresh_site_config_uc,
             detect_php_uc, start_php_uc, stop_php_uc,
             install_php_uc, get_php_ini_uc, update_php_ini_uc,
-            start_nginx_uc, stop_nginx_uc, reload_nginx_uc, download_nginx_uc,
+            start_nginx_uc, stop_nginx_uc, reload_nginx_uc, restart_nginx_uc, download_nginx_uc,
             start_services_uc, stop_services_uc,
             exit_hook: OnceLock::new(),
         })

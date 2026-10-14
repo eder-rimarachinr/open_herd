@@ -11,7 +11,8 @@ use tempfile::TempDir;
 use open_herd_lib::{
     domain::{
         errors::InfrastructureError,
-        ports::{dns::DnsPort, file_manager::FileManagerPort, ssl::SslPort},
+        ports::{dns::DnsPort, file_manager::FileManagerPort, ssl::SslPort, web_server::WebServerPort},
+        site::entity::Site,
     },
     infrastructure::{
         config::Config,
@@ -82,14 +83,21 @@ impl FileManagerPort for RecordingFileManager {
 /// Real container over a temp `base_dir`, with the system-touching adapters
 /// (hosts file, trust store, file manager) replaced by fakes.
 pub fn make_container(tmp: &TempDir) -> Arc<AppContainer> {
-    make_container_with(tmp, Arc::new(RecordingFileManager::default()))
+    make_container_with(tmp, Arc::new(RecordingFileManager::default()), None)
 }
 
-fn make_container_with(tmp: &TempDir, file_manager: Arc<RecordingFileManager>) -> Arc<AppContainer> {
+/// `web_server: None` keeps the real nginx adapter: it only writes vhost files
+/// under the temp dir, since tests never start nginx.
+fn make_container_with(
+    tmp: &TempDir,
+    file_manager: Arc<RecordingFileManager>,
+    web_server: Option<Arc<dyn WebServerPort>>,
+) -> Arc<AppContainer> {
     AppContainer::with_adapters(make_state(tmp), SystemAdapters {
         dns: Some(Arc::new(NoopDns)),
         ssl: Some(Arc::new(FakeSsl)),
         file_manager: Some(file_manager),
+        web_server,
     })
 }
 
@@ -100,6 +108,38 @@ pub fn make_server(tmp: &TempDir) -> TestServer {
 /// Like `make_server`, plus the file-manager double to assert on.
 pub fn make_server_with_file_manager(tmp: &TempDir) -> (TestServer, Arc<RecordingFileManager>) {
     let file_manager = Arc::new(RecordingFileManager::default());
-    let server = TestServer::new(build_router(make_container_with(tmp, file_manager.clone()))).unwrap();
+    let server = TestServer::new(build_router(make_container_with(tmp, file_manager.clone(), None))).unwrap();
     (server, file_manager)
+}
+
+/// A web server that reports itself running and records stop/start. The next
+/// `fail_starts` starts fail, like nginx finding its port already taken.
+#[derive(Default)]
+pub struct FakeWebServer {
+    pub running: bool,
+    pub fail_starts: Mutex<u32>,
+    pub calls: Mutex<Vec<&'static str>>,
+}
+
+#[async_trait]
+impl WebServerPort for FakeWebServer {
+    async fn create_vhost(&self, _: &Site) -> Result<(), InfrastructureError> { Ok(()) }
+    async fn remove_vhost(&self, _: &Site) -> Result<(), InfrastructureError> { Ok(()) }
+    async fn reload(&self) -> Result<(), InfrastructureError> { Ok(()) }
+    async fn is_running(&self) -> bool { self.running }
+    async fn stop(&self) -> Result<(), InfrastructureError> { self.calls.lock().unwrap().push("stop"); Ok(()) }
+    async fn start(&self) -> Result<(), InfrastructureError> {
+        self.calls.lock().unwrap().push("start");
+        let mut failing = self.fail_starts.lock().unwrap();
+        if *failing > 0 {
+            *failing -= 1;
+            return Err(InfrastructureError::ProcessFailed("bind() to 0.0.0.0:8081 failed (10048: address in use)".into()));
+        }
+        Ok(())
+    }
+}
+
+pub fn make_server_with_web_server(tmp: &TempDir, web: Arc<FakeWebServer>) -> TestServer {
+    let container = make_container_with(tmp, Arc::new(RecordingFileManager::default()), Some(web));
+    TestServer::new(build_router(container)).unwrap()
 }

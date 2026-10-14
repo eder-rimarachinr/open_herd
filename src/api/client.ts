@@ -133,8 +133,9 @@ export const api = {
   config: {
     get: () => cached("/config", () => request<AppConfig>("/config")),
     update: (body: Partial<AppConfig>) =>
+      // Invalidate even on error: a rejected port change is rolled back server-side.
       request<AppConfig>("/config", { method: "PUT", body: JSON.stringify(body) })
-        .then(r => { invalidate("/config"); return r; }),
+        .finally(() => invalidate("/config")),
   },
 
   nginx: {

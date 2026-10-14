@@ -43,6 +43,13 @@ export default function Settings() {
       setTimeout(() => setSaved(false), 2000);
     } catch (e: any) {
       toast(e.message, "error");
+      // Show what the server really has now (a busy port is rolled back).
+      api.config.get().then((cfg) => {
+        setConfig(cfg);
+        setHttpPort(String(cfg.http_port));
+        setHttpsPort(String(cfg.https_port));
+        setDefaultPhp(cfg.default_php);
+      }).catch(() => {});
     } finally {
       setSaving(false);
     }

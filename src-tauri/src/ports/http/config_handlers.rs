@@ -38,15 +38,51 @@ pub async fn update_config(
     State(container): State<ContainerRef>,
     ApiJson(patch): ApiJson<ConfigPatch>,
 ) -> Response {
-    let mut updated = container.config.get();
+    let previous = container.config.get();
+    let mut updated = previous.clone();
     if let Err(msg) = patch.apply(&mut updated) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg }))).into_response();
+        return error(StatusCode::BAD_REQUEST, msg);
     }
     if let Err(e) = container.config.replace(updated.clone()).await {
-        return (StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("could not save config.json: {e}") }))).into_response();
+        return error(StatusCode::INTERNAL_SERVER_ERROR, format!("could not save config.json: {e}"));
+    }
+    if let Err(response) = apply_listen_ports(&container, &previous, &updated).await {
+        return response;
     }
     Json(updated).into_response()
+}
+
+/// Ports are the only settings nginx reads at start (everything else is read
+/// live on each use), so a port change restarts a running nginx. If it can't
+/// listen on the new ports (another web server holds them), the previous
+/// config is restored and nginx is brought back on the old ports — the user
+/// keeps working sites and gets a 409 explaining why nothing changed.
+async fn apply_listen_ports(container: &AppContainer, previous: &Config, updated: &Config) -> Result<(), Response> {
+    let ports = |c: &Config| (c.http_port, c.https_port);
+    if ports(previous) == ports(updated) || !container.web_server.is_running().await {
+        return Ok(());
+    }
+    let Err(e) = container.restart_nginx_uc.execute().await else {
+        container.logger.log(format!("nginx restarted on ports {}/{}", updated.http_port, updated.https_port));
+        return Ok(());
+    };
+
+    let reason = format!(
+        "nginx could not start on ports {}/{} ({e}). The previous ports {}/{} were restored.",
+        updated.http_port, updated.https_port, previous.http_port, previous.https_port,
+    );
+    tracing::warn!("{reason}");
+    if let Err(save) = container.config.replace(previous.clone()).await {
+        return Err(error(StatusCode::INTERNAL_SERVER_ERROR, format!("{reason} But restoring config.json failed: {save}")));
+    }
+    if let Err(restart) = container.restart_nginx_uc.execute().await {
+        return Err(error(StatusCode::INTERNAL_SERVER_ERROR, format!("{reason} But nginx also failed to start on them: {restart}")));
+    }
+    Err(error(StatusCode::CONFLICT, reason))
+}
+
+fn error(status: StatusCode, msg: impl Into<String>) -> Response {
+    (status, Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
 /// Body of `PUT /config`: only the fields present are changed. Wrong JSON

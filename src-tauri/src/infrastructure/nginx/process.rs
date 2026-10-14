@@ -86,9 +86,15 @@ pub fn nginx_prefix(binary: &Path) -> PathBuf {
 #[cfg(target_os = "windows")]
 fn kill_stale_nginx(binary: &Path) {
     let binary_str = binary.to_string_lossy().replace('\'', "''");
+    // Normalize both sides: our path is built from nginx_dir and can mix `/`
+    // and `\` (".phpenv/nginx\nginx.exe"), while Windows reports
+    // ".phpenv\nginx\nginx.exe" — a plain -eq never matched, so orphans were
+    // never killed. Still an exact path match: other tools' nginx (e.g. Local's)
+    // is never touched.
     let script = format!(
-        "Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | \
-         Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
+        "$target = [IO.Path]::GetFullPath('{}'); \
+         Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | \
+         Where-Object {{ $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq $target }} | \
          ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
         binary_str
     );
@@ -101,6 +107,62 @@ fn kill_stale_nginx(binary: &Path) {
 
 #[cfg(not(target_os = "windows"))]
 fn kill_stale_nginx(_binary: &Path) {}
+
+/// Windows lets a second nginx bind a port another process already listens on
+/// (nginx sets SO_REUSEADDR), so a start "succeeds" while the other web server
+/// (Local, XAMPP, IIS, …) keeps answering part of the requests — sites return
+/// that server's 502s. Checked up front instead: `(port, owner)` for every
+/// requested port listened on by a process that isn't our `binary`.
+#[cfg(target_os = "windows")]
+fn ports_held_by_others(binary: &Path, ports: &[u16]) -> Vec<(u16, String)> {
+    let mut cmd = Command::new("netstat");
+    cmd.args(["-ano", "-p", "TCP"]).creation_flags(CREATE_NO_WINDOW);
+    let Ok(out) = cmd.output() else { return Vec::new() };
+    let listeners = parse_netstat_listeners(&String::from_utf8_lossy(&out.stdout), ports);
+    if listeners.is_empty() { return Vec::new(); }
+
+    let ours = std::fs::canonicalize(binary).ok();
+    let mut taken: Vec<(u16, String)> = Vec::new();
+    for (port, pid) in listeners {
+        let path = process_path(pid);
+        if path.is_some() && path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) == ours { continue; }
+        if taken.iter().any(|(p, _)| *p == port) { continue; }
+        let owner = path.map_or_else(|| format!("process {pid}"), |p| format!("{} (pid {pid})", p.display()));
+        taken.push((port, owner));
+    }
+    taken
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ports_held_by_others(_binary: &Path, _ports: &[u16]) -> Vec<(u16, String)> {
+    // TODO(linux): bind() already fails there when the port is taken.
+    Vec::new()
+}
+
+/// `None` when the process is gone or protected (e.g. a service run as SYSTEM).
+#[cfg(target_os = "windows")]
+fn process_path(pid: u32) -> Option<PathBuf> {
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &format!("(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Path")])
+        .creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+/// `(port, pid)` of the listening sockets in `netstat -ano` output whose local
+/// port is one of `ports`. A listener is recognised by its `*:0` foreign
+/// address, since the state column ("LISTENING") is translated on some locales.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_netstat_listeners(output: &str, ports: &[u16]) -> Vec<(u16, u32)> {
+    output.lines().filter_map(|line| {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        let [proto, local, foreign, .., pid] = cols.as_slice() else { return None };
+        if !proto.eq_ignore_ascii_case("TCP") || !foreign.ends_with(":0") { return None; }
+        let port: u16 = local.rsplit_once(':')?.1.parse().ok()?;
+        ports.contains(&port).then_some((port, pid.parse().ok()?))
+    }).collect()
+}
 
 pub fn get_nginx_version(binary: &Path) -> Option<String> {
     #[allow(unused_mut)]
@@ -130,14 +192,15 @@ pub fn start(state: &AppState, nginx_proc: &NginxProcess, logger: &dyn LoggerPor
     // Regenerar configs de todos los sitios antes de arrancar.
     // Se usa generate_with_certs para TODOS para que los sitios con SSL
     // apunten a certs_dir (~/.phpenv/certs/) en lugar de nginx_dir.
-    {
+    let any_ssl = {
         let sites = state.sites.read().values().cloned().collect::<Vec<_>>();
         vhost_config::ensure_fastcgi_params(&nginx_dir);
         for site in &sites {
             let ports = vhost_config::ListenPorts { http: http_port, https: https_port };
             let _ = vhost_config::generate_with_certs(site, &nginx_dir, ports, Some(&certs_dir));
         }
-    }
+        sites.iter().any(|s| s.ssl_enabled)
+    };
 
     ensure_config(&nginx_dir, http_port)?;
     let conf_path = PathBuf::from(&nginx_dir).join("nginx.conf");
@@ -146,6 +209,15 @@ pub fn start(state: &AppState, nginx_proc: &NginxProcess, logger: &dyn LoggerPor
     // No hay Child rastreado y vivo — puede que un nginx huérfano de una
     // sesión anterior siga ocupando los puertos con una config vieja.
     kill_stale_nginx(&binary);
+
+    let ports: &[u16] = if any_ssl { &[http_port, https_port] } else { &[http_port] };
+    let taken = ports_held_by_others(&binary, ports);
+    if !taken.is_empty() {
+        return Err(format!(
+            "{}. Stop that program or choose other ports in Settings",
+            taken.iter().map(|(port, owner)| format!("port {port} is already in use by {owner}")).collect::<Vec<_>>().join("; "),
+        ));
+    }
 
     let bin_dir   = binary.parent().unwrap_or(&binary);
     let error_log = PathBuf::from(&nginx_dir).join("logs").join("error.log");
@@ -271,6 +343,24 @@ const BASIC_MIME_TYPES: &str = "types {\n    text/html html htm shtml;\n    text
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn netstat_listeners_on_requested_ports_are_found_in_any_locale() {
+        let out = "\
+Conexiones activas
+
+  Proto  Dirección local        Dirección remota       Estado           PID
+  TCP    0.0.0.0:80             0.0.0.0:0              LISTENING       19872
+  TCP    0.0.0.0:443            0.0.0.0:0              ABHÖREN         30216
+  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       111
+  TCP    [::]:443               [::]:0                 LISTENING       19872
+  TCP    127.0.0.1:52000        127.0.0.1:443          ESTABLISHED     4242
+";
+        assert_eq!(
+            parse_netstat_listeners(out, &[80, 443]),
+            vec![(80, 19872), (443, 30216), (443, 19872)],
+        );
+    }
 
     #[test]
     fn port_change_reaches_main_config_and_old_version_is_backed_up() {
