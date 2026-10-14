@@ -1,0 +1,4 @@
+[env]
+# ts-rs writes the TypeScript bindings of the API DTOs here during `cargo test`
+# (see `#[cfg_attr(test, ts(export))]` on the DTOs). CI fails if they drift.
+TS_RS_EXPORT_DIR = { value = "../src/api/generated", relative = true }

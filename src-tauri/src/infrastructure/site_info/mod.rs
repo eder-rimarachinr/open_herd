@@ -4,6 +4,7 @@ use crate::infrastructure::dto::Site;
 
 #[derive(Debug, serde::Serialize)]
 #[derive(Default)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 pub struct SiteInfo {
     pub app_name: String, pub app_env: String, pub app_debug: bool,
     pub app_url: String, pub app_timezone: String, pub app_locale: String,

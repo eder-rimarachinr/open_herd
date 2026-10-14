@@ -1,0 +1,2 @@
+# ts-rs writes LF; keep it LF on every platform so the CI drift check compares like with like.
+src/api/generated/** text eol=lf

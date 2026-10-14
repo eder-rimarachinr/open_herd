@@ -23,6 +23,7 @@ impl ConfigStore {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, rename = "AppConfig"))]
 pub struct Config {
     pub api_addr: String,
     pub base_dir: String,

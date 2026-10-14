@@ -50,6 +50,8 @@ windows-sys = { version = "0.59", features = [
 [dev-dependencies]
 axum-test = "17"
 tempfile = "3"
+# Generates src/api/generated/*.ts from the DTOs during `cargo test` (test-only: not in the app binary).
+ts-rs = "12"
 
 [lints.clippy]
 # Correctness

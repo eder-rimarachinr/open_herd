@@ -42,6 +42,18 @@ jobs:
       - name: Tests
         run: cargo test
 
+      # `cargo test` regenerates the TypeScript types of the API (ts-rs). If a
+      # Rust DTO changed but src/api/generated wasn't regenerated and committed,
+      # the frontend's types are lying: fail.
+      - name: TypeScript bindings are up to date
+        shell: bash
+        run: |
+          git add --intent-to-add ../src/api/generated
+          if ! git diff --exit-code -- ../src/api/generated; then
+            echo "::error::src/api/generated is stale. Run 'cargo test' in src-tauri and commit the changes."
+            exit 1
+          fi
+
   # ── TypeScript: lint + test ──────────────────────────────────────────────────
   frontend:
     name: Frontend (eslint + vitest)
