@@ -25,14 +25,35 @@ fn host_is_local(host: &str) -> bool {
     matches!(hostname(host), "127.0.0.1" | "localhost" | "::1")
 }
 
-/// The webview talks to the daemon cross-origin (its page lives at
-/// `tauri.localhost` / `localhost:1420`), so a legitimate request carries one of
-/// those origins. Any other origin means a foreign website is driving the call.
+/// Origins of our own webview, matched exactly. Release builds serve the UI
+/// through Tauri's custom protocol: `http(s)://tauri.localhost` on Windows,
+/// `tauri://localhost` on Linux/macOS.
+const WEBVIEW_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// `tauri dev` serves the UI from Vite (`devUrl` in tauri.conf.json). Only
+/// trusted in debug builds: in release, any page on localhost — another dev
+/// server, a malicious npm package — is a foreign website.
+const DEV_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
+
+/// The webview talks to the daemon cross-origin, so a legitimate request
+/// carries one of our own origins. Any other origin means a foreign page is
+/// driving the call.
 fn origin_is_allowed(origin: &str) -> bool {
-    match origin.split_once("://") {
-        Some((_, rest)) => matches!(hostname(rest), "127.0.0.1" | "localhost" | "::1" | "tauri.localhost"),
-        None => false,
-    }
+    origin_allowed(origin, cfg!(debug_assertions))
+}
+
+fn origin_allowed(origin: &str, dev_build: bool) -> bool {
+    WEBVIEW_ORIGINS.contains(&origin) || (dev_build && DEV_ORIGINS.contains(&origin))
+}
+
+/// Logs a blocked origin once (bounded), so a hostile page firing requests in a
+/// loop cannot flush the daemon log the user reads.
+fn report_blocked_origin(origin: &str, path: &str) {
+    static SEEN: parking_lot::Mutex<Vec<String>> = parking_lot::const_mutex(Vec::new());
+    let mut seen = SEEN.lock();
+    if seen.len() >= 32 || seen.iter().any(|o| o == origin) { return; }
+    seen.push(origin.to_owned());
+    tracing::warn!("Blocked API request from foreign origin {origin} ({path}); further requests from it are not logged");
 }
 
 /// Security guard for the loopback API. Binding to 127.0.0.1 keeps remote hosts
@@ -49,7 +70,10 @@ async fn local_guard(req: Request, next: Next) -> Result<Response, StatusCode> {
         if !host_is_local(host) { return Err(StatusCode::FORBIDDEN); }
     }
     if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        if !origin_is_allowed(origin) { return Err(StatusCode::FORBIDDEN); }
+        if !origin_is_allowed(origin) {
+            report_blocked_origin(origin, req.uri().path());
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
     Ok(next.run(req).await)
 }
@@ -148,4 +172,45 @@ async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
          If another process owns this port, free it or change api_addr in config.json.",
         addr, last_err
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_accepts_only_the_webview() {
+        for ok in ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"] {
+            assert!(origin_allowed(ok, false), "{ok} must be allowed");
+        }
+        for bad in [
+            "http://localhost:1420",      // dev server: not in release
+            "http://localhost:3000",      // any other local dev server
+            "http://127.0.0.1:8080",
+            "http://[::1]:5173",
+            "https://evil.example",
+            "http://tauri.localhost.evil.example",
+            "http://evil.example#tauri.localhost",
+            "null",
+            "",
+        ] {
+            assert!(!origin_allowed(bad, false), "{bad} must be rejected in release");
+        }
+    }
+
+    #[test]
+    fn dev_build_also_accepts_vite_but_no_other_local_port() {
+        assert!(origin_allowed("http://localhost:1420", true));
+        assert!(origin_allowed("http://127.0.0.1:1420", true));
+        assert!(!origin_allowed("http://localhost:3000", true));
+        assert!(!origin_allowed("http://localhost:14200", true));
+    }
+
+    #[test]
+    fn host_must_be_loopback() {
+        assert!(host_is_local("127.0.0.1:7878"));
+        assert!(host_is_local("localhost:7878"));
+        assert!(host_is_local("[::1]:7878"));
+        assert!(!host_is_local("evil.example:7878")); // DNS rebinding
+    }
 }

@@ -130,7 +130,7 @@ POST     /api/v1/daemon/quit
 
 ### API security (`ports/http/server.rs`)
 
-CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format its `Origin` consistently across dev/release. The real boundary is the `local_guard` middleware, applied to every route: it rejects requests whose `Host` isn't loopback (blocks DNS rebinding) and requests carrying a non-webview `Origin` (blocks CSRF from arbitrary websites hitting `127.0.0.1:7878`). Keep this in mind before loosening CORS instead of extending `local_guard`.
+CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format its `Origin` consistently across dev/release. The real boundary is the `local_guard` middleware, applied to every route: it rejects requests whose `Host` isn't loopback (blocks DNS rebinding) and requests carrying an `Origin` that is not exactly our webview (blocks CSRF from websites hitting `127.0.0.1:7878`). Allowed origins are an exact list (`WEBVIEW_ORIGINS`: `http(s)://tauri.localhost`, `tauri://localhost`); the Vite dev server (`DEV_ORIGINS`, `localhost:1420`) is accepted only in debug builds — in release, any other page on localhost is foreign. Requests without `Origin` (curl, the shutdown probe) pass if the `Host` is local. Blocked origins are logged once each to the daemon log. Keep this in mind before loosening CORS instead of extending `local_guard`; if the dev port changes in `tauri.conf.json`, update `DEV_ORIGINS`.
 
 ### GUI (`src/`)
 

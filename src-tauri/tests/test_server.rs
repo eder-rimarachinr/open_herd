@@ -98,3 +98,42 @@ async fn all_php_param_routes_are_registered() {
         );
     }
 }
+
+// ── local_guard (CSRF / DNS rebinding) ────────────────────────────────────────
+
+#[tokio::test]
+async fn foreign_origins_are_rejected_over_http() {
+    use axum::http::{header, HeaderValue, StatusCode};
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    for origin in ["http://localhost:3000", "https://evil.example", "null"] {
+        server.post("/api/v1/services/stop")
+            .add_header(header::ORIGIN, HeaderValue::from_static(origin))
+            .await
+            .assert_status(StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
+async fn webview_origin_and_originless_requests_are_allowed() {
+    use axum::http::{header, HeaderValue};
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    server.get("/api/v1/status")
+        .add_header(header::ORIGIN, HeaderValue::from_static("http://tauri.localhost"))
+        .await
+        .assert_status_ok();
+    // curl, the previous-instance shutdown probe: no Origin header at all.
+    server.get("/api/v1/status").await.assert_status_ok();
+}
+
+#[tokio::test]
+async fn non_loopback_host_is_rejected() {
+    use axum::http::{header, HeaderValue, StatusCode};
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    server.get("/api/v1/status")
+        .add_header(header::HOST, HeaderValue::from_static("rebound.evil.example:7878"))
+        .await
+        .assert_status(StatusCode::FORBIDDEN);
+}
