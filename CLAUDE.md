@@ -68,7 +68,7 @@ The backend is **not a separate process** — it runs as a background Tokio thre
 src-tauri/src/
 ├── domain/          # Pure business rules, no external deps
 │   ├── site/        # Site aggregate (entity.rs), value objects, SiteRepository trait
-│   ├── ports/        # Traits: WebServerPort, SslPort, DnsPort, PhpProcessPort, PhpDetectorPort
+│   ├── ports/        # Traits: WebServerPort, SslPort, DnsPort, FileManagerPort, PhpProcessPort, PhpDetectorPort, PhpIniStore, …
 │   └── errors.rs     # DomainError / ApplicationError
 ├── application/      # Use cases, one file per operation (CreateSiteUseCase, EnableSslUseCase, ...)
 │   ├── site/, php/, nginx/, services/
@@ -79,7 +79,7 @@ src-tauri/src/
 └── ports/http/       # Thin axum handlers per resource — *_handlers.rs, delegate to use cases
 ```
 
-Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs every adapter (`JsonSiteRepository`, `NginxAdapter`, `HostsAdapter`, `MkcertAdapter`, `PhpProcessAdapter`, `SystemPhpDetector`) and injects them into use cases. Handlers in `ports/http/*_handlers.rs` take `State<Arc<AppContainer>>` and use only its public surface: `container.<x>_uc.execute(...)`, the ports (`site_repo`, `php_process_port`, …), `container.config` (a `ConfigStore`: `get()` snapshot, `replace()` saves then publishes), `load_warnings` and `started_at`. Request bodies are typed structs read with `ports/http/extract.rs::ApiJson`, which answers bad JSON with `400 {"error": ...}` (the shape the GUI shows).
+Wiring: `AppContainer::new()` (in `infrastructure/container.rs`) constructs every adapter (`JsonSiteRepository`, `NginxAdapter`, `HostsAdapter`, `MkcertAdapter`, `PhpProcessAdapter`, `SystemPhpDetector`) and injects them into use cases. Handlers in `ports/http/*_handlers.rs` take `State<Arc<AppContainer>>` and use only its public surface: `container.<x>_uc.execute(...)`, the ports (`site_repo`, `php_process_port`, …), `container.config` (a `ConfigStore`: `get()` snapshot, `replace()` saves then publishes), `load_warnings` and `started_at`. Request bodies are typed structs read with `ports/http/extract.rs::ApiJson`, which answers bad JSON with `400 {"error": ...}` (the shape the GUI shows). Use-case errors go through `ports/http/error.rs::app_error` (user mistakes → 4xx, everything else → 500); handlers must not build file paths or read files — that belongs in an adapter behind a port (e.g. `PhpIniStore` for php.ini).
 
 `AppState` (`infrastructure/state/mod.rs`) is private to the container (`legacy` field, no `Deref`). It holds what the adapters share: `config`, `base_dir`, `sites` (the cache `JsonSiteRepository` operates on), `nginx_proc`, `php_proc`, `started_at`, `load_warnings`. Everything else (PHP version cache, download / SSL task progress, daemon log) lives behind a port with an `Arc<dyn Trait>` field on `AppContainer`. When adding a feature, prefer a new use case + port over adding fields to `AppState`.
 

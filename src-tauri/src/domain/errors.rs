@@ -21,6 +21,12 @@ pub enum DomainError {
     /// error del usuario: se expone como 500, no como 4xx.
     #[error("Error de persistencia: {0}")]
     Persistence(String),
+    /// Esa versión de PHP no tiene php.ini gestionado por Open Herd (404).
+    #[error("php.ini no encontrado para PHP {0}: instala esa versión primero")]
+    PhpIniNotFound(String),
+    /// Cambio de php.ini rechazado por la validación (error del usuario, 400).
+    #[error("Cambio de php.ini no válido: {0}")]
+    InvalidPhpIniChange(String),
 }
 
 /// Errores originados en la capa de infraestructura (IO, procesos, red).

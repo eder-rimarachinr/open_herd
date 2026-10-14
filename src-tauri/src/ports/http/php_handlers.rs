@@ -1,12 +1,12 @@
-use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoResponse};
+use axum::{Json, extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response}};
 use serde::Deserialize;
 use std::sync::Arc;
 use crate::domain::ports::task::TaskState;
 
-use super::extract::ApiJson;
+use super::{error::app_error, extract::ApiJson};
 use crate::{
-    application::php::ini_parser,
-    infrastructure::{container::AppContainer, dto::{InstallProgress, PhpExtension, PhpIniConfig, PhpSetting}},
+    application::php::{ini_parser::{ExtensionChange, SettingChange}, update_php_ini::UpdatePhpIniCommand},
+    infrastructure::{container::AppContainer, dto::{InstallProgress, PhpIniConfig}},
 };
 
 pub type ContainerRef = Arc<AppContainer>;
@@ -113,69 +113,49 @@ pub async fn install_php_progress(
 pub async fn get_php_ini(
     State(container): State<ContainerRef>,
     Path(major): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let php_dir  = container.config.get().php_dir;
-    let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
-    if !ini_path.exists() {
-        return (StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "php.ini not found — install this PHP version first" })))
-            .into_response();
-    }
-    match tokio::fs::read_to_string(&ini_path).await {
-        Ok(content) => Json(PhpIniConfig {
-            major,
-            ini_path: ini_path.to_string_lossy().to_string(),
-            extensions: ini_parser::parse_extensions(&content),
-            settings:   ini_parser::parse_settings(&content),
-        }).into_response(),
-        Err(e) => infra_err(e).into_response(),
+    match container.get_php_ini_uc.execute(&major).await {
+        Ok(view) => Json(PhpIniConfig::from(view)).into_response(),
+        Err(e)   => app_error(&e),
     }
 }
 
 // ── PUT /api/v1/php/versions/:major/ini ──────────────────────────────────────
 
-/// A malformed entry rejects the request (400) rather than being silently
-/// dropped, which used to lose the user's change without telling them.
+/// Only what each change needs; extra fields the GUI sends (category, label,
+/// hint) are ignored. A malformed entry rejects the request (400) instead of
+/// being dropped silently.
+#[derive(Deserialize)]
+pub struct ExtensionToggle { name: String, enabled: bool }
+
+#[derive(Deserialize)]
+pub struct SettingUpdate { key: String, value: String }
+
 #[derive(Deserialize)]
 pub struct UpdatePhpIniRequest {
-    #[serde(default)] extensions: Vec<PhpExtension>,
-    #[serde(default)] settings:   Vec<PhpSetting>,
+    #[serde(default)] extensions: Vec<ExtensionToggle>,
+    #[serde(default)] settings:   Vec<SettingUpdate>,
 }
 
 pub async fn update_php_ini(
     State(container): State<ContainerRef>,
     Path(major): Path<String>,
     ApiJson(body): ApiJson<UpdatePhpIniRequest>,
-) -> impl IntoResponse {
-    use crate::application::php::update_php_ini::UpdatePhpIniCommand;
-
+) -> Response {
     if !valid_major(&major) { return bad_request("invalid PHP version"); }
-    let php_dir = container.config.get().php_dir;
-    let ini_path = std::path::Path::new(&php_dir).join(&major).join("php.ini");
-    if !ini_path.exists() {
-        return (StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "php.ini not found" }))).into_response();
-    }
-
     let cmd = UpdatePhpIniCommand {
-        major: major.clone(), php_dir,
-        extension_changes: body.extensions,
-        setting_changes:   body.settings,
+        major: major.clone(),
+        extension_changes: body.extensions.into_iter().map(|e| ExtensionChange { name: e.name, enabled: e.enabled }).collect(),
+        setting_changes:   body.settings.into_iter().map(|s| SettingChange { key: s.key, value: s.value }).collect(),
     };
-
-    if let Err(e) = container.update_php_ini_uc.execute(cmd).await { return infra_err(e).into_response() }
-
-    container.logger.log(format!("php.ini updated for PHP {}", major));
-
-    // Devolver config actualizada
-    let updated = tokio::fs::read_to_string(&ini_path).await.unwrap_or_default();
-    Json(PhpIniConfig {
-        major,
-        ini_path: ini_path.to_string_lossy().to_string(),
-        extensions: ini_parser::parse_extensions(&updated),
-        settings:   ini_parser::parse_settings(&updated),
-    }).into_response()
+    match container.update_php_ini_uc.execute(cmd).await {
+        Ok(view) => {
+            container.logger.log(format!("php.ini updated for PHP {major}"));
+            Json(PhpIniConfig::from(view)).into_response()
+        }
+        Err(e) => app_error(&e),
+    }
 }
 
 // ── POST /api/v1/php/versions/:version/start ─────────────────────────────────

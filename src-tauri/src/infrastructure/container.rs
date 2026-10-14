@@ -13,6 +13,7 @@ use crate::{
             install_php::InstallPhpUseCase,
             start_php::StartPhpUseCase,
             stop_php::StopPhpUseCase,
+            get_php_ini::GetPhpIniUseCase,
             update_php_ini::UpdatePhpIniUseCase,
         },
         services::{
@@ -36,6 +37,7 @@ use crate::{
         file_manager::FileManagerPort,
         download::DownloadProgressPort,
         logger::LoggerPort,
+        php_ini::PhpIniStore,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
         ssl_task::SslTaskPort,
@@ -51,7 +53,7 @@ use crate::infrastructure::{
     nginx::adapter::NginxAdapter,
     persistence::json_site_repository::JsonSiteRepository,
     logging::InMemoryLogger,
-    php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, process as php_process, version_repository::InMemoryPhpVersionRepository},
+    php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, ini_store::FsPhpIniStore, process as php_process, version_repository::InMemoryPhpVersionRepository},
     ssl::mkcert_adapter::MkcertAdapter,
     ssl::task_tracker::InMemorySslTaskTracker,
 };
@@ -97,6 +99,7 @@ pub struct AppContainer {
 
     // ── Casos de uso — PHP (extra) ───────────────────────────────────────────
     pub install_php_uc:     InstallPhpUseCase,
+    pub get_php_ini_uc:     GetPhpIniUseCase,
     pub update_php_ini_uc:  UpdatePhpIniUseCase,
 
     // ── Casos de uso — Nginx ─────────────────────────────────────────────────
@@ -166,8 +169,10 @@ impl AppContainer {
 
         // ── Use cases — PHP (extra) ──────────────────────────────────────────
         let install_php_uc    = InstallPhpUseCase::new(downloads.clone());
+        let php_ini: Arc<dyn PhpIniStore> = Arc::new(FsPhpIniStore::new(state.clone()));
+        let get_php_ini_uc    = GetPhpIniUseCase::new(php_ini.clone());
         let update_php_ini_uc = UpdatePhpIniUseCase::new(
-            php_process_port.clone(), php_detector.clone(), web_server.clone(),
+            php_ini, php_process_port.clone(), php_detector.clone(), web_server.clone(),
         );
 
         // ── Use cases — Nginx ────────────────────────────────────────────────
@@ -190,7 +195,7 @@ impl AppContainer {
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,
             detect_php_uc, start_php_uc, stop_php_uc,
-            install_php_uc, update_php_ini_uc,
+            install_php_uc, get_php_ini_uc, update_php_ini_uc,
             start_nginx_uc, stop_nginx_uc, reload_nginx_uc, download_nginx_uc,
             start_services_uc, stop_services_uc,
             exit_hook: OnceLock::new(),

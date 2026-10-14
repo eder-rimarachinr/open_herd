@@ -159,6 +159,29 @@ pub struct PhpIniConfig {
     pub settings: Vec<PhpSetting>,
 }
 
+// ── php.ini view → HTTP DTOs ──────────────────────────────────────────────────
+
+use crate::application::php::{get_php_ini::PhpIniView, ini_parser::{ExtensionState, SettingValue}};
+
+impl From<ExtensionState> for PhpExtension {
+    fn from(e: ExtensionState) -> Self { Self { name: e.name, enabled: e.enabled, category: e.category } }
+}
+
+impl From<SettingValue> for PhpSetting {
+    fn from(s: SettingValue) -> Self { Self { key: s.key, value: s.value, label: s.label, hint: s.hint } }
+}
+
+impl From<PhpIniView> for PhpIniConfig {
+    fn from(v: PhpIniView) -> Self {
+        Self {
+            major: v.major,
+            ini_path: v.path,
+            extensions: v.extensions.into_iter().map(PhpExtension::from).collect(),
+            settings: v.settings.into_iter().map(PhpSetting::from).collect(),
+        }
+    }
+}
+
 /// TypeScript-only mirrors of values that are sent as plain strings, so the
 /// generated bindings carry the exact union of allowed values. Test-only: the
 /// exhaustive `From` impls stop compiling if the domain gains a variant, and

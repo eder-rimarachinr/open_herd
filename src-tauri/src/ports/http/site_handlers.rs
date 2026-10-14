@@ -26,21 +26,7 @@ pub type ContainerRef = Arc<AppContainer>;
 // ── Error helper ──────────────────────────────────────────────────────────────
 
 fn domain_err(e: &ApplicationError) -> impl IntoResponse {
-    let (status, msg) = match e {
-        ApplicationError::Domain(de) => {
-            use crate::domain::errors::DomainError::*;
-            let code = match de {
-                SiteNotFound(_)        => StatusCode::NOT_FOUND,
-                DomainAlreadyExists(_) => StatusCode::CONFLICT,
-                InvalidTld | InvalidDomain(_) | InvalidPath(_) => StatusCode::BAD_REQUEST,
-                Persistence(_)         => StatusCode::INTERNAL_SERVER_ERROR,
-                SslAlreadyActive(_) | SslCannotEnable(_) => StatusCode::UNPROCESSABLE_ENTITY,
-            };
-            (code, e.to_string())
-        }
-        ApplicationError::Infrastructure(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    (status, Json(serde_json::json!({ "error": msg }))).into_response()
+    super::error::app_error(e)
 }
 
 fn not_found(msg: &str) -> impl IntoResponse {

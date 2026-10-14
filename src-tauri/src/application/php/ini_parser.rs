@@ -1,8 +1,40 @@
-/// Parsing y edición de php.ini — extraído de `daemon/routes.rs`.
-/// Funciones puras: sin I/O, sin dependencias externas.
-use crate::infrastructure::dto::{PhpExtension, PhpSetting};
+//! Reading and editing php.ini text. Pure functions: no I/O, no infrastructure
+//! types (the HTTP DTOs are mapped from these in `infrastructure::dto`).
 
-// ── Extensiones ───────────────────────────────────────────────────────────────
+// ── Model ─────────────────────────────────────────────────────────────────────
+
+/// A known extension and whether php.ini currently loads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionState {
+    pub name: String,
+    pub enabled: bool,
+    pub category: String,
+}
+
+/// A known setting and its current value (empty when unset or commented out).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingValue {
+    pub key: String,
+    pub value: String,
+    pub label: String,
+    pub hint: String,
+}
+
+/// Request to load (`enabled`) or stop loading an extension.
+#[derive(Debug, Clone)]
+pub struct ExtensionChange {
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// Request to set a setting; an empty `value` comments the line out.
+#[derive(Debug, Clone)]
+pub struct SettingChange {
+    pub key: String,
+    pub value: String,
+}
+
+// ── Extensions ────────────────────────────────────────────────────────────────
 
 const KNOWN_EXTENSIONS: &[(&str, &str)] = &[
     ("mysqli",     "database"), ("pdo_mysql",  "database"), ("pdo_pgsql",  "database"),
@@ -22,39 +54,49 @@ const KNOWN_EXTENSIONS: &[(&str, &str)] = &[
     ("tokenizer",  "misc"),
 ];
 
-pub fn parse_extensions(content: &str) -> Vec<PhpExtension> {
+/// If `line` is an `extension=` directive (active or commented out), returns
+/// the extension's bare name and whether the line is active. Accepts the
+/// spellings found in real php.ini files: `extension=curl`,
+/// `extension="curl"`, `extension = curl ; comment`, `;extension=curl` and the
+/// legacy `extension=php_curl.dll` / `curl.so`.
+fn extension_directive(line: &str) -> Option<(&str, bool)> {
+    let trimmed = line.trim();
+    let (body, enabled) = match trimmed.strip_prefix(';') {
+        Some(rest) => (rest.trim_start(), false),
+        None => (trimmed, true),
+    };
+    let value = body.strip_prefix("extension")?.trim_start().strip_prefix('=')?;
+    let value = value.split(';').next()?.trim().trim_matches('"').trim_matches('\'');
+    let name = value.strip_prefix("php_").unwrap_or(value);
+    let name = name.strip_suffix(".dll").or_else(|| name.strip_suffix(".so")).unwrap_or(name);
+    (!name.is_empty()).then_some((name, enabled))
+}
+
+pub fn parse_extensions(content: &str) -> Vec<ExtensionState> {
     KNOWN_EXTENSIONS.iter().map(|(name, category)| {
-        let enabled = content.lines().any(|line| {
-            let t = line.trim();
-            !t.starts_with(';') && (
-                t == format!("extension={}", name) ||
-                t.starts_with(&format!("extension={} ", name)) ||
-                t.starts_with(&format!("extension={};", name))
-            )
-        });
-        PhpExtension { name: name.to_string(), enabled, category: category.to_string() }
+        let enabled = content.lines()
+            .filter_map(extension_directive)
+            .any(|(n, active)| active && n == *name);
+        ExtensionState { name: (*name).to_string(), enabled, category: (*category).to_string() }
     }).collect()
 }
 
-pub fn apply_extension_changes(content: &str, updates: &[PhpExtension]) -> String {
-    let mut lines: Vec<String> = content.lines().map(std::string::ToString::to_string).collect();
-    for ext in updates {
-        let ext_line  = format!("extension={}", ext.name);
-        let commented = format!(";extension={}", ext.name);
-        let pos = lines.iter().position(|l| {
-            let t = l.trim();
-            t == ext_line || (t.starts_with("extension=") && t.contains(&ext.name)) ||
-            t == commented || t.starts_with(&format!(";extension={}", ext.name))
+pub fn apply_extension_changes(content: &str, changes: &[ExtensionChange]) -> String {
+    let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+    for change in changes {
+        let directive = format!("extension={}", change.name);
+        let wanted = if change.enabled { directive.clone() } else { format!(";{directive}") };
+        // Prefer an active line for this exact extension, then a commented one.
+        let matching = |active: bool| lines.iter().position(|l| {
+            extension_directive(l).is_some_and(|(n, a)| n == change.name && a == active)
         });
-        if let Some(idx) = pos {
-            lines[idx] = if ext.enabled { ext_line } else { format!(";{}", ext_line.clone()) };
-        } else if ext.enabled {
-            lines.push(ext_line);
+        match matching(true).or_else(|| matching(false)) {
+            Some(idx) => lines[idx] = wanted,
+            None if change.enabled => lines.push(directive),
+            None => {}
         }
     }
-    let mut result = lines.join("\n");
-    if content.ends_with('\n') { result.push('\n'); }
-    result
+    join_like(content, &lines)
 }
 
 pub fn validate_extension_name(name: &str) -> Result<(), String> {
@@ -81,28 +123,25 @@ const KNOWN_SETTINGS: &[(&str, &str, &str)] = &[
     ("intl.default_locale", "Default Locale",       "ICU locale, e.g. es_PE, en_US."),
 ];
 
-pub fn parse_settings(content: &str) -> Vec<PhpSetting> {
+/// `key = value` or `key=value` (no leading `;`): returns the raw value text.
+fn setting_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    line.trim().strip_prefix(key)?.trim_start().strip_prefix('=')
+}
+
+pub fn parse_settings(content: &str) -> Vec<SettingValue> {
     KNOWN_SETTINGS.iter().map(|(key, label, hint)| {
         let value = content.lines()
             .filter(|l| !l.trim().starts_with(';'))
-            .find_map(|line| {
-                let t = line.trim();
-                let p1 = format!("{} =", key);
-                let p2 = format!("{}=", key);
-                // Strip surrounding quotes — php.ini puede tener: default_charset = "UTF-8"
-                let strip_quotes = |s: &str| s.trim().trim_matches('"').trim_matches('\'').to_string();
-                if t.starts_with(&p1)      { Some(strip_quotes(&t[p1.len()..])) }
-                else if t.starts_with(&p2) { Some(strip_quotes(&t[p2.len()..])) }
-                else                       { None }
-            })
+            .find_map(|l| setting_value(l, key))
+            // php.ini may quote values: default_charset = "UTF-8"
+            .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
             .unwrap_or_default();
-        PhpSetting { key: key.to_string(), value, label: label.to_string(), hint: hint.to_string() }
+        SettingValue { key: (*key).to_string(), value, label: (*label).to_string(), hint: (*hint).to_string() }
     }).collect()
 }
 
 pub fn validate_setting(key: &str, value: &str) -> Result<(), String> {
-    let allowed: Vec<&str> = KNOWN_SETTINGS.iter().map(|(k, _, _)| *k).collect();
-    if !allowed.contains(&key) {
+    if !KNOWN_SETTINGS.iter().any(|(k, _, _)| *k == key) {
         return Err(format!("Setting '{}' is not allowed", key));
     }
     if value.is_empty() { return Ok(()); }
@@ -116,12 +155,8 @@ pub fn validate_setting(key: &str, value: &str) -> Result<(), String> {
             }
         }
         "post_max_size" | "upload_max_filesize" | "memory_limit" => {
-            let upper = value.to_uppercase();
-            let digits = match upper.chars().last() {
-                Some('K') | Some('M') | Some('G') => &value[..value.len()-1],
-                _ => value,
-            };
-            if !digits.chars().all(|c| c.is_ascii_digit()) || digits.is_empty() {
+            let digits = value.strip_suffix(['K', 'M', 'G', 'k', 'm', 'g']).unwrap_or(value);
+            if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
                 return Err(format!("'{}' must be a size like 128M, 1G", key));
             }
         }
@@ -155,23 +190,106 @@ pub fn validate_setting(key: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn apply_setting_changes(content: &str, updates: &[PhpSetting]) -> String {
-    let mut lines: Vec<String> = content.lines().map(std::string::ToString::to_string).collect();
-    for setting in updates {
-        if validate_setting(&setting.key, &setting.value).is_err() { continue; }
-        let new_line = format!("{} = {}", setting.key, setting.value);
-        let pos = lines.iter().position(|l| {
-            let t = l.trim().trim_start_matches(';').trim();
-            t.starts_with(&format!("{} =", setting.key)) ||
-            t.starts_with(&format!("{}=", setting.key))
-        });
-        if let Some(idx) = pos {
-            lines[idx] = if setting.value.is_empty() { format!(";{}", new_line) } else { new_line };
-        } else if !setting.value.is_empty() {
-            lines.push(new_line);
+/// Callers must validate first (`validate_setting`); invalid changes are skipped.
+pub fn apply_setting_changes(content: &str, changes: &[SettingChange]) -> String {
+    let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+    for change in changes {
+        if validate_setting(&change.key, &change.value).is_err() { continue; }
+        let new_line = format!("{} = {}", change.key, change.value);
+        let pos = lines.iter().position(|l| setting_value(l.trim().trim_start_matches(';'), &change.key).is_some());
+        match pos {
+            Some(idx) => lines[idx] = if change.value.is_empty() { format!(";{new_line}") } else { new_line },
+            None if !change.value.is_empty() => lines.push(new_line),
+            None => {}
         }
     }
-    let mut result = lines.join("\n");
-    if content.ends_with('\n') { result.push('\n'); }
-    result
+    join_like(content, &lines)
+}
+
+/// Re-joins edited lines keeping the original line ending (php.ini files from
+/// windows.php.net are CRLF) and trailing newline.
+fn join_like(original: &str, lines: &[String]) -> String {
+    let eol = if original.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = lines.join(eol);
+    if original.ends_with('\n') { out.push_str(eol); }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn toggle(name: &str, enabled: bool) -> ExtensionChange {
+        ExtensionChange { name: name.into(), enabled }
+    }
+    fn set(key: &str, value: &str) -> SettingChange {
+        SettingChange { key: key.into(), value: value.into() }
+    }
+    fn enabled(ini: &str, name: &str) -> bool {
+        parse_extensions(ini).into_iter().any(|e| e.name == name && e.enabled)
+    }
+
+    #[test]
+    fn disabling_xml_does_not_touch_xmlrpc() {
+        // Used to rewrite the xmlrpc line into ";extension=xml" (substring match).
+        let ini = "extension=xmlrpc\nextension=xml\n";
+        assert_eq!(apply_extension_changes(ini, &[toggle("xml", false)]), "extension=xmlrpc\n;extension=xml\n");
+    }
+
+    #[test]
+    fn enabling_uncomments_the_exact_extension() {
+        let ini = ";extension=xsl\n;extension=xml\n";
+        assert_eq!(apply_extension_changes(ini, &[toggle("xml", true)]), ";extension=xsl\nextension=xml\n");
+    }
+
+    #[test]
+    fn enabling_a_missing_extension_appends_it() {
+        assert_eq!(apply_extension_changes("[PHP]\n", &[toggle("intl", true)]), "[PHP]\nextension=intl\n");
+    }
+
+    #[test]
+    fn parses_real_world_spellings() {
+        let ini = "extension=php_curl.dll\nextension = \"gd\" ; images\n;extension=zip\nextension=mbstring.so\n";
+        assert!(enabled(ini, "curl"));
+        assert!(enabled(ini, "gd"));
+        assert!(enabled(ini, "mbstring"));
+        assert!(!enabled(ini, "zip"));
+        assert!(!enabled(ini, "zlib"), "a commented zip line must not count for zlib");
+    }
+
+    #[test]
+    fn crlf_files_stay_crlf() {
+        let ini = ";extension=intl\r\nmemory_limit = 128M\r\n";
+        let out = apply_setting_changes(&apply_extension_changes(ini, &[toggle("intl", true)]), &[set("memory_limit", "256M")]);
+        assert_eq!(out, "extension=intl\r\nmemory_limit = 256M\r\n");
+    }
+
+    #[test]
+    fn settings_are_set_commented_out_and_appended() {
+        let ini = "memory_limit = 128M\n;date.timezone =\n";
+        let out = apply_setting_changes(ini, &[set("memory_limit", ""), set("date.timezone", "UTC"), set("max_input_vars", "3000")]);
+        assert_eq!(out, ";memory_limit = \ndate.timezone = UTC\nmax_input_vars = 3000\n");
+    }
+
+    #[test]
+    fn parses_quoted_and_unspaced_settings() {
+        let s = parse_settings("default_charset = \"UTF-8\"\nmax_input_vars=5000\n;memory_limit = 1G\n");
+        let get = |k: &str| s.iter().find(|x| x.key == k).map(|x| x.value.clone()).unwrap_or_default();
+        assert_eq!(get("default_charset"), "UTF-8");
+        assert_eq!(get("max_input_vars"), "5000");
+        assert_eq!(get("memory_limit"), "", "commented lines are not the current value");
+    }
+
+    #[test]
+    fn validation_rejects_injection_and_bad_values() {
+        assert!(validate_setting("memory_limit", "128M\nauto_prepend_file=/evil.php").is_err());
+        assert!(validate_setting("memory_limit", "lots").is_err());
+        assert!(validate_setting("memory_limit", "M").is_err());
+        assert!(validate_setting("disable_functions", "").is_err(), "unknown keys are refused");
+        assert!(validate_setting("display_errors", "maybe").is_err());
+        assert!(validate_extension_name("curl\nextension=evil").is_err());
+        assert!(validate_setting("memory_limit", "512m").is_ok());
+        assert!(validate_setting("date.timezone", "America/Lima").is_ok());
+        assert!(validate_extension_name("pdo_mysql").is_ok());
+    }
 }

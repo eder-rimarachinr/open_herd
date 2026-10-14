@@ -1,21 +1,26 @@
-use std::{path::PathBuf, sync::Arc};
-use crate::{
-    infrastructure::dto::{PhpExtension, PhpSetting},
-    domain::{
-        errors::ApplicationError,
-        ports::{process_manager::{PhpDetectorPort, PhpProcessPort}, web_server::WebServerPort},
+use std::sync::Arc;
+use crate::application::best_effort;
+use crate::domain::{
+    errors::{ApplicationError, DomainError},
+    ports::{
+        php_ini::{PhpIniFile, PhpIniStore},
+        process_manager::{PhpDetectorPort, PhpProcessPort},
+        web_server::WebServerPort,
     },
 };
-use super::ini_parser;
+use super::{
+    get_php_ini::PhpIniView,
+    ini_parser::{self, ExtensionChange, SettingChange},
+};
 
 pub struct UpdatePhpIniCommand {
-    pub major:              String,
-    pub php_dir:            String,
-    pub extension_changes:  Vec<PhpExtension>,
-    pub setting_changes:    Vec<PhpSetting>,
+    pub major:             String,
+    pub extension_changes: Vec<ExtensionChange>,
+    pub setting_changes:   Vec<SettingChange>,
 }
 
 pub struct UpdatePhpIniUseCase {
+    store:      Arc<dyn PhpIniStore>,
     php_proc:   Arc<dyn PhpProcessPort>,
     detector:   Arc<dyn PhpDetectorPort>,
     web_server: Arc<dyn WebServerPort>,
@@ -23,52 +28,44 @@ pub struct UpdatePhpIniUseCase {
 
 impl UpdatePhpIniUseCase {
     pub fn new(
+        store:      Arc<dyn PhpIniStore>,
         php_proc:   Arc<dyn PhpProcessPort>,
         detector:   Arc<dyn PhpDetectorPort>,
         web_server: Arc<dyn WebServerPort>,
     ) -> Self {
-        Self { php_proc, detector, web_server }
+        Self { store, php_proc, detector, web_server }
     }
 
-    pub async fn execute(&self, cmd: UpdatePhpIniCommand) -> Result<(), ApplicationError> {
-        // Validar antes de tocar el archivo
+    /// Validates every change before touching the file, writes it, restarts
+    /// that PHP version if it was running, and returns the new state.
+    pub async fn execute(&self, cmd: UpdatePhpIniCommand) -> Result<PhpIniView, ApplicationError> {
         for ext in &cmd.extension_changes {
-            ini_parser::validate_extension_name(&ext.name)
-                .map_err(|e| ApplicationError::Infrastructure(
-                    crate::domain::errors::InfrastructureError::ProcessFailed(e)
-                ))?;
+            ini_parser::validate_extension_name(&ext.name).map_err(DomainError::InvalidPhpIniChange)?;
         }
         for s in &cmd.setting_changes {
-            ini_parser::validate_setting(&s.key, &s.value)
-                .map_err(|e| ApplicationError::Infrastructure(
-                    crate::domain::errors::InfrastructureError::ProcessFailed(e)
-                ))?;
+            ini_parser::validate_setting(&s.key, &s.value).map_err(DomainError::InvalidPhpIniChange)?;
         }
 
-        let ini_path = PathBuf::from(&cmd.php_dir).join(&cmd.major).join("php.ini");
-        let (extension_changes, setting_changes) = (cmd.extension_changes, cmd.setting_changes);
-        crate::infrastructure::blocking::run(move || {
-            let content = std::fs::read_to_string(&ini_path)?;
-            let after_ext   = ini_parser::apply_extension_changes(&content, &extension_changes);
-            let new_content = ini_parser::apply_setting_changes(&after_ext, &setting_changes);
-            crate::infrastructure::fs::atomic_write(&ini_path, new_content.as_bytes())?;
-            Ok(())
-        }).await?;
+        let file = self.store.read(&cmd.major).await?
+            .ok_or_else(|| DomainError::PhpIniNotFound(cmd.major.clone()))?;
+        let after_ext = ini_parser::apply_extension_changes(&file.content, &cmd.extension_changes);
+        let content   = ini_parser::apply_setting_changes(&after_ext, &cmd.setting_changes);
+        self.store.write(&cmd.major, &content).await?;
 
-        // Secuencia: stop PHP → reload nginx (limpia conexiones FastCGI) → restart PHP
-        let was_running = self.php_proc.is_running(&cmd.major).await;
-        if was_running {
-            let _ = self.php_proc.stop(&cmd.major).await;
+        self.restart_if_running(&cmd.major).await;
+        Ok(PhpIniView::of(&cmd.major, &PhpIniFile { path: file.path, content }))
+    }
+
+    /// php-cgi only reads php.ini at start: stop it, reload nginx (drops its
+    /// FastCGI connections), start it again. Failures are logged, not fatal:
+    /// the file is already saved.
+    async fn restart_if_running(&self, major: &str) {
+        if !self.php_proc.is_running(major).await { return; }
+        best_effort(self.php_proc.stop(major).await, format_args!("PHP {major} stop after php.ini change"));
+        best_effort(self.web_server.reload().await, format_args!("nginx reload after php.ini change"));
+        match self.detector.detect().await.into_iter().find(|v| v.major == major) {
+            Some(v) => { best_effort(self.php_proc.start(&v).await, format_args!("PHP {major} restart after php.ini change")); }
+            None => tracing::warn!("PHP {major} was stopped to apply php.ini but is no longer detected; start it again by hand"),
         }
-        let _ = self.web_server.reload().await;
-
-        if was_running {
-            let versions = self.detector.detect().await;
-            if let Some(v) = versions.iter().find(|v| v.major == cmd.major) {
-                let _ = self.php_proc.start(v).await;
-            }
-        }
-
-        Ok(())
     }
 }
