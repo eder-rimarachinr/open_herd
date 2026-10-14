@@ -132,6 +132,14 @@ POST     /api/v1/daemon/quit
 
 CORS is deliberately permissive (`Any` origin) because WebView2 doesn't format its `Origin` consistently across dev/release. The real boundary is the `local_guard` middleware, applied to every route: it rejects requests whose `Host` isn't loopback (blocks DNS rebinding) and requests carrying an `Origin` that is not exactly our webview (blocks CSRF from websites hitting `127.0.0.1:7878`). Allowed origins are an exact list (`WEBVIEW_ORIGINS`: `http(s)://tauri.localhost`, `tauri://localhost`); the Vite dev server (`DEV_ORIGINS`, `localhost:1420`) is accepted only in debug builds — in release, any other page on localhost is foreign. Requests without `Origin` (curl, the shutdown probe) pass if the `Host` is local. Blocked origins are logged once each to the daemon log. Keep this in mind before loosening CORS instead of extending `local_guard`; if the dev port changes in `tauri.conf.json`, update `DEV_ORIGINS`.
 
+### API types: generated, not hand-written
+
+The TypeScript types of the API live in `src/api/generated/` and are **generated from the Rust DTOs** by `ts-rs` whenever `cargo test` runs in `src-tauri` (output dir set in `src-tauri/.cargo/config.toml`). `src/api/client.ts` only re-exports them. Never edit the generated files; change the Rust struct, run `cargo test`, commit both. CI fails if they are stale.
+
+- A new DTO returned by the API gets `#[cfg_attr(test, derive(ts_rs::TS), ts(export))]` (ts-rs is a dev-dependency, so it must stay behind `cfg_attr(test, …)`), then add it to the re-export list in `client.ts`.
+- `Option` fields with `skip_serializing_if` also need `#[cfg_attr(test, ts(optional))]`.
+- Values sent as plain strings from a closed set (`TaskState`, project type) use the test-only mirror enums in `infrastructure/dto/mod.rs::ts_bindings`; adding a variant to the domain enum breaks their exhaustive `From` until the mirror is updated.
+
 ### GUI (`src/`)
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
