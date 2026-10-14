@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { api } from "../api/client";
+import LogView from "../components/LogView";
 import styles from "./Logs.module.css";
 
 type Tab = "daemon" | "nginx";
+
+const POLL_MS = 4000;
 
 export default function Logs() {
   const [tab,       setTab]       = useState<Tab>("daemon");
   const [daemonLog, setDaemonLog] = useState("");
   const [nginxLog,  setNginxLog]  = useState("");
   const [loading,   setLoading]   = useState(true);
+  const [filter,    setFilter]    = useState("");
   const bottomRef     = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
@@ -23,7 +27,7 @@ export default function Logs() {
 
   useEffect(() => {
     Promise.all([fetchDaemon(), fetchNginx()]).finally(() => setLoading(false));
-    const iv = setInterval(() => { fetchDaemon(); fetchNginx(); }, 4000);
+    const iv = setInterval(() => { fetchDaemon(); fetchNginx(); }, POLL_MS);
     return () => clearInterval(iv);
   }, [fetchDaemon, fetchNginx]);
 
@@ -33,32 +37,51 @@ export default function Logs() {
 
   const log   = tab === "daemon" ? daemonLog : nginxLog;
   const empty = tab === "daemon" ? "No daemon logs yet." : "No nginx errors logged.";
+  const nginxCount = nginxLog.split("\n").filter((l) => l.trim()).length;
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1 className="page-title">Logs</h1>
-        <button className="btn-ghost" onClick={() => { fetchDaemon(); fetchNginx(); }}
-          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <RefreshCw size={13} /> Refresh
-        </button>
+        <div>
+          <h1 className="page-title">Logs</h1>
+          <p className="page-sub">Open Herd's own activity and nginx's error log.</p>
+        </div>
+        <div className={styles.headerActions}>
+          <span className={styles.live}><span className="status-dot on" />Live · every {POLL_MS / 1000} s</span>
+          <button className={styles.btnGhost} onClick={() => { fetchDaemon(); fetchNginx(); }}>
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
 
-      <div className={styles.tabs}>
-        <button className={tab === "daemon" ? styles.tabActive : styles.tab} onClick={() => setTab("daemon")}>
-          Daemon
-        </button>
-        <button className={tab === "nginx" ? styles.tabActive : styles.tab} onClick={() => setTab("nginx")}>
-          Nginx errors
-        </button>
+      <div className={styles.toolbar}>
+        <div className={styles.seg} role="tablist">
+          <button role="tab" aria-selected={tab === "daemon"} className={tab === "daemon" ? styles.segActive : styles.segBtn} onClick={() => setTab("daemon")}>
+            Daemon
+          </button>
+          <button role="tab" aria-selected={tab === "nginx"} className={tab === "nginx" ? styles.segActive : styles.segBtn} onClick={() => setTab("nginx")}>
+            Nginx errors
+            {nginxCount > 0 && <span className={styles.count}>{nginxCount}</span>}
+          </button>
+        </div>
+        <label className={styles.search}>
+          <Search size={15} className={styles.searchIcon} />
+          <input
+            className={styles.searchInput}
+            placeholder="Filter lines…"
+            aria-label="Filter log lines"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </label>
       </div>
 
-      <div className={styles.logBox}>
+      <div className={["panel", styles.logBox].join(" ")}>
         {loading ? (
           <div className={styles.empty}>Loading…</div>
         ) : log ? (
           <>
-            <pre className={styles.log}>{log}</pre>
+            <LogView text={log} filter={filter} className={styles.logView} />
             <div ref={bottomRef} />
           </>
         ) : (
@@ -66,12 +89,10 @@ export default function Logs() {
         )}
       </div>
 
-      <div className={styles.footer}>
-        <label className={styles.autoScroll}>
-          <input type="checkbox" defaultChecked onChange={(e) => { autoScrollRef.current = e.target.checked; }} />
-          Auto-scroll to bottom
-        </label>
-      </div>
+      <label className={styles.autoScroll}>
+        <input type="checkbox" defaultChecked onChange={(e) => { autoScrollRef.current = e.target.checked; }} />
+        Auto-scroll to bottom
+      </label>
     </div>
   );
 }

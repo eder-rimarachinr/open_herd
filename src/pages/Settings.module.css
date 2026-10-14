@@ -1,0 +1,141 @@
+.page {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.page :global(.section-label) { margin-top: 8px; margin-bottom: -4px; }
+.page :global(.page-sub) code { font-family: var(--font-mono); font-size: 12px; }
+
+.loading { color: var(--text-3); padding: 48px 0; text-align: center; }
+
+.offline {
+  background: var(--amber-surface);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  color: var(--amber);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ── Label / control rows ──────────────────────────────────────────────────── */
+
+.row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 20px;
+  align-items: center;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+.row:first-child { border-top: none; }
+
+.rowLabel { display: flex; flex-direction: column; gap: 2px; cursor: default; }
+.rowLabel b { font-size: 13px; font-weight: 600; color: var(--text); }
+.rowLabel span { font-size: 12px; color: var(--text-3); }
+
+.rowControl { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+
+.field {
+  width: 160px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.note { font-size: 12px; color: var(--text-3); }
+
+.saveBar { display: flex; align-items: center; gap: 12px; }
+.saveBar :global(.btn-primary) { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 16px; border-radius: 9px; }
+.dirty { font-size: 12px; color: var(--amber); }
+
+/* ── Scanned directories ───────────────────────────────────────────────────── */
+
+.emptyDirs { padding: 14px 18px; font-size: 12.5px; color: var(--text-3); }
+
+.dirRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.dirIcon { color: var(--text-3); flex-shrink: 0; }
+
+.dirPath {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.iconBtn {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+}
+.iconBtn:hover { color: var(--red); background: var(--red-surface); }
+
+.dirAdd { display: flex; gap: 6px; padding: 10px 18px; }
+
+.dirInput {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.iconBtnBox {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.iconBtnBox:hover { color: var(--text); border-color: var(--border-2); }
+
+/* ── Data paths ────────────────────────────────────────────────────────────── */
+
+.pathRow {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+}
+.pathRow:first-child { border-top: none; }
+
+.pathLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.pathValue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}

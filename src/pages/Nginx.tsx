@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, RotateCcw, Download } from "lucide-react";
+import { Play, Square, RotateCcw, Download, Server, Check, AlertTriangle } from "lucide-react";
 import { api, NginxInfo } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import LogView from "../components/LogView";
 import styles from "./Nginx.module.css";
 
 export default function Nginx() {
@@ -11,6 +12,8 @@ export default function Nginx() {
   const [busy,         setBusy]         = useState<string | null>(null);
   const [error,        setError]        = useState<string | null>(null);
   const [dlProgress,   setDlProgress]   = useState<{ state: string; message: string; percent: number } | null>(null);
+  const [ports,        setPorts]        = useState<{ http: number; https: number } | null>(null);
+  const [siteCount,    setSiteCount]    = useState<{ total: number; https: number } | null>(null);
   const dlPollRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchInfo = useCallback(async () => {
@@ -44,6 +47,11 @@ export default function Nginx() {
 
   useEffect(() => {
     fetchInfo().finally(() => setLoading(false));
+    // Both are cached by the client and only change from other pages.
+    api.config.get().then((c) => setPorts({ http: c.http_port, https: c.https_port })).catch(() => {});
+    api.sites.list()
+      .then((s) => setSiteCount({ total: s.length, https: s.filter((x) => x.ssl_enabled).length }))
+      .catch(() => {});
     const iv = setInterval(fetchInfo, 5000);
     return () => {
       clearInterval(iv);
@@ -74,30 +82,76 @@ export default function Nginx() {
   const running   = info?.running   ?? false;
   const installed = info?.installed ?? false;
   const downloading = dlProgress && dlProgress.state !== "done" && dlProgress.state !== "error";
+  const state = !installed ? "missing" : running ? "on" : "off";
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
+      <div>
         <h1 className="page-title">Nginx</h1>
+        <p className="page-sub">
+          Serves every <code>.test</code> site. Its config is regenerated on each start.
+        </p>
       </div>
 
-      {/* Status card */}
-      <section className={styles.card}>
-        <div className={styles.statusRow}>
-          <div className={styles.statusGroup}>
-            <span className={installed ? styles.dotGreen : styles.dotRed} />
-            <span className={styles.statusLabel}>{installed ? "Installed" : "Not installed"}</span>
-            {info?.version && <span className={styles.version}>{info.version}</span>}
-          </div>
-          <div className={styles.statusGroup}>
-            <span className={running ? styles.dotGreen : styles.dotRed} />
-            <span className={styles.statusLabel}>{running ? "Running" : "Stopped"}</span>
-          </div>
-          {info?.config_valid != null && (
-            <div className={styles.statusGroup}>
-              <span className={info.config_valid ? styles.dotGreen : styles.dotRed} />
-              <span className={styles.statusLabel}>{info.config_valid ? "Config OK" : "Config error"}</span>
-            </div>
+      {/* Status */}
+      <section className={[styles.hero, styles[state]].join(" ")}>
+        <span className={styles.heroIcon}><Server size={24} /></span>
+        <div className={styles.heroText}>
+          <h2 className={styles.heroTitle}>
+            {!installed ? "Not installed" : running ? "Running" : "Stopped"}
+            {installed && <span className={["badge", running ? "badge-green" : "badge-red"].join(" ")}>{running ? "listening" : "not listening"}</span>}
+          </h2>
+          <p className={styles.heroPath}>
+            {installed
+              ? [info?.version && `nginx/${info.version}`, info?.binary_path].filter(Boolean).join(" · ")
+              : info ? "Nginx will be downloaded and installed automatically." : "Connecting to daemon…"}
+          </p>
+        </div>
+
+        <div className={styles.actions}>
+          {!installed && !downloading && (
+            (!info || info.os === "windows" || info.downloadable) ? (
+              <button className="btn-primary" disabled={busy !== null || !info} onClick={handleDownload}>
+                <Download size={14} />
+                {busy === "download" ? "Starting…" : "Download Nginx"}
+              </button>
+            ) : (
+              <span className={styles.installHint}>
+                Install via your package manager: <code>apt install nginx</code>
+              </span>
+            )
+          )}
+
+          {installed && !running && !downloading && (
+            <button
+              className="btn-primary"
+              disabled={busy !== null}
+              onClick={() => act("start", () => api.nginx.start(), "Nginx started")}
+            >
+              <Play size={14} fill="currentColor" />
+              {busy === "start" ? "Starting…" : "Start"}
+            </button>
+          )}
+
+          {installed && running && (
+            <>
+              <button
+                className={styles.btn}
+                disabled={busy !== null}
+                onClick={() => act("reload", () => api.nginx.reload(), "Nginx reloaded")}
+              >
+                <RotateCcw size={14} />
+                {busy === "reload" ? "Reloading…" : "Reload"}
+              </button>
+              <button
+                className={[styles.btn, styles.btnStop].join(" ")}
+                disabled={busy !== null}
+                onClick={() => act("stop", () => api.nginx.stop(), "Nginx stopped")}
+              >
+                <Square size={13} />
+                {busy === "stop" ? "Stopping…" : "Stop"}
+              </button>
+            </>
           )}
         </div>
 
@@ -110,86 +164,63 @@ export default function Nginx() {
             <span className={styles.dlLabel}>{dlProgress.message}</span>
           </div>
         )}
-
-        {error && <div className={styles.error}>{error}</div>}
-
-        <div className={styles.actions}>
-          {!installed && !downloading && (
-            (!info || info.os === "windows" || info.downloadable) ? (
-              <div className={styles.downloadSection}>
-                <p className={styles.installDesc}>
-                  {info ? "Nginx will be downloaded and installed automatically." : "Connecting to daemon…"}
-                </p>
-                <button
-                  className={`${styles.actionBtn} ${styles.btnDownload}`}
-                  disabled={busy !== null || !info}
-                  onClick={handleDownload}
-                >
-                  <Download size={13} />
-                  {busy === "download" ? "Starting…" : "Download Nginx"}
-                </button>
-              </div>
-            ) : (
-              <span className={styles.installHint}>
-                Install via your package manager: <code>apt install nginx</code>
-              </span>
-            )
-          )}
-
-          {installed && !running && !downloading && (
-            <button
-              className={`${styles.actionBtn} ${styles.btnStart}`}
-              disabled={busy !== null}
-              onClick={() => act("start", () => api.nginx.start(), "Nginx started")}
-            >
-              <Play size={13} fill="currentColor" />
-              {busy === "start" ? "Starting…" : "Start"}
-            </button>
-          )}
-
-          {installed && running && (
-            <>
-              <button
-                className={`${styles.actionBtn} ${styles.btnReload}`}
-                disabled={busy !== null}
-                onClick={() => act("reload", () => api.nginx.reload(), "Nginx reloaded")}
-              >
-                <RotateCcw size={13} />
-                {busy === "reload" ? "Reloading…" : "Reload"}
-              </button>
-              <button
-                className={`${styles.actionBtn} ${styles.btnStop}`}
-                disabled={busy !== null}
-                onClick={() => act("stop", () => api.nginx.stop(), "Nginx stopped")}
-              >
-                <Square size={13} />
-                {busy === "stop" ? "Stopping…" : "Stop"}
-              </button>
-            </>
-          )}
-        </div>
       </section>
 
+      {error && (
+        <div className={styles.alert} role="alert">
+          <AlertTriangle size={16} className={styles.alertIcon} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {installed && (
+        <div className={styles.stats}>
+          <Stat label="HTTP" value={ports ? `:${ports.http}` : "—"} note={running ? "listening" : "not listening"} />
+          <Stat label="HTTPS" value={ports ? `:${ports.https}` : "—"} note={running ? "listening" : "not listening"} />
+          <Stat label="Sites" value={siteCount ? String(siteCount.total) : "—"} note={siteCount ? `${siteCount.https} with HTTPS` : ""} />
+          {info?.config_valid != null && (
+            <Stat
+              label="Config"
+              value={info.config_valid ? "Config OK" : "Config error"}
+              tone={info.config_valid ? "ok" : "bad"}
+              icon={info.config_valid ? <Check size={17} /> : <AlertTriangle size={16} />}
+              note="nginx -t"
+            />
+          )}
+        </div>
+      )}
+
       {info?.config_error && (
-        <section className={styles.card}>
-          <div className={styles.sectionTitle}>Config error</div>
+        <section className="panel">
+          <div className="panel-head">
+            <AlertTriangle size={15} className={styles.badIcon} /> Config error
+          </div>
           <pre className={styles.log}>{info.config_error}</pre>
         </section>
       )}
 
-      {info?.error_log && (
-        <section className={styles.card}>
-          <div className={styles.sectionTitle}>Error log</div>
-          <pre className={styles.log}>{info.error_log}</pre>
+      {installed && (
+        <section className="panel">
+          <div className="panel-head">
+            Error log <span className="sub">· logs/error.log</span>
+          </div>
+          {info?.error_log
+            ? <LogView text={info.error_log} className={styles.logView} />
+            : <p className={styles.empty}>No errors logged.</p>}
         </section>
       )}
+    </div>
+  );
+}
 
-      {!info?.error_log && installed && (
-        <section className={styles.card}>
-          <div className={styles.sectionTitle}>Error log</div>
-          <p className={styles.empty}>No errors logged.</p>
-        </section>
-      )}
+function Stat({ label, value, note, tone, icon }: {
+  label: string; value: string; note?: string; tone?: "ok" | "bad"; icon?: React.ReactNode;
+}) {
+  return (
+    <div className={styles.stat}>
+      <span className={styles.statLabel}>{label}</span>
+      <b className={[styles.statValue, tone ? styles[tone] : ""].join(" ")}>{icon}{value}</b>
+      {note && <small className={styles.statNote}>{note}</small>}
     </div>
   );
 }

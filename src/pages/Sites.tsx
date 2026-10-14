@@ -4,34 +4,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   RefreshCw, FolderOpen, Lock, Unlock, Trash2,
   ExternalLink, RotateCcw, FolderPlus, X, ShieldCheck,
-  Plus, Globe,
+  Plus, Globe, Search, ChevronLeft, ChevronRight, FolderInput,
 } from "lucide-react";
 import { api, Site, PHPVersion, SiteInfo } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { TYPE_LABELS, avatarFor } from "../components/siteTypes";
 import s from "./Sites.module.css";
 
 const sortSites = (arr: Site[]) => [...arr].sort((a, b) => a.domain.localeCompare(b.domain));
-
-const TYPE_LABELS: Record<string, string> = {
-  laravel:      "Laravel",
-  wordpress:    "WordPress",
-  codeigniter4: "CI4",
-  codeigniter3: "CI3",
-  spa:          "SPA",
-  static:       "Static",
-  generic:      "Generic",
-};
-
-// Avatar color per project type — rgba so they work in both themes
-const TYPE_AVATAR: Record<string, { bg: string; color: string }> = {
-  laravel:      { bg: "rgba(220,38,38,0.12)",   color: "#DC2626" },
-  wordpress:    { bg: "rgba(37,99,235,0.12)",   color: "#3B82F6" },
-  codeigniter4: { bg: "rgba(234,88,12,0.12)",   color: "#EA580C" },
-  codeigniter3: { bg: "rgba(180,65,0,0.12)",    color: "#C2410C" },
-  spa:          { bg: "rgba(124,58,237,0.12)",  color: "#8B5CF6" },
-  static:       { bg: "rgba(100,116,139,0.12)", color: "#64748B" },
-  generic:      { bg: "rgba(5,150,105,0.12)",   color: "#059669" },
-};
 
 type Tab    = "general" | "info";
 type View   = "detail" | "new";
@@ -57,6 +37,7 @@ export default function Sites() {
   const [config,         setConfig]         = useState<any>(null);
   const [newDir,         setNewDir]         = useState("");
   const [search,         setSearch]         = useState("");
+  const [dirsOpen,       setDirsOpen]       = useState(true);
 
   // New site form
   const [newDomain,     setNewDomain]     = useState("");
@@ -198,6 +179,14 @@ export default function Sites() {
     finally { setFolderLoading(false); }
   }
 
+  async function openFolderOf(id: string) {
+    try { await api.sites.openFolder(id); }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg); toast(msg, "error");
+    }
+  }
+
   async function changePhp(version: string) {
     if (!selected) return;
     setChangingPhp(true);
@@ -249,7 +238,7 @@ export default function Sites() {
     } catch (e: any) { setError(e.message); }
   }
 
-  if (loading) return <div className={s.empty} style={{ height: "100%" }}>Loading…</div>;
+  if (loading) return <div className={s.loading}>Loading…</div>;
 
   return (
     <div className={s.root}>
@@ -257,27 +246,29 @@ export default function Sites() {
       <div className={s.listPanel}>
         <div className={s.listHeader}>
           <span className={s.listTitle}>
-            Sites <span style={{ color: "var(--text-3)", fontWeight: 400 }}>({sites.length})</span>
+            Sites <span className={s.countPill}>{sites.length}</span>
           </span>
-          <div style={{ display: "flex", gap: 5 }}>
-            <button className={s.scanBtn} onClick={showNewForm} title="Add site" aria-label="Add site">
-              <Plus size={11} />
-            </button>
-            <button className={s.scanBtn} onClick={scan} disabled={scanning}>
-              <RefreshCw size={11} style={{ animation: scanning ? "spin 0.6s linear infinite" : "none" }} />
+          <div className={s.headActions}>
+            <button className={s.headBtn} onClick={scan} disabled={scanning}>
+              <RefreshCw size={13} style={{ animation: scanning ? "spin 0.6s linear infinite" : "none" }} />
               {scanning ? "…" : "Scan"}
+            </button>
+            <button className={[s.headBtn, s.headBtnSquare, s.headBtnAccent].join(" ")} onClick={showNewForm} title="Add site" aria-label="Add site">
+              <Plus size={15} />
             </button>
           </div>
         </div>
 
-        <div className={s.listSearch}>
+        <label className={s.listSearch}>
+          <Search size={15} className={s.searchIcon} />
           <input
             className={s.searchInput}
             placeholder="Filter sites…"
+            aria-label="Filter sites"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-        </div>
+        </label>
 
         <div className={s.listScroll}>
           {filtered.length === 0 ? (
@@ -287,62 +278,52 @@ export default function Sites() {
                 : "No matches."}
             </div>
           ) : filtered.map((site) => {
-            const av = TYPE_AVATAR[site.project_type] ?? TYPE_AVATAR.generic;
+            const av = avatarFor(site.project_type);
+            const active = selectedId === site.id && view === "detail";
             return (
-              <button
-                key={site.id}
-                className={[s.siteRow, selectedId === site.id && view === "detail" ? s.siteRowActive : ""].join(" ")}
-                onClick={() => selectSite(site.id)}
-              >
-                <div
-                  className={s.siteFavicon}
-                  style={{ background: av.bg, color: av.color, borderColor: "transparent" }}
-                >
-                  {site.domain.slice(0, 2).toUpperCase()}
-                </div>
-                <div className={s.siteMeta}>
-                  <span className={s.siteDomain}>{site.domain}</span>
-                  <span className={s.siteType}>{TYPE_LABELS[site.project_type] ?? site.project_type}</span>
-                </div>
-                <div className={s.siteIcons}>
+              <div key={site.id} className={[s.siteCard, active ? s.siteCardActive : ""].join(" ")}>
+                <button className={s.siteRow} onClick={() => selectSite(site.id)}>
+                  <span className={s.avatar} style={{ background: av.bg }}>{av.short}</span>
+                  <span className={s.siteMeta}>
+                    <span className={s.siteDomain}>{site.domain}</span>
+                    <span className={s.siteTags}>
+                      <span className={s.siteType}>{TYPE_LABELS[site.project_type] ?? site.project_type}</span>
+                      <span className={s.sitePhp}>PHP {site.php_version}</span>
+                    </span>
+                  </span>
                   {site.ssl_enabled && (
-                    <ShieldCheck size={12} className={s.siteSSL} role="img" aria-label="HTTPS enabled" />
+                    <span className={s.sslChip}>
+                      <ShieldCheck size={13} role="img" aria-label="HTTPS enabled" />
+                    </span>
                   )}
-                </div>
-              </button>
+                </button>
+                <span className={s.quick}>
+                  <button
+                    className={s.quickBtn}
+                    onClick={() => openUrl(`http${site.ssl_enabled ? "s" : ""}://${site.domain}`)}
+                    title="Open in browser" aria-label="Open in browser"
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                  <button
+                    className={s.quickBtn}
+                    onClick={() => openFolderOf(site.id)}
+                    title="Open folder" aria-label="Open folder"
+                  >
+                    <FolderOpen size={14} />
+                  </button>
+                </span>
+              </div>
             );
           })}
         </div>
 
-        {/* Scanned directories */}
-        <div className={s.dirsSection}>
-          <div className={s.dirsLabel}>Scanned Dirs</div>
-          {(config?.scanned_dirs ?? []).map((path: string) => (
-            <div key={path} className={s.dirRow}>
-              <span className={s.dirPath}>{path}</span>
-              <button
-                className={s.dirRemove}
-                onClick={() => removeScannedDir(path)}
-                title="Remove directory"
-                aria-label={`Remove ${path}`}
-              >
-                <X size={10} />
-              </button>
-            </div>
-          ))}
-          <div className={s.dirAddRow}>
-            <input
-              className={s.dirInput}
-              placeholder="C:\Projects"
-              value={newDir}
-              onChange={(e) => setNewDir(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addScannedDir()}
-            />
-            <button className={s.dirBrowse} onClick={pickAndAddDir} title="Browse" aria-label="Browse for a directory">
-              <FolderPlus size={13} />
-            </button>
+        {(config?.scanned_dirs ?? []).length > 0 && (
+          <div className={s.listFoot}>
+            <FolderOpen size={13} />
+            <span>Watching {config.scanned_dirs.length} {config.scanned_dirs.length === 1 ? "folder" : "folders"}</span>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Right: detail / new-site panel ──────────────────────────── */}
@@ -352,46 +333,44 @@ export default function Sites() {
 
         {/* ── New site form ─────────────────────────────────────────── */}
         {view === "new" && (
-          <div className="fade-in">
+          <div className={["fade-in", s.detail].join(" ")}>
             <div className={s.detailHeader}>
               <div>
                 <h1 className={s.detailTitle}>New site</h1>
-                <span style={{ fontSize: 13, color: "var(--text-3)" }}>
-                  Register a local project as a .test domain
-                </span>
+                <span className="page-sub">Register a local project as a .test domain</span>
               </div>
-              <button className={s.actionBtn} onClick={() => setView("detail")} style={{ padding: "5px 10px" }}>
-                <X size={13} /> Cancel
+              <button className={s.actionBtn} onClick={() => setView("detail")}>
+                <X size={14} /> Cancel
               </button>
             </div>
 
-            <div className={s.propGrid} style={{ marginBottom: 20 }}>
+            <div className={s.propGrid}>
               <PropRow label="Domain">
-                <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                <div className={s.inputRow}>
                   <input
-                    style={{ flex: 1, padding: "6px 10px", borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, outline: "none" }}
+                    className={s.textInput}
                     placeholder="myapp  →  myapp.test"
                     value={newDomain}
                     onChange={(e) => setNewDomain(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleAddSite()}
                     autoFocus
                   />
-                  <span style={{ fontSize: 11, color: "var(--text-3)", whiteSpace: "nowrap" }}>
+                  <span className={s.inputHint}>
                     {newDomain && !newDomain.endsWith(".test") ? `→ ${newDomain}.test` : ""}
                   </span>
                 </div>
               </PropRow>
               <PropRow label="Path">
-                <div style={{ display: "flex", gap: 6, flex: 1 }}>
+                <div className={s.inputRow}>
                   <input
-                    style={{ flex: 1, padding: "6px 10px", borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, fontFamily: "monospace", outline: "none" }}
+                    className={[s.textInput, s.mono].join(" ")}
                     placeholder="C:\Projects\myapp"
                     value={newPath}
                     onChange={(e) => setNewPath(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleAddSite()}
                   />
-                  <button className={s.actionBtn} style={{ padding: "5px 10px" }} onClick={() => pickPath(setNewPath)}>
-                    <FolderOpen size={13} />
+                  <button className={s.actionBtn} onClick={() => pickPath(setNewPath)} aria-label="Browse for the project folder">
+                    <FolderOpen size={14} />
                   </button>
                 </div>
               </PropRow>
@@ -410,56 +389,125 @@ export default function Sites() {
               )}
             </div>
 
-            <button
-              className={[s.actionBtn, s.actionBtnPrimary].join(" ")}
-              onClick={handleAddSite}
-              disabled={addingLoading}
-            >
-              {addingLoading ? <span className="spinner" /> : <Globe size={13} />}
-              {addingLoading ? "Adding…" : "Add site"}
+            <div className={s.actionBar}>
+              <button
+                className={[s.actionBtn, s.actionBtnPrimary].join(" ")}
+                onClick={handleAddSite}
+                disabled={addingLoading}
+              >
+                {addingLoading ? <span className="spinner" /> : <Globe size={14} />}
+                {addingLoading ? "Adding…" : "Add site"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Nothing selected ──────────────────────────────────────── */}
+        {view === "detail" && !selected && (
+          <div className={s.hero}>
+            <EmptyIllustration />
+            <h2 className={s.heroTitle}>Select a site or add a new one</h2>
+            <p className={s.heroText}>
+              Each project gets a <code>.test</code> domain, its own PHP version and a trusted HTTPS certificate.
+            </p>
+            <button className={[s.actionBtn, s.actionBtnPrimary, s.heroCta].join(" ")} onClick={showNewForm}>
+              <Plus size={15} /> Add new site
             </button>
+
+            <div className={s.quickGrid}>
+              <button className={s.quickCard} onClick={showNewForm}>
+                <span className={s.quickIcon}><FolderInput size={16} /></span>
+                <b>Import project</b>
+                <span>Link an existing folder; its framework is detected.</span>
+              </button>
+              <button className={s.quickCard} onClick={scan} disabled={scanning}>
+                <span className={s.quickIcon}><RefreshCw size={16} /></span>
+                <b>Scan folders</b>
+                <span>Register every project found in the folders below.</span>
+              </button>
+              <button className={s.quickCard} onClick={pickAndAddDir}>
+                <span className={s.quickIcon}><FolderPlus size={16} /></span>
+                <b>Watch a folder</b>
+                <span>Add a folder where you keep your projects.</span>
+              </button>
+            </div>
+
+            <details
+              className={s.dirs}
+              open={dirsOpen}
+              onToggle={(e) => setDirsOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
+              <summary className={s.dirsSummary}>
+                <FolderOpen size={15} className={s.dirsIcon} />
+                Scanned directories
+                <span className={s.dirsSub}>· Scan looks for projects here</span>
+                <ChevronRight size={14} className={s.dirsChevron} />
+              </summary>
+              {(config?.scanned_dirs ?? []).map((path: string) => (
+                <div key={path} className={s.dirRow}>
+                  <FolderOpen size={14} className={s.dirIcon} />
+                  <span className={s.dirPath}>{path}</span>
+                  <button
+                    className={s.dirRemove}
+                    onClick={() => removeScannedDir(path)}
+                    title="Remove directory"
+                    aria-label={`Remove ${path}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+              <div className={s.dirAddRow}>
+                <input
+                  className={s.dirInput}
+                  placeholder="C:\Projects"
+                  value={newDir}
+                  onChange={(e) => setNewDir(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addScannedDir()}
+                />
+                <button className={s.dirBrowse} onClick={pickAndAddDir} title="Browse" aria-label="Browse for a directory">
+                  <FolderPlus size={14} />
+                </button>
+              </div>
+            </details>
           </div>
         )}
 
         {/* ── Site detail ───────────────────────────────────────────── */}
-        {view === "detail" && !selected && (
-          <div className={s.empty}>
-            <ShieldCheck size={32} style={{ color: "var(--border-2)", marginBottom: 8 }} />
-            Select a site or <button
-              onClick={showNewForm}
-              style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "inherit", padding: 0, fontWeight: 600 }}
-            >add a new one</button>
-          </div>
-        )}
-
         {view === "detail" && selected && (
-          <div className="fade-in">
+          <div className={["fade-in", s.detail].join(" ")}>
+            <button className={[s.actionBtn, s.backBtn].join(" ")} onClick={() => setSelectedId(null)}>
+              <ChevronLeft size={14} /> All sites
+            </button>
+
             <div className={s.detailHeader}>
-              <div>
+              <span className={[s.avatar, s.avatarLg].join(" ")} style={{ background: avatarFor(selected.project_type).bg }}>
+                {avatarFor(selected.project_type).short}
+              </span>
+              <div className={s.detailHeading}>
                 <h1 className={s.detailTitle}>{selected.name || selected.domain}</h1>
-                <button
-                  onClick={() => openUrl(siteUrl)}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, color: "var(--text-3)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 4 }}
-                >
+                <button className={s.detailUrl} onClick={() => openUrl(siteUrl)}>
                   {siteUrl}
-                  <ExternalLink size={11} />
+                  <ExternalLink size={12} />
                 </button>
               </div>
               <div className={s.detailBadges}>
                 {selected.ssl_enabled && (
-                  <span className="badge badge-green"><ShieldCheck size={10} /> HTTPS</span>
+                  <span className="badge badge-green"><ShieldCheck size={12} /> HTTPS</span>
                 )}
                 <span className="badge badge-gray">
                   {TYPE_LABELS[selected.project_type] ?? selected.project_type}
                 </span>
-                <span className="badge badge-accent">PHP {selected.php_version}</span>
+                <span className="badge badge-gray">PHP {selected.php_version}</span>
               </div>
             </div>
 
-            <div className={s.tabs}>
+            <div className={s.tabs} role="tablist">
               {(["general", "info"] as Tab[]).map((t) => (
                 <button
                   key={t}
+                  role="tab"
+                  aria-selected={tab === t}
                   className={[s.tab, tab === t ? s.tabActive : ""].join(" ")}
                   onClick={() => setTab(t)}
                 >
@@ -472,14 +520,11 @@ export default function Sites() {
               <>
                 <div className={s.propGrid}>
                   <PropRow label="Path">
-                    <code style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>{selected.path}</code>
+                    <code className={s.mono}>{selected.path}</code>
                   </PropRow>
                   <PropRow label="URL">
-                    <button
-                      onClick={() => openUrl(siteUrl)}
-                      style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}
-                    >
-                      {siteUrl} <ExternalLink size={11} />
+                    <button className={s.linkBtn} onClick={() => openUrl(siteUrl)}>
+                      {siteUrl} <ExternalLink size={12} />
                     </button>
                   </PropRow>
                   <PropRow label="PHP Version">
@@ -496,40 +541,50 @@ export default function Sites() {
                         <option key={v.major} value={v.major}>{v.version}</option>
                       ))}
                     </select>
-                    {changingPhp && <span style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 8 }}>Updating…</span>}
+                    {changingPhp && <span className={s.inputHint}>Updating…</span>}
                   </PropRow>
                   <PropRow label="Type">
                     <span>{TYPE_LABELS[selected.project_type] ?? selected.project_type}</span>
                   </PropRow>
                 </div>
 
+                {selected.ssl_enabled && (
+                  <div className={s.certCard}>
+                    <span className={s.certIcon}><Lock size={16} /></span>
+                    <div>
+                      <b>Trusted certificate</b>
+                      <span>Issued by the local mkcert authority; browsers show a padlock.</span>
+                    </div>
+                  </div>
+                )}
+
                 <div className={s.actionBar}>
                   <button className={[s.actionBtn, s.actionBtnPrimary].join(" ")} onClick={() => openUrl(siteUrl)}>
-                    <ExternalLink size={13} /> Open site
+                    <ExternalLink size={14} /> Open site
                   </button>
                   <button className={s.actionBtn} onClick={openFolder} disabled={folderLoading} title="Open folder in the file manager">
-                    {folderLoading ? <span className="spinner" /> : <FolderOpen size={13} />}
+                    {folderLoading ? <span className="spinner" /> : <FolderOpen size={14} />}
                     Folder
                   </button>
                   <button className={s.actionBtn} onClick={toggleSSL} disabled={sslLoading}>
-                    {sslLoading ? <span className="spinner" /> : selected.ssl_enabled ? <Unlock size={13} /> : <Lock size={13} />}
+                    {sslLoading ? <span className="spinner" /> : selected.ssl_enabled ? <Unlock size={14} /> : <Lock size={14} />}
                     {selected.ssl_enabled ? "Disable HTTPS" : "Enable HTTPS"}
                   </button>
                   <button className={s.actionBtn} onClick={refreshConfig} disabled={refreshLoading}>
-                    {refreshLoading ? <span className="spinner" /> : <RotateCcw size={13} />}
+                    {refreshLoading ? <span className="spinner" /> : <RotateCcw size={14} />}
                     Refresh config
                   </button>
                   {!confirmDelete ? (
-                    <button className={[s.actionBtn, s.actionBtnDanger].join(" ")} onClick={() => setConfirmDelete(true)}>
-                      <Trash2 size={13} /> Remove
+                    <button className={[s.actionBtn, s.actionBtnDanger, s.pushRight].join(" ")} onClick={() => setConfirmDelete(true)}>
+                      <Trash2 size={14} /> Remove
                     </button>
                   ) : (
-                    <div className={s.deleteConfirm}>
+                    <div className={[s.deleteConfirm, s.pushRight].join(" ")}>
                       <span className={s.deleteConfirmText}>Remove {selected.domain}?</span>
-                      <button className={[s.actionBtn, s.actionBtnDanger].join(" ")} onClick={deleteSite} disabled={deleteLoading} style={{ padding: "4px 10px" }}>
+                      <button className={[s.actionBtn, s.actionBtnDanger, s.actionBtnSm].join(" ")} onClick={deleteSite} disabled={deleteLoading}>
                         {deleteLoading ? <span className="spinner" /> : "Yes"}
                       </button>
-                      <button className={s.actionBtn} onClick={() => setConfirmDelete(false)} style={{ padding: "4px 10px" }}>
+                      <button className={[s.actionBtn, s.actionBtnSm].join(" ")} onClick={() => setConfirmDelete(false)}>
                         Cancel
                       </button>
                     </div>
@@ -540,13 +595,13 @@ export default function Sites() {
 
             {tab === "info" && (
               infoLoading ? (
-                <div style={{ color: "var(--text-3)", padding: "32px 0" }}>Loading…</div>
+                <div className={s.muted}>Loading…</div>
               ) : !siteInfo || (!siteInfo.app_name && !siteInfo.framework_name) ? (
-                <div style={{ color: "var(--text-3)", fontSize: 13 }}>
+                <div className={s.muted}>
                   No application metadata available for this project type.
                 </div>
               ) : (
-                <div className={s.infoGrid}>
+                <div className={s.propGrid}>
                   {siteInfo.app_name      && <PropRow label="App Name"><span>{siteInfo.app_name}</span></PropRow>}
                   {siteInfo.framework_name && <PropRow label={siteInfo.framework_name}><span>{siteInfo.framework_version}</span></PropRow>}
                   {siteInfo.app_env       && <PropRow label="Environment"><span className="badge badge-gray">{siteInfo.app_env}</span></PropRow>}
@@ -557,7 +612,7 @@ export default function Sites() {
                       </span>
                     </PropRow>
                   )}
-                  {siteInfo.app_url && <PropRow label="App URL"><code style={{ fontFamily: "monospace", fontSize: 12 }}>{siteInfo.app_url}</code></PropRow>}
+                  {siteInfo.app_url && <PropRow label="App URL"><code className={s.mono}>{siteInfo.app_url}</code></PropRow>}
                   <PropRow label="Maintenance">
                     <span className={siteInfo.maintenance_mode ? "badge badge-red" : "badge badge-green"}>
                       {siteInfo.maintenance_mode ? "On" : "Off"}
@@ -577,26 +632,41 @@ export default function Sites() {
 
 function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <>
-      <div style={{
-        padding: "11px 16px",
-        borderBottom: "1px solid var(--border)",
-        borderRight: "1px solid var(--border)",
-        background: "var(--surface-2)",
-        fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const,
-        letterSpacing: "0.05em", color: "var(--text-3)",
-        display: "flex", alignItems: "center",
-      }}>
-        {label}
-      </div>
-      <div style={{
-        padding: "11px 16px",
-        borderBottom: "1px solid var(--border)",
-        fontSize: 13, color: "var(--text)",
-        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const,
-      }}>
-        {children}
-      </div>
-    </>
+    <div className={s.propRow}>
+      <div className={s.propLabel}>{label}</div>
+      <div className={s.propValue}>{children}</div>
+    </div>
+  );
+}
+
+/** Shield over a .test chip and a :443 chip — the three things a site gets. */
+function EmptyIllustration() {
+  return (
+    <svg className={s.heroArt} width="190" height="150" viewBox="0 0 190 150" aria-hidden="true">
+      <defs>
+        <linearGradient id="oh-shield" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#34D399" stopOpacity=".6" />
+          <stop offset="1" stopColor="#3B82F6" stopOpacity=".28" />
+        </linearGradient>
+        <linearGradient id="oh-glass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FFFFFF" stopOpacity=".24" />
+          <stop offset="1" stopColor="#FFFFFF" stopOpacity=".03" />
+        </linearGradient>
+        <radialGradient id="oh-glow">
+          <stop offset="0" stopColor="#10B981" stopOpacity=".3" />
+          <stop offset="1" stopColor="#10B981" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="95" cy="78" r="70" fill="url(#oh-glow)" />
+      <circle cx="95" cy="78" r="56" fill="none" stroke="#10B981" strokeOpacity=".22" strokeDasharray="2 6" />
+      <circle cx="95" cy="78" r="40" fill="none" stroke="#3B82F6" strokeOpacity=".2" />
+      <rect x="18" y="40" width="44" height="22" rx="6" className={s.artChip} />
+      <text x="40" y="55" textAnchor="middle" className={s.artText}>.test</text>
+      <rect x="132" y="94" width="42" height="22" rx="6" className={s.artChip} />
+      <text x="153" y="109" textAnchor="middle" className={s.artTextAccent}>:443</text>
+      <path d="M95 26l34 13v24c0 21-14.5 37.5-34 43-19.5-5.5-34-22-34-43V39z" fill="url(#oh-shield)" />
+      <path d="M95 26l34 13v24c0 21-14.5 37.5-34 43-19.5-5.5-34-22-34-43V39z" fill="url(#oh-glass)" stroke="#FFFFFF" strokeOpacity=".35" />
+      <path d="M80 66l10 10 20-20" fill="none" stroke="#FFFFFF" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

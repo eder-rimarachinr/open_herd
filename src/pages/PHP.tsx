@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Check, Download, AlertCircle, X, Plus, Settings2, ChevronRight, Play, Square } from "lucide-react";
+import { RefreshCw, Check, Download, AlertCircle, X, Plus, Settings2, Play, Square, FileCog, FolderOpen } from "lucide-react";
 import { api, AppConfig, CatalogEntry, InstallProgress, PhpExtension, PhpIniConfig, PhpSetting } from "../api/client";
+import { phpPort } from "../api/ports";
 import { useToast } from "../context/ToastContext";
 import styles from "./PHP.module.css";
 
@@ -194,197 +195,195 @@ export default function PHP() {
     : [];
 
   return (
-    <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-      {/* ── Main content ───────────────────────────────────────────── */}
-      <div className={styles.page} style={{ flex: 1, minWidth: 0 }}>
-        <div className={styles.header}>
+    <div className={styles.page}>
+      <div className={styles.header}>
+        <div>
           <h1 className="page-title">PHP</h1>
-          <button
-            className="btn-ghost"
-            onClick={handleRescan}
-            disabled={rescanning}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
-          >
-            <RefreshCw size={13} style={{ animation: rescanning ? "spin 0.6s linear infinite" : "none" }} />
-            {rescanning ? "Scanning…" : "Rescan"}
-          </button>
+          <p className="page-sub">
+            Each installed version runs its own php-cgi; sites pick one in their detail panel.
+          </p>
         </div>
+        <button className={styles.btnGhost} onClick={handleRescan} disabled={rescanning}>
+          <RefreshCw size={14} style={{ animation: rescanning ? "spin 0.6s linear infinite" : "none" }} />
+          {rescanning ? "Scanning…" : "Rescan"}
+        </button>
+      </div>
 
-        {/* Version catalog */}
-        <section className={styles.section}>
-          <div className={styles.sectionTitle}>PHP Versions</div>
-          <div className={styles.table}>
-            <div className={styles.thead}>
-              <div className={styles.theadCell}>Version</div>
-              <div className={styles.theadCell}>Installed</div>
-              <div className={styles.theadCell}>Active</div>
-              <div className={styles.theadCell} style={{ textAlign: "right" }}>Action</div>
-            </div>
+      {/* Version catalog */}
+      <div className="section-label">PHP Versions</div>
 
-            {catalog.length === 0 && (
-              <div className={styles.emptyTable}>
-                No PHP versions detected.<br />
-                Start the daemon and click Rescan to detect installed versions.
+      {catalog.length === 0 && (
+        <div className={styles.emptyTable}>
+          No PHP versions detected.<br />
+          Start the daemon and click Rescan to detect installed versions.
+        </div>
+      )}
+
+      <div className={styles.grid}>
+        {catalog.map((entry) => {
+          const prog = installs[entry.major];
+          const installing = prog && prog.state !== "done" && prog.state !== "error";
+          const isOpen = iniPanel === entry.major;
+          const port = phpPort(entry.major);
+
+          return (
+            <div
+              key={entry.major}
+              className={[
+                styles.card,
+                entry.end_of_life ? styles.eol : "",
+                isOpen ? styles.cardSelected : "",
+              ].join(" ")}
+            >
+              <div className={styles.cardTop}>
+                <span className={styles.major}>{entry.major}</span>
+                {entry.installed && <span className={styles.checkmark} title="Installed"><Check size={14} strokeWidth={2.5} /></span>}
+                <span className={styles.chips}>
+                  {entry.security_only && <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>}
+                  {entry.end_of_life   && <span className={`${styles.tag} ${styles.tagEol}`}>EOL</span>}
+                  {!entry.security_only && !entry.end_of_life && <span className={`${styles.tag} ${styles.tagActive}`}>supported</span>}
+                </span>
               </div>
-            )}
 
-            {catalog.map((entry) => {
-              const prog = installs[entry.major];
-              const installing = prog && prog.state !== "done" && prog.state !== "error";
-              const isOpen = iniPanel === entry.major;
+              <div className={styles.patch}>
+                {entry.installed
+                  ? entry.installed_patch || "installed"
+                  : `latest ${entry.latest_patch}`}
+                {entry.installed && entry.has_update && <span className={styles.updateNote}> · {entry.latest_patch} available</span>}
+              </div>
 
-              return (
-                <div
-                  key={entry.major}
-                  className={[
-                    styles.row,
-                    entry.end_of_life ? styles.eol : "",
-                    installing ? styles.rowInstalling : "",
-                    isOpen ? styles.rowSelected : "",
-                  ].join(" ")}
-                >
-                  {installing && prog && (
-                    <div className={styles.progressOverlay}>
-                      <div className={styles.progressFill} style={{ width: `${prog.percent}%` }} />
-                      <span className={styles.progressLabel}>{prog.message}</span>
-                    </div>
-                  )}
-
-                  <div className={styles.versionCell}>
-                    {entry.running && <span className={styles.runningDot} title="Running" />}
-                    <span className={styles.major}>
-                      PHP {entry.major}
-                      {entry.installed_patch ? ` (${entry.installed_patch})` : ""}
-                    </span>
-                    {entry.security_only && <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>}
-                    {entry.end_of_life   && <span className={`${styles.tag} ${styles.tagEol}`}>EOL</span>}
+              {installing && prog ? (
+                <div className={styles.progress}>
+                  <div className={styles.progressTrack}>
+                    <div className={styles.progressFill} style={{ width: `${prog.percent}%` }} />
                   </div>
-
-                  <div className={styles.statusCell}>
-                    {entry.installed && <span className={styles.checkmark} title="Installed"><Check size={15} strokeWidth={2.5} /></span>}
-                  </div>
-
-                  <div className={styles.activeCell}>
-                    {entry.installed && (
+                  <span className={styles.progressLabel}>{prog.message}</span>
+                </div>
+              ) : (
+                <div className={styles.cardFoot}>
+                  {entry.installed ? (
+                    <label className={styles.defaultLabel}>
                       <input
                         type="radio"
                         name="active_php"
                         checked={config?.default_php === entry.major}
                         onChange={() => handleSetActive(entry.major)}
-                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
                       />
-                    )}
-                  </div>
+                      Default
+                    </label>
+                  ) : (
+                    <span className={styles.notInstalled}>Not installed</span>
+                  )}
 
-                  <div className={styles.actionCell}>
+                  {entry.running ? (
+                    <span className={styles.running}>
+                      <span className="status-dot on" title="Running" />
+                      {port ? `:${port}` : "on"}
+                    </span>
+                  ) : null}
+
+                  <span className={styles.actions}>
                     {prog?.state === "error" && (
                       <button
                         className={styles.btnError}
                         title="Click to dismiss"
                         onClick={() => setInstalls((prev) => { const n = { ...prev }; delete n[entry.major]; return n; })}
                       >
-                        <AlertCircle size={11} /> {prog.error ?? "Install failed"}
+                        <AlertCircle size={12} /> {prog.error ?? "Install failed"}
                       </button>
                     )}
-                    {!installing && prog?.state !== "error" && !entry.installed && (
+                    {prog?.state !== "error" && !entry.installed && (
                       <button className={styles.btnInstall} onClick={() => handleInstall(entry.major)}>
-                        <Download size={12} /> Install
+                        <Download size={13} /> Install
                       </button>
                     )}
-                    {!installing && prog?.state !== "error" && entry.installed && entry.has_update && (
+                    {prog?.state !== "error" && entry.installed && entry.has_update && (
                       <button className={styles.btnUpdate} onClick={() => handleInstall(entry.major)}>
                         Update
                       </button>
                     )}
-                    {!installing && entry.installed && !entry.running && (
+                    {entry.installed && !entry.running && (
                       <button
-                        className={styles.btnStart}
+                        className={styles.btnIcon}
                         onClick={() => handleStart(entry.major)}
                         disabled={toggling[entry.major]}
                         title={`Start PHP ${entry.major}`}
                       >
-                        <Play size={11} />
+                        <Play size={13} />
                       </button>
                     )}
-                    {!installing && entry.installed && entry.running && (
+                    {entry.installed && entry.running && (
                       <button
-                        className={styles.btnStop}
+                        className={[styles.btnIcon, styles.btnIconStop].join(" ")}
                         onClick={() => handleStop(entry.major)}
                         disabled={toggling[entry.major]}
                         title={`Stop PHP ${entry.major}`}
                       >
-                        <Square size={11} />
+                        <Square size={12} />
                       </button>
                     )}
-                    {!installing && entry.installed && (
+                    {entry.installed && (
                       <button
-                        className={[styles.btnConfigure, isOpen ? styles.btnConfigureActive : ""].join(" ")}
+                        className={[styles.btnIcon, isOpen ? styles.btnIconActive : ""].join(" ")}
                         onClick={() => isOpen ? setIniPanel(null) : openIniPanel(entry.major)}
                         title="Configure php.ini extensions"
+                        aria-expanded={isOpen}
                       >
-                        <Settings2 size={12} />
-                        {isOpen ? <ChevronRight size={11} style={{ transform: "rotate(90deg)" }} /> : <ChevronRight size={11} />}
+                        <Settings2 size={14} />
                       </button>
                     )}
-                  </div>
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Custom paths */}
-        <section className={styles.section}>
-          <div className={styles.sectionTitle}>Custom PHP paths</div>
-          <p className={styles.hint}>
-            Open Herd auto-detects XAMPP, WAMP, and Laragon. Add a directory if your PHP is
-            installed elsewhere (e.g. <code>C:\my-tools\php83</code>).
-          </p>
-          <div className={styles.pathList}>
-            {config?.custom_php_dirs?.map((path: string) => (
-              <div key={path} className={styles.pathItem}>
-                <code className={styles.pathLabel}>{path}</code>
-                <button className={styles.btnRemovePath} title="Remove path" onClick={() => handleRemoveCustomDir(path)}>
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className={styles.addRow}>
-            <input
-              className={styles.pathInput}
-              type="text"
-              placeholder="C:\path\to\php-dir"
-              value={customDir}
-              onChange={(e) => setCustomDir(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddCustomDir()}
-            />
-            <button className={styles.btnAdd} onClick={handleAddCustomDir}>
-              <Plus size={13} /> Add &amp; Rescan
-            </button>
-          </div>
-        </section>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* ── php.ini panel ──────────────────────────────────────────── */}
       {iniPanel && (
-        <div className={styles.iniPanel}>
-          <div className={styles.iniPanelHeader}>
-            <div>
-              <span className={styles.iniPanelTitle}>PHP {iniPanel} — Extensions</span>
-              <span className={styles.iniPanelPath}>{iniConfig?.ini_path}</span>
+        <div className={["panel", styles.iniPanel].join(" ")}>
+          <div className="panel-head">
+            <FileCog size={15} className={styles.accentIcon} />
+            php.ini · PHP {iniPanel}
+            <span className={["sub", styles.iniPath].join(" ")}>{iniConfig?.ini_path}</span>
+            <div className="right">
+              <button className={styles.iniClose} onClick={() => setIniPanel(null)} aria-label="Close php.ini"><X size={14} /></button>
             </div>
-            <button className={styles.iniClose} onClick={() => setIniPanel(null)}><X size={14} /></button>
           </div>
 
           {iniLoading ? (
             <div className={styles.iniLoading}>Loading php.ini…</div>
           ) : (
             <>
-              <div className={styles.iniScroll}>
-                {/* ── Settings section ─────────────────────────────── */}
+              <div className={styles.iniBody}>
+                {/* ── Extensions ───────────────────────────────────── */}
+                <div className={styles.iniExtensions}>
+                  {grouped.map(({ cat, label: catLabel, exts }) => (
+                    <div key={cat} className={styles.iniGroup}>
+                      <div className={styles.iniGroupLabel}>{catLabel}</div>
+                      {exts.map(ext => {
+                        const on = iniEdits[ext.name] ?? ext.enabled;
+                        return (
+                          <div key={ext.name} className={styles.iniRow}>
+                            <span className={styles.iniExtName}>{ext.name}</span>
+                            <button
+                              className="switch"
+                              role="switch"
+                              aria-checked={on}
+                              aria-label={ext.name}
+                              onClick={() => setIniEdits(prev => ({ ...prev, [ext.name]: !(prev[ext.name] ?? ext.enabled) }))}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Settings ─────────────────────────────────────── */}
                 {iniConfig && iniConfig.settings.length > 0 && (
-                  <div className={styles.iniGroup}>
+                  <div className={styles.iniSettings}>
                     <div className={styles.iniGroupLabel}>PHP Settings</div>
                     {iniConfig.settings.map(setting => (
                       <div key={setting.key} className={styles.iniSettingRow}>
@@ -397,52 +396,60 @@ export default function PHP() {
                           value={settingEdits[setting.key] ?? setting.value}
                           onChange={e => setSettingEdits(prev => ({ ...prev, [setting.key]: e.target.value }))}
                           placeholder={setting.value || "default"}
+                          aria-label={setting.label}
                           spellCheck={false}
                         />
                       </div>
                     ))}
                   </div>
                 )}
-
-                <div className={styles.iniDivider} />
-
-                {/* ── Extensions section ───────────────────────────── */}
-                <div className={styles.iniGroupLabel} style={{ paddingTop: 12 }}>Extensions</div>
-                {grouped.map(({ cat, label: catLabel, exts }) => (
-                  <div key={cat} className={styles.iniGroup}>
-                    <div className={styles.iniGroupLabel}>{catLabel}</div>
-                    {exts.map(ext => (
-                      <label key={ext.name} className={styles.iniRow}>
-                        <span className={styles.iniExtName}>{ext.name}</span>
-                        <div
-                          className={[styles.toggle, (iniEdits[ext.name] ?? ext.enabled) ? styles.toggleOn : ""].join(" ")}
-                          onClick={() => setIniEdits(prev => ({ ...prev, [ext.name]: !(prev[ext.name] ?? ext.enabled) }))}
-                        >
-                          <div className={styles.toggleThumb} />
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                ))}
               </div>
 
               <div className={styles.iniFooter}>
-                <button
-                  className={styles.iniSave}
-                  onClick={saveIni}
-                  disabled={iniSaving}
-                >
+                <button className="btn-primary" onClick={saveIni} disabled={iniSaving}>
                   {iniSaving ? <span className="spinner" /> : null}
                   {iniSaving ? "Saving & restarting…" : "Save & restart services"}
                 </button>
-                <button className={styles.iniCancel} onClick={() => setIniPanel(null)}>
+                <button className={styles.btnGhost} onClick={() => setIniPanel(null)}>
                   Cancel
                 </button>
+                <span className={styles.iniNote}>Changes restart php-cgi {iniPanel} and reload nginx.</span>
               </div>
             </>
           )}
         </div>
       )}
+
+      {/* Custom paths */}
+      <div className="section-label">Custom PHP paths</div>
+      <div className="panel">
+        <p className={styles.hint}>
+          Open Herd auto-detects XAMPP, WAMP and Laragon. Add a directory if your PHP is
+          installed elsewhere (e.g. <code>C:\my-tools\php83</code>).
+        </p>
+        {config?.custom_php_dirs?.map((path: string) => (
+          <div key={path} className={styles.pathItem}>
+            <FolderOpen size={14} className={styles.pathIcon} />
+            <code className={styles.pathLabel}>{path}</code>
+            <button className={styles.btnRemovePath} title="Remove path" onClick={() => handleRemoveCustomDir(path)}>
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+        <div className={styles.addRow}>
+          <input
+            className={styles.pathInput}
+            type="text"
+            placeholder="C:\path\to\php-dir"
+            value={customDir}
+            onChange={(e) => setCustomDir(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddCustomDir()}
+          />
+          <button className={styles.btnGhost} onClick={handleAddCustomDir}>
+            <Plus size={14} /> Add &amp; Rescan
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

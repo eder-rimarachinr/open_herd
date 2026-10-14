@@ -6,8 +6,12 @@ import {
   Circle, AlertTriangle, X,
 } from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
+import { phpPort } from "../api/ports";
 import { useTheme } from "../hooks/useTheme";
+import Logo from "./Logo";
 import styles from "./Layout.module.css";
+
+const OS_LABEL: Record<string, string> = { windows: "Windows", linux: "Linux", macos: "macOS" };
 
 const NAV = [
   { to: "/",         label: "Sites",    Icon: Globe },
@@ -15,6 +19,7 @@ const NAV = [
   { to: "/nginx",    label: "Nginx",    Icon: Server },
   { to: "/ssl",      label: "SSL",      Icon: ShieldCheck },
   { to: "/logs",     label: "Logs",     Icon: Terminal },
+  { to: "/settings", label: "Settings", Icon: Settings },
 ];
 
 const POLL_INTERVAL = 2000;       // cada 2s
@@ -29,6 +34,8 @@ export default function Layout() {
   const [, setFailCount] = useState(0);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [warningsDismissed, setWarningsDismissed] = useState(false);
+  const [about, setAbout] = useState<{ version: string; os: string } | null>(null);
+  const [ports, setPorts] = useState<{ http: number; https: number } | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const fetchStatus = useCallback(async () => {
@@ -37,6 +44,10 @@ export default function Layout() {
       setStatus(s);
       setFailCount(0);
       setInitialized(true);
+      // Served from the client cache; Settings invalidates it when ports change.
+      api.config.get()
+        .then((c) => setPorts((p) => p?.http === c.http_port && p.https === c.https_port ? p : { http: c.http_port, https: c.https_port }))
+        .catch(() => {});
     } catch {
       setFailCount((n) => {
         const next = n + 1;
@@ -54,12 +65,15 @@ export default function Layout() {
 
   const daemonUp   = status !== null;
 
-  // Load warnings only change when the daemon restarts, so fetch them once per
-  // connection instead of on every status poll.
+  // Load warnings, version and ports only change when the daemon restarts (or
+  // in Settings), so fetch them once per connection instead of on every poll.
   useEffect(() => {
     if (!daemonUp) return;
     api.status()
-      .then((s) => setLoadWarnings(s.warnings ?? []))
+      .then((s) => {
+        setLoadWarnings(s.warnings ?? []);
+        setAbout({ version: s.version, os: s.os });
+      })
       .catch(() => {});
   }, [daemonUp]);
 
@@ -91,15 +105,16 @@ export default function Layout() {
       <aside className={styles.sidebar}>
 
         <div className={styles.logo}>
-          <div className={styles.logoMark}><span>OH</span></div>
+          <Logo />
           <div className={styles.logoText}>
             <span className={styles.logoName}>Open Herd</span>
-            <span className={styles.logoSub}>Local PHP</span>
+            <span className={styles.logoSub}>
+              {about ? `v${about.version} · ${OS_LABEL[about.os] ?? about.os}` : "Local PHP"}
+            </span>
           </div>
         </div>
 
-        <nav className={styles.nav}>
-          <p className={styles.navLabel}>Workspace</p>
+        <nav className={styles.nav} aria-label="Main">
           {NAV.map(({ to, label, Icon }) => (
             <NavLink
               key={to} to={to} end={to === "/"}
@@ -107,21 +122,10 @@ export default function Layout() {
                 [styles.navItem, isActive ? styles.navActive : ""].join(" ")
               }
             >
-              <Icon size={15} strokeWidth={1.8} className={styles.navIcon} />
+              <Icon size={16} strokeWidth={1.8} className={styles.navIcon} />
               {label}
             </NavLink>
           ))}
-
-          <p className={styles.navLabel} style={{ marginTop: 10 }}>System</p>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              [styles.navItem, isActive ? styles.navActive : ""].join(" ")
-            }
-          >
-            <Settings size={15} strokeWidth={1.8} className={styles.navIcon} />
-            Settings
-          </NavLink>
         </nav>
 
         {/* ── Services ─────────────────────────────────────────────────── */}
@@ -135,15 +139,23 @@ export default function Layout() {
             </div>
           ) : (
             <ul className={styles.serviceList}>
-              <ServiceRow label="Nginx" running={status?.nginx ?? false} />
-              {status?.php_versions.map((v) => (
-                <ServiceRow
-                  key={v.major}
-                  label={`PHP ${v.major}`}
-                  sublabel={v.version !== v.major ? v.version : undefined}
-                  running={v.running}
-                />
-              ))}
+              <ServiceRow
+                label="Nginx"
+                meta={ports ? `:${ports.http} :${ports.https}` : undefined}
+                running={status?.nginx ?? false}
+              />
+              {status?.php_versions.map((v) => {
+                const port = about?.os === "windows" ? phpPort(v.major) : null;
+                return (
+                  <ServiceRow
+                    key={v.major}
+                    label={`PHP ${v.major}`}
+                    title={v.version}
+                    meta={port ? `:${port}` : undefined}
+                    running={v.running}
+                  />
+                );
+              })}
             </ul>
           )}
 
@@ -154,12 +166,12 @@ export default function Layout() {
           <div className={styles.serviceActions}>
             {allRunning ? (
               <button className={styles.btnStop} onClick={handleStop} disabled={busy || !daemonUp}>
-                <Square size={11} strokeWidth={2.5} />
+                <Square size={12} strokeWidth={2.2} />
                 {busy ? "Stopping…" : "Stop all"}
               </button>
             ) : (
               <button className={styles.btnStart} onClick={handleStart} disabled={busy || !daemonUp}>
-                <Play size={11} strokeWidth={2.5} fill="currentColor" />
+                <Play size={12} strokeWidth={2.2} fill="currentColor" />
                 {busy ? "Starting…" : "Start all"}
               </button>
             )}
@@ -169,14 +181,15 @@ export default function Layout() {
         {/* ── Bottom bar ───────────────────────────────────────────────── */}
         <div className={styles.bottomBar}>
           <button
-            className={styles.themeToggle}
+            className={styles.btnGhost}
             onClick={toggle}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
-            {theme === "dark" ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
+            {theme === "dark" ? <Sun size={14} strokeWidth={1.8} /> : <Moon size={14} strokeWidth={1.8} />}
+            {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <button className={styles.btnQuit} onClick={handleQuit} disabled={busy}>
-            <Power size={13} strokeWidth={1.8} /> Quit
+          <button className={[styles.btnGhost, styles.btnQuit].join(" ")} onClick={handleQuit} disabled={busy}>
+            <Power size={14} strokeWidth={1.8} /> Quit
           </button>
         </div>
       </aside>
@@ -218,15 +231,13 @@ export default function Layout() {
 }
 
 function ServiceRow({
-  label, sublabel, running,
-}: { label: string; sublabel?: string; running: boolean }) {
+  label, title, meta, running,
+}: { label: string; title?: string; meta?: string; running: boolean }) {
   return (
-    <li className={styles.serviceRow}>
-      <span className={running ? styles.dotGreen : styles.dotAmber} />
-      <span className={styles.serviceLabel}>
-        {label}
-        {sublabel && <span className={styles.serviceVersion}>{sublabel}</span>}
-      </span>
+    <li className={styles.serviceRow} title={title}>
+      <span className={["status-dot", running ? "on" : "off"].join(" ")} />
+      <span className={styles.serviceLabel}>{label}</span>
+      {meta && <span className={styles.serviceMeta}>{meta}</span>}
       <span className={[styles.serviceStatus, running ? styles.statusRunning : styles.statusStopped].join(" ")}>
         {running ? "on" : "off"}
       </span>

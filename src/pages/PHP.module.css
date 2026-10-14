@@ -1,535 +1,364 @@
-.page { max-width: 820px; }
+.page {
+  max-width: 980px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
 .loading { color: var(--text-3); padding: 48px 0; text-align: center; }
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 28px;
-}
-
-.section { margin-bottom: 36px; }
-
-.sectionTitle {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 12px;
-  letter-spacing: -0.1px;
-}
-
-.hint {
-  font-size: 12px;
-  color: var(--text-2);
-  margin-bottom: 14px;
-  line-height: 1.6;
-}
-.hint code {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 11px;
-  color: var(--text);
-}
-
-/* ── Version table ─────────────────────────────────────────────────────────── */
-
-.table {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
-.thead {
-  display: grid;
-  grid-template-columns: 1fr 90px 70px 190px;
   gap: 16px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  margin-bottom: 8px;
 }
 
-.theadCell {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-3);
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
+.btnGhost:not(:disabled):hover { color: var(--text); border-color: var(--border-2); background: var(--surface-2); }
 
 .emptyTable {
-  padding: 32px 20px;
+  padding: 28px 16px;
   text-align: center;
   color: var(--text-3);
   font-size: 13px;
   line-height: 1.7;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--radius-lg);
 }
 
-.row {
-  position: relative;
+/* ── Version cards ─────────────────────────────────────────────────────────── */
+
+.grid {
   display: grid;
-  grid-template-columns: 1fr 90px 70px 190px;
-  gap: 16px;
-  align-items: center;
-  padding: 13px 20px;
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  transition: background var(--transition);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
 }
-.row:last-child { border-bottom: none; }
-.row:hover:not(.rowInstalling) { background: var(--surface-2); }
 
-.eol { opacity: 0.5; }
-.rowInstalling { cursor: default; }
-
-/* ── Progress overlay ──────────────────────────────────────────────────────── */
-
-.progressOverlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+.card {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 20px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: border-color var(--transition);
 }
+.card:hover { border-color: var(--border-2); }
+.cardSelected,
+.cardSelected:hover { border-color: var(--accent-border); box-shadow: var(--shadow); }
+.eol { opacity: 0.6; }
+.eol:hover { opacity: 1; }
 
-.progressFill {
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  background: var(--accent);
-  opacity: 0.1;
-  transition: width 0.4s ease;
-}
-
-.progressLabel {
-  position: relative;
-  font-size: 12px;
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-/* ── Cells ─────────────────────────────────────────────────────────────────── */
-
-.versionCell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.cardTop { display: flex; align-items: center; gap: 8px; }
 
 .major {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
+
+.checkmark { display: flex; color: var(--accent); }
+
+.chips { margin-left: auto; display: flex; gap: 4px; }
 
 .tag {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid transparent;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid;
+  white-space: nowrap;
 }
+.tagActive   { background: var(--accent-surface); color: var(--accent); border-color: var(--accent-border); }
 .tagSecurity { background: var(--amber-surface); color: var(--amber); border-color: var(--amber-border); }
-.tagEol      { background: var(--surface-2); color: var(--text-3); border-color: var(--border); }
+.tagEol      { background: var(--red-surface); color: var(--red); border-color: var(--red-border); }
 
-.statusCell, .activeCell, .actionCell {
+.patch {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.updateNote { color: var(--amber); }
+
+.cardFoot {
   display: flex;
   align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-size: 12px;
+  color: var(--text-2);
 }
 
-.actionCell { justify-content: flex-end; gap: 6px; }
-
-.checkmark {
-  display: flex;
+.defaultLabel {
+  display: inline-flex;
   align-items: center;
-  color: var(--green);
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.defaultLabel input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+.notInstalled { color: var(--text-3); }
+
+.running {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
 }
 
-.runningDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--green);
-  flex-shrink: 0;
-  box-shadow: 0 0 0 2px var(--green-surface, rgba(34,197,94,0.15));
-  animation: pulse 2s ease-in-out infinite;
-}
+.actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
+.btnIcon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  border: 1px solid var(--border-2);
+  background: var(--bg);
+  color: var(--text-2);
 }
-
-/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.btnIcon:not(:disabled):hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
+.btnIconStop:not(:disabled):hover { color: var(--red); border-color: var(--red-border); background: var(--red-surface); }
+.btnIconActive { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
+.btnIcon:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btnInstall, .btnUpdate {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 600;
-  border: 1px solid;
-  cursor: pointer;
-  transition: all var(--transition);
   white-space: nowrap;
 }
-
-.btnInstall {
-  background: var(--surface-2);
-  color: var(--text-2);
-  border-color: var(--border);
-}
-.btnInstall:hover { background: var(--border); color: var(--text); }
-
-.btnUpdate {
-  background: var(--accent-surface);
-  color: var(--accent);
-  border-color: var(--accent-border);
-}
-.btnUpdate:hover { background: var(--accent); color: #fff; }
+.btnInstall { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); }
+.btnInstall:hover { background: var(--surface-2); }
+.btnUpdate { background: var(--accent-surface); color: var(--accent); border: 1px solid var(--accent-border); }
+.btnUpdate:hover { border-color: var(--accent); }
 
 .btnError {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: transparent;
-  border: 1px solid var(--red-border);
-  border-radius: var(--radius-sm);
-  color: var(--red);
+  max-width: 180px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
   font-size: 11px;
-  padding: 4px 10px;
-  cursor: pointer;
-  max-width: 200px;
+  background: transparent;
+  color: var(--red);
+  border: 1px solid var(--red-border);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background var(--transition);
 }
 .btnError:hover { background: var(--red-surface); }
 
-/* ── Custom paths ──────────────────────────────────────────────────────────── */
+/* ── Install progress ──────────────────────────────────────────────────────── */
 
-.pathList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.pathItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-}
-
-.pathLabel {
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--text);
-  word-break: break-all;
-}
-
-/* ── Configure button ─────────────────────────────────────────────────────── */
-
-.btnStart, .btnStop {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  border: 1px solid;
-  cursor: pointer;
-  transition: all var(--transition);
-  flex-shrink: 0;
-}
-.btnStart {
-  background: var(--green-surface, rgba(34,197,94,0.08));
-  color: var(--green);
-  border-color: var(--green-border, rgba(34,197,94,0.3));
-}
-.btnStart:hover:not(:disabled) { background: var(--green); color: #fff; }
-.btnStop {
-  background: var(--red-surface);
-  color: var(--red);
-  border-color: var(--red-border);
-}
-.btnStop:hover:not(:disabled) { background: var(--red); color: #fff; }
-.btnStart:disabled, .btnStop:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.btnConfigure {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.btnConfigure:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
-.btnConfigureActive { color: var(--accent); border-color: var(--accent-border); background: var(--accent-surface); }
-.rowSelected { background: var(--accent-surface) !important; }
+.progress { display: flex; flex-direction: column; gap: 6px; min-height: 30px; justify-content: center; }
+.progressTrack { height: 5px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.progressFill { height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.4s ease; }
+.progressLabel { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── php.ini panel ─────────────────────────────────────────────────────────── */
 
-.iniPanel {
-  width: 300px;
-  flex-shrink: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 140px);
-  position: sticky;
-  top: 0;
-  animation: fadeIn 0.15s ease both;
-}
-
-.iniPanelHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.iniPanelTitle {
-  display: block;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 2px;
-}
-
-.iniPanelPath {
-  display: block;
-  font-size: 10px;
-  color: var(--text-3);
-  font-family: monospace;
-  word-break: break-all;
-  line-height: 1.4;
+.iniPanel { box-shadow: var(--shadow); }
+.accentIcon { color: var(--accent); flex-shrink: 0; }
+.iniPath {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .iniClose {
-  background: none;
-  border: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  background: transparent;
   color: var(--text-3);
-  cursor: pointer;
-  padding: 2px;
-  display: flex;
-  align-items: center;
-  border-radius: 3px;
-  flex-shrink: 0;
-  margin-left: 8px;
-  transition: color var(--transition);
 }
-.iniClose:hover { color: var(--text); }
+.iniClose:hover { color: var(--text); background: var(--surface-2); }
 
 .iniLoading { padding: 32px; text-align: center; color: var(--text-3); font-size: 12px; }
 
-.iniDivider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
+.iniBody {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  max-height: 460px;
 }
 
-/* ── Setting rows ─────────────── */
-.iniSettingRow {
-  padding: 8px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: background var(--transition);
-}
-.iniSettingRow:hover { background: var(--surface-2); }
-
-.iniSettingMeta { display: flex; flex-direction: column; gap: 1px; }
-
-.iniSettingLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
+.iniExtensions {
+  padding: 4px 16px 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  align-content: start;
+  overflow-y: auto;
+  min-width: 0;
 }
 
-.iniSettingHint {
-  font-size: 10px;
-  color: var(--text-3);
-  line-height: 1.4;
+.iniSettings {
+  padding: 4px 16px 14px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  min-width: 0;
 }
 
-.iniSettingInput {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 5px 8px;
-  font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--text);
-  outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-.iniSettingInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-surface);
-}
-
-.iniScroll { flex: 1; overflow-y: auto; padding: 8px 0; }
-
-.iniGroup { margin-bottom: 4px; }
+.iniGroup { min-width: 0; }
 
 .iniGroupLabel {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  margin: 12px 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--text-3);
-  padding: 8px 16px 4px;
 }
 
 .iniRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 16px;
-  cursor: pointer;
-  transition: background var(--transition);
-  user-select: none;
+  gap: 8px;
+  padding: 4px 0;
 }
-.iniRow:hover { background: var(--surface-2); }
 
 .iniExtName {
-  font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   color: var(--text);
 }
 
-.toggle {
-  width: 32px;
-  height: 18px;
-  border-radius: 99px;
-  background: var(--border-2);
-  position: relative;
-  cursor: pointer;
-  transition: background 0.2s;
-  flex-shrink: 0;
+.iniSettingRow {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
 }
-.toggleOn { background: var(--accent); }
-.toggleThumb {
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+.iniSettingRow:last-child { border-bottom: none; }
+
+.iniSettingMeta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.iniSettingLabel { font-size: 12.5px; color: var(--text); }
+.iniSettingHint { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
+
+.iniSettingInput {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
-.toggleOn .toggleThumb { transform: translateX(14px); }
 
 .iniFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
 }
+.iniFooter .btnGhost { height: 30px; }
+.iniFooter :global(.btn-primary) { display: inline-flex; align-items: center; gap: 6px; height: 30px; border-radius: 8px; }
+.iniNote { margin-left: auto; font-size: 11.5px; color: var(--text-3); }
 
-.iniSave {
-  flex: 1;
+/* ── Custom paths ──────────────────────────────────────────────────────────── */
+
+.hint {
+  padding: 12px 16px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.hint code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text); }
+
+.pathItem {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition);
+  gap: 10px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
 }
-.iniSave:hover:not(:disabled) { background: var(--accent-2); }
-.iniSave:disabled { opacity: 0.5; cursor: not-allowed; }
+.pathIcon { color: var(--text-3); flex-shrink: 0; }
 
-.iniCancel {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-2);
-  padding: 8px 12px;
+.pathLabel {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
   font-size: 12px;
-  cursor: pointer;
-  transition: all var(--transition);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.iniCancel:hover { color: var(--text); border-color: var(--border-2); }
 
 .btnRemovePath {
-  background: transparent;
-  border: none;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 6px;
+  background: none;
   color: var(--text-3);
-  padding: 3px 6px;
-  cursor: pointer;
-  border-radius: var(--radius-xs);
-  transition: color var(--transition), background var(--transition);
-  display: flex;
-  align-items: center;
 }
 .btnRemovePath:hover { color: var(--red); background: var(--red-surface); }
 
-.addRow { display: flex; gap: 8px; }
+.addRow {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
 
 .pathInput {
   flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  color: var(--text);
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-family: monospace;
-  outline: none;
-  transition: border-color var(--transition);
 }
-.pathInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-surface); }
-.pathInput::placeholder { color: var(--text-3); }
 
-.btnAdd {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition);
+@media (max-width: 1000px) {
+  .iniBody { grid-template-columns: 1fr; max-height: none; }
+  .iniSettings { border-left: none; border-top: 1px solid var(--border); }
 }
-.btnAdd:hover { background: var(--accent-2); }

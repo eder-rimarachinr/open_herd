@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ShieldCheck, ShieldOff, ShieldAlert, Circle } from "lucide-react";
+import { ShieldAlert, Lock } from "lucide-react";
 import { api, AsyncTask, Site } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { TYPE_LABELS, avatarFor } from "../components/siteTypes";
 import styles from "./SSL.module.css";
 
 type SslOp = { state: AsyncTask["state"]; message: string; error?: string };
@@ -77,77 +78,91 @@ export default function SSL() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
+      <div>
         <h1 className="page-title">SSL Certificates</h1>
-        <span className={styles.count}>{active} active</span>
+        <p className="page-sub">Certificates come from a local authority that only this computer trusts.</p>
+      </div>
+
+      <div className={styles.ca}>
+        <span className={styles.caIcon}><Lock size={20} /></span>
+        <div className={styles.caText}>
+          <h2>Local certificate authority (mkcert)</h2>
+          <p>
+            Installed into the system trust store the first time you enable HTTPS (asks for
+            admin rights once). After that, browsers show a padlock for every <code>.test</code> site.
+          </p>
+        </div>
+        <span className={styles.caCount}>
+          <b>{active}</b> of {sites.length} {sites.length === 1 ? "site" : "sites"} on HTTPS
+        </span>
       </div>
 
       {sites.length === 0 ? (
         <div className={styles.empty}>
-          <ShieldAlert size={32} style={{ color: "var(--border-2)", marginBottom: 12 }} />
+          <ShieldAlert size={32} className={styles.emptyIcon} />
           No sites registered yet.<br />
           Add a site from the Sites page first.
         </div>
       ) : (
-        <div className={styles.list}>
-          {sites.map((site) => {
-            const op   = ops[site.id];
-            const busy = op && op.state !== "done" && op.state !== "error";
+        <div className="panel">
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>HTTPS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sites.map((site) => {
+                const op   = ops[site.id];
+                const busy = op && op.state !== "done" && op.state !== "error";
+                const av   = avatarFor(site.project_type);
 
-            return (
-              <div key={site.id} className={styles.row}>
-                <div className={styles.info}>
-                  <span className={styles.domain}>{site.domain}</span>
-                  <span className="badge badge-gray" style={{ fontSize: 10 }}>
-                    {site.project_type}
-                  </span>
-                </div>
-
-                <div className={styles.statusCol}>
-                  {busy ? (
-                    <span className={styles.progress}>{op.message || "Working…"}</span>
-                  ) : op?.state === "error" ? (
-                    <span
-                      className={styles.errorBadge}
-                      title="Click to dismiss"
-                      onClick={() => setOps((prev) => { const n = { ...prev }; delete n[site.id]; return n; })}
-                    >
-                      {op.error ?? "Failed"}
-                    </span>
-                  ) : site.ssl_enabled ? (
-                    <span className={styles.dotActive}>
-                      <Circle size={7} fill="currentColor" /> Active
-                    </span>
-                  ) : (
-                    <span className={styles.dotInactive}>
-                      <Circle size={7} fill="currentColor" /> Off
-                    </span>
-                  )}
-                </div>
-
-                <div className={styles.action}>
-                  {!busy && op?.state !== "error" && (
-                    site.ssl_enabled ? (
-                      <button className={styles.btnDisable} onClick={() => handleDisable(site.id)}>
-                        <ShieldOff size={12} /> Disable
-                      </button>
-                    ) : (
-                      <button className={styles.btnEnable} onClick={() => handleEnable(site.id)}>
-                        <ShieldCheck size={12} /> Enable
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                return (
+                  <tr key={site.id}>
+                    <td>
+                      <span className={styles.siteCell}>
+                        <span className={styles.avatar} style={{ background: av.bg }}>{av.short}</span>
+                        <span className={styles.domain}>{site.domain}</span>
+                      </span>
+                    </td>
+                    <td><span className="badge badge-gray">{TYPE_LABELS[site.project_type] ?? site.project_type}</span></td>
+                    <td>
+                      {busy ? (
+                        <span className={styles.progress}><span className="spinner" />{op.message || "Working…"}</span>
+                      ) : op?.state === "error" ? (
+                        <button
+                          className={styles.errorBadge}
+                          title="Click to dismiss"
+                          onClick={() => setOps((prev) => { const n = { ...prev }; delete n[site.id]; return n; })}
+                        >
+                          {op.error ?? "Failed"}
+                        </button>
+                      ) : site.ssl_enabled ? (
+                        <span className="badge badge-green">Active</span>
+                      ) : (
+                        <span className="badge badge-gray">Off</span>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className="switch"
+                        role="switch"
+                        aria-checked={site.ssl_enabled}
+                        aria-label={`HTTPS for ${site.domain}`}
+                        disabled={busy || op?.state === "error"}
+                        onClick={() => site.ssl_enabled ? handleDisable(site.id) : handleEnable(site.id)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-
-      <p className={styles.hint}>
-        Certificates are issued by a local mkcert CA. On first use the CA is installed into the
-        system trust store (requires admin/sudo).
-      </p>
     </div>
   );
 }

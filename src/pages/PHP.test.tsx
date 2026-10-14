@@ -77,7 +77,7 @@ describe("Catalog display", () => {
   it("renders PHP version rows from catalog", async () => {
     setupDefaults({ catalog: [mockCatalogEntry({ major: "8.2" })] });
     renderPHP();
-    await waitFor(() => expect(screen.getByText(/8\.2/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("8.2")).toBeInTheDocument());
   });
 
   it("shows multiple versions", async () => {
@@ -90,9 +90,9 @@ describe("Catalog display", () => {
     });
     renderPHP();
     await waitFor(() => {
-      expect(screen.getByText(/8\.4/)).toBeInTheDocument();
-      expect(screen.getByText(/8\.3/)).toBeInTheDocument();
-      expect(screen.getByText(/8\.2/)).toBeInTheDocument();
+      expect(screen.getByText("8.4")).toBeInTheDocument();
+      expect(screen.getByText("8.3")).toBeInTheDocument();
+      expect(screen.getByText("8.2")).toBeInTheDocument();
     });
   });
 
@@ -149,7 +149,7 @@ describe("Catalog display", () => {
       catalog: [mockCatalogEntry({ major: "8.2", installed: true, has_update: false, installed_patch: "8.2.29" })],
     });
     renderPHP();
-    await waitFor(() => screen.getByText(/8\.2/));
+    await waitFor(() => screen.getByText("8.2"));
     expect(screen.queryByText("Install")).not.toBeInTheDocument();
     expect(screen.queryByText("Update")).not.toBeInTheDocument();
   });
@@ -253,7 +253,7 @@ describe("Rescan", () => {
     renderPHP();
     await waitFor(() => screen.getByText("Rescan"));
     await userEvent.click(screen.getByText("Rescan"));
-    await waitFor(() => expect(screen.getByText(/8\.4/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("8.4")).toBeInTheDocument());
   });
 });
 
@@ -419,7 +419,7 @@ describe("Start / Stop", () => {
       catalog: [mockCatalogEntry({ major: "8.2", installed: false, running: false })],
     });
     renderPHP();
-    await waitFor(() => screen.getByText(/8\.2/));
+    await waitFor(() => screen.getByText("8.2"));
     expect(screen.queryByTitle("Start PHP 8.2")).not.toBeInTheDocument();
   });
 
