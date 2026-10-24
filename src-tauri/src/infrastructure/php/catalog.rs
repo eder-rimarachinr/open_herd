@@ -2,8 +2,8 @@ use crate::infrastructure::dto::{CatalogEntry, PhpVersion};
 
 pub fn build_catalog(versions: &[PhpVersion], running: &[String]) -> Vec<CatalogEntry> {
     let known: &[(&str, &str, bool, bool)] = &[
-        ("8.5", "8.5.6",  false, false), ("8.4", "8.4.21", false, false),
-        ("8.3", "8.3.31", false, false), ("8.2", "8.2.31", false, false),
+        ("8.5", "8.5.12", false, false), ("8.4", "8.4.27", false, false),
+        ("8.3", "8.3.36", false, false), ("8.2", "8.2.35", false, false),
         ("8.1", "8.1.34", true,  false), ("8.0", "8.0.30", false, true),
         ("7.4", "7.4.33", false, true),
     ];

@@ -70,10 +70,10 @@ fn known_php_hash(filename: &str) -> Option<&'static str> {
         "php-7.4.33-nts-Win32-vc15-x64.zip" => Some("14ae3250d4447c8ccfc4c45a70d90adfbcd61e728d85f0be56a7ddf8f9c8aace"),
         "php-8.0.30-nts-Win32-vs16-x64.zip" => Some("dfb70498ffa2c617f2f655a155564697e3c9cca41709938fd1a5997d1d5b0785"),
         "php-8.1.34-nts-Win32-vs16-x64.zip" => Some("9cfe246cb144076c16f5913a3ef88a474c3dd7e60f0f0c8bb95faf68674016cc"),
-        "php-8.2.31-nts-Win32-vs16-x64.zip" => Some("941bd3b87683eb16d5ffa7f5997de9a5e07ef08ba875048e5c4d95b4fc778162"),
-        "php-8.3.31-nts-Win32-vs16-x64.zip" => Some("389c1327d325f6b6b3b892a5b2e1484ca5b5df775b6c4ddf5d1b5dc3b34ac761"),
-        "php-8.4.21-nts-Win32-vs17-x64.zip" => Some("2cb57d0d3a17b1248c6a53b600719d4b051e1c374373404d5031409c0725031d"),
-        "php-8.5.6-nts-Win32-vs17-x64.zip"  => Some("e25cc9400a7d176f18074f677ef0159d6b04aecfb255c924d808b7144075092f"),
+        "php-8.2.35-nts-Win32-vs16-x64.zip" => Some("798ffa4b9ce22a820d57048e9695df7245bf917ed067917f256942a10918a8cc"),
+        "php-8.3.36-nts-Win32-vs16-x64.zip" => Some("3c9242622c7402b47c38d2ec2ed779cef3a290fd6f2bde6c35f9c482699e7900"),
+        "php-8.4.27-nts-Win32-vs17-x64.zip" => Some("93bd8a815a52156606fb906d0573437908c61f96e2cc52c03a51e36a41bf5236"),
+        "php-8.5.12-nts-Win32-vs17-x64.zip" => Some("2ab242af38d76bdf417cde5ec048b1bcd76a5a40f39a3d15d5f046f38571c477"),
         _ => None,
     }
 }
@@ -105,8 +105,8 @@ pub struct PhpRelease { pub major: String, pub version: String, pub url: String 
 
 pub fn php_releases() -> Vec<PhpRelease> {
     vec![
-        r("8.5","8.5.6"), r("8.4","8.4.21"), r("8.3","8.3.31"),
-        r("8.2","8.2.31"), r("8.1","8.1.34"), r("8.0","8.0.30"), r("7.4","7.4.33"),
+        r("8.5","8.5.12"), r("8.4","8.4.27"), r("8.3","8.3.36"),
+        r("8.2","8.2.35"), r("8.1","8.1.34"), r("8.0","8.0.30"), r("7.4","7.4.33"),
     ]
 }
 fn r(major: &str, version: &str) -> PhpRelease { PhpRelease { major: major.into(), version: version.into(), url: String::new() } }
