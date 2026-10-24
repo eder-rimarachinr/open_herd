@@ -8,6 +8,8 @@ A local PHP development environment for Windows: serve your projects at `https:/
 
 > Inspired by Laravel Herd, but an independent project — not affiliated with Laravel or Beyond Code.
 
+**Project status:** a personal side project, built and maintained in my spare time. It is what I use every day for my own PHP work, so it is usable, but expect rough edges. See the [Roadmap](#roadmap) for what is done and what comes next.
+
 **Platform status:** Windows 10/11 (x64) is supported. Linux and macOS are not functional yet (see [Platform status](#platform-status)).
 
 ---
@@ -15,7 +17,7 @@ A local PHP development environment for Windows: serve your projects at `https:/
 ## Features
 
 - **Sites** — Add a project folder and it is served at `name.test`. Scan a projects directory to register every subfolder at once. Laravel, CodeIgniter 4/3, WordPress, SPA (`dist/` / `build/`) and static sites are detected and get the right document root.
-- **PHP** — Install PHP 7.4 – 8.5 from windows.php.net (every download verified against a pinned SHA-256), or use the PHP already on your machine (XAMPP, WAMP, Laragon, `PATH`, or folders you configure). Pick the PHP version per site, and edit each version's `php.ini` extensions and settings from the app.
+- **PHP** — Install PHP 7.4 – 8.5 from windows.php.net (every download verified against a pinned SHA-256), or use the PHP already on your machine (XAMPP, WAMP, Laragon, `PATH`, or folders you configure). Pick the PHP version per site, and edit each version's `php.ini` extensions and settings from the app. When a newer patch release exists, the PHP page shows it with an **Update** button.
 - **nginx** — Downloaded and verified on first use; vhosts are generated for every site.
 - **HTTPS** — One click per site via [mkcert](https://github.com/FiloSottile/mkcert): certificates your browser trusts.
 - **DNS** — `.test` entries are added to and removed from the Windows `hosts` file for you.
@@ -184,6 +186,54 @@ Stack: Tauri 2 · React 18 · TypeScript · Vite · Rust (axum, tokio, reqwest, 
 | nginx/PHP stopped if the app crashes | ✅ | 🚧 | 🚧 |
 
 Linux and macOS support is planned; until then `installer/install.sh` has no release assets to download.
+
+---
+
+## Supported PHP versions
+
+Open Herd installs these builds (NTS, x64) from windows.php.net:
+
+| Branch | Version | Status |
+|--------|---------|--------|
+| 8.5 | 8.5.12 | Active support (latest stable) |
+| 8.4 | 8.4.27 | Active support |
+| 8.3 | 8.3.36 | Security fixes only |
+| 8.2 | 8.2.35 | Security fixes only |
+| 8.1 | 8.1.34 | End of life — no more Windows builds |
+| 8.0 / 7.4 | 8.0.30 / 7.4.33 | End of life — for legacy projects only |
+
+8.2.35, 8.3.36, 8.4.27 and 8.5.12 fix CVE-2026-109618 and CVE-2026-109619 ([INCIBE-CERT notice](https://www.incibe.es/incibe-cert/alerta-temprana/avisos/multiples-vulnerabilidades-en-php), October 2026). Open Herd does not update installed versions on its own: press **Update** on the PHP page for each version you use.
+
+---
+
+## Roadmap
+
+A personal backlog, roughly in priority order. Issues and ideas are welcome on [GitHub](https://github.com/eder-rimarachinr/open_herd/issues).
+
+### Done
+
+- [x] Rust backend embedded in the Tauri app (the old Go daemon is gone), hexagonal architecture with tests
+- [x] Data safety: atomic writes, corrupt files set aside, `hosts` backup, nginx config backup
+- [x] nginx / PHP tied to the app's lifetime (Windows Job Object) and PHP restarted if it dies
+- [x] Local API only accepts the app's own window (DNS-rebinding and CSRF protection)
+- [x] API types for the UI generated from the Rust code (ts-rs)
+- [x] Port changes applied live; ports held by another web server are refused
+- [x] Per-version `php.ini` editor
+- [x] Redesigned UI (dark and light themes)
+- [x] Patched PHP releases for CVE-2026-109618 / CVE-2026-109619
+- [x] NSIS, MSI and portable releases built by GitHub Actions
+
+### Next
+
+- [ ] Release v0.2.1 with the patched PHP versions
+- [ ] Read the PHP release list from windows.php.net instead of a list built into the app, so security patches don't wait for an Open Herd release
+- [ ] Code-sign the installers (no more SmartScreen warning)
+
+### Later
+
+- [ ] Linux: PHP through php-fpm, child processes tied to the app (`PR_SET_PDEATHSIG`), release packages
+- [ ] macOS support
+- [ ] Optional services next to PHP (database, mail catcher)
 
 ---
 
