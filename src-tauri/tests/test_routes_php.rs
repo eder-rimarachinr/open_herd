@@ -145,3 +145,19 @@ async fn php_ini_update_edits_only_what_was_asked_and_keeps_crlf() {
     let body = resp.json::<serde_json::Value>();
     assert!(body["extensions"].as_array().unwrap().iter().any(|e| e["name"] == "xml" && e["enabled"] == false));
 }
+
+#[tokio::test]
+async fn php_catalog_reaches_back_to_5_6_with_eol_lines_flagged() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let catalog = server.get("/api/v1/php/catalog").await.json::<Vec<serde_json::Value>>();
+    let majors: Vec<&str> = catalog.iter().map(|e| e["major"].as_str().unwrap()).collect();
+    assert_eq!(majors, ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4", "7.3", "7.2", "7.1", "7.0", "5.6"]);
+    for e in &catalog {
+        let old = e["major"].as_str().unwrap().starts_with('5') || e["major"].as_str().unwrap().starts_with('7');
+        assert_eq!(e["end_of_life"], old || e["major"] == "8.0", "{}", e["major"]);
+    }
+    let php56 = catalog.iter().find(|e| e["major"] == "5.6").unwrap();
+    assert_eq!(php56["latest_patch"], "5.6.40");
+    assert_eq!(php56["installed"], false);
+}

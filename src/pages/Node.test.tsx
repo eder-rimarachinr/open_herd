@@ -37,7 +37,7 @@ const status = (overrides = {}) => ({
 
 const release = (overrides = {}) => ({
   version: "24.21.0", major: 24, date: "2026-10-01", lts: "Krypton",
-  security: false, installed: false, active: false, update_available: false,
+  security: false, installed: false, active: false, update_available: false, end_of_life: false,
   ...overrides,
 });
 
@@ -117,4 +117,42 @@ describe("Node page", () => {
     renderNode();
     expect(await screen.findByText(/C:\\Program Files\\nodejs/)).toBeInTheDocument();
   });
+  it("offers the update of an installed line on its own row", async () => {
+    m.node.releases.mockResolvedValue([release({ version: "24.22.0", major: 24, update_available: true })]);
+    renderNode();
+    const row = await screen.findByTestId("node-installed-24.21.0");
+    expect(within(row).getByRole("button", { name: "Install Node 24.22.0" })).toHaveTextContent("Update to 24.22.0");
+    expect(screen.queryByTestId("node-release-24")).not.toBeInTheDocument();
+  });
+
+  it("keeps end-of-life lines behind a toggle and installs them on demand", async () => {
+    m.node.releases.mockResolvedValue([
+      release({ version: "26.13.0", major: 26, lts: "Lithium" }),
+      release({ version: "10.24.1", major: 10, lts: "Dubnium", date: "2021-04-06", end_of_life: true }),
+      release({ version: "8.17.0", major: 8, lts: "Carbon", date: "2019-12-17", end_of_life: true }),
+    ]);
+    m.node.installProgress.mockResolvedValue({ version: "10.24.1", state: "done", percent: 100, message: "" });
+    renderNode();
+    const toggle = await screen.findByRole("button", { name: /Show 2 end-of-life versions/ });
+    expect(screen.getByTestId("node-release-26")).toBeInTheDocument();
+    expect(screen.queryByTestId("node-release-10")).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    const node10 = screen.getByTestId("node-release-10");
+    expect(within(node10).getByText("End of life")).toBeInTheDocument();
+    expect(within(node10).getByText("LTS Dubnium")).toBeInTheDocument();
+    await userEvent.click(within(node10).getByRole("button", { name: "Install Node 10.24.1" }));
+    await waitFor(() => expect(m.node.install).toHaveBeenCalledWith("10.24.1"));
+  });
+
+  it("marks an installed version whose line is end of life", async () => {
+    m.node.status.mockResolvedValue(status({ installed: [{ version: "10.22.0", path: "C:\nvm\v10.22.0" }], active: "10.22.0" }));
+    m.node.releases.mockResolvedValue([release({ version: "10.24.1", major: 10, lts: "Dubnium", end_of_life: true, update_available: true })]);
+    renderNode();
+    const row = await screen.findByTestId("node-installed-10.22.0");
+    expect(within(row).getByText("End of life")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Install Node 10.24.1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /end-of-life/ })).not.toBeInTheDocument();
+  });
 });
+

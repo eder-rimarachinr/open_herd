@@ -1,0 +1,121 @@
+/* One row per version: shared by the PHP and Node pages. */
+
+.list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(96px, 120px) minmax(0, 1fr) auto;
+  grid-template-areas: "ver info actions";
+  align-items: center;
+  gap: 4px 16px;
+  padding: 10px 14px 10px 16px;
+  border-left: 2px solid transparent;
+  transition: background var(--transition);
+}
+.row + .row { border-top: 1px solid var(--border); }
+.row:hover { background: var(--surface-2); }
+.rowActive { border-left-color: var(--accent); background: var(--accent-surface); }
+.rowActive:hover { background: var(--accent-surface); }
+.rowSelected { border-left-color: var(--accent-border); }
+
+.ver {
+  grid-area: ver;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rowEol .ver { color: var(--text-2); }
+
+.info {
+  grid-area: info;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta b { font-weight: 500; color: var(--amber); }
+
+.actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 30px;
+}
+
+.progress { display: flex; align-items: center; gap: 8px; min-width: 200px; }
+.progressTrack { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-3, var(--border)); overflow: hidden; }
+.progressFill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.progressLabel { font-size: 11px; color: var(--text-3); white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+
+.activeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+/* ── End-of-life toggle ────────────────────────────────────────────────────── */
+
+.eolToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 16px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.list > .eolToggle:first-child { border-top: 0; }
+.eolToggle:hover { color: var(--text); background: var(--surface-2); }
+.eolToggle svg { transition: transform var(--transition); }
+.eolToggleOpen svg { transform: rotate(90deg); }
+
+.eolNote {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--amber);
+  background: var(--amber-surface);
+}
+
+.empty {
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+@media (max-width: 700px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "ver actions" "info info";
+  }
+}

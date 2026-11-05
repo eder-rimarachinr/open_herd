@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::domain::{
     errors::ApplicationError,
-    node::{select_stable_releases, NodeReleaseInfo},
+    node::{select_releases, NodeReleaseInfo},
     ports::node::{NodeManagerPort, NodeReleasesPort},
 };
 
@@ -15,6 +15,8 @@ pub struct NodeReleaseView {
     pub active: bool,
     /// An older version of the same major is installed, this one is not.
     pub update_available: bool,
+    /// The line gets no more releases.
+    pub end_of_life: bool,
 }
 
 pub struct ListNodeReleasesUseCase {
@@ -35,12 +37,13 @@ impl ListNodeReleasesUseCase {
     pub async fn execute_on(&self, refresh: bool, today: NaiveDate) -> Result<Vec<NodeReleaseView>, ApplicationError> {
         let all = self.releases.releases(refresh).await?;
         let env = self.manager.environment().await?;
-        Ok(select_stable_releases(&all, today).into_iter().map(|release| {
+        Ok(select_releases(&all, today).into_iter().map(|offer| {
+            let release = offer.release;
             let installed = env.installed.iter().any(|i| i.version == release.version);
             let active = env.active.as_ref() == Some(&release.version);
             let update_available = !installed && env.installed.iter()
                 .any(|i| i.version.major() == release.version.major() && i.version < release.version);
-            NodeReleaseView { release, installed, active, update_available }
+            NodeReleaseView { release, installed, active, update_available, end_of_life: offer.end_of_life }
         }).collect())
     }
 }

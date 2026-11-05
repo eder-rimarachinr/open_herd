@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import PHP from "./PHP";
@@ -31,6 +31,9 @@ const m = api as Record<string, any>;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const renderPHP = () => render(<MemoryRouter><PHP /></MemoryRouter>);
+
+/** The list row of one PHP line. */
+const row = (major: string) => screen.getByTestId(`php-row-${major}`);
 
 const mockCatalogEntry = (overrides = {}) => ({
   major: "8.2",
@@ -77,7 +80,7 @@ describe("Catalog display", () => {
   it("renders PHP version rows from catalog", async () => {
     setupDefaults({ catalog: [mockCatalogEntry({ major: "8.2" })] });
     renderPHP();
-    await waitFor(() => expect(screen.getByText("8.2")).toBeInTheDocument());
+    await waitFor(() => expect(within(row("8.2")).getByText("8.2.29")).toBeInTheDocument());
   });
 
   it("shows multiple versions", async () => {
@@ -90,9 +93,9 @@ describe("Catalog display", () => {
     });
     renderPHP();
     await waitFor(() => {
-      expect(screen.getByText("8.4")).toBeInTheDocument();
-      expect(screen.getByText("8.3")).toBeInTheDocument();
-      expect(screen.getByText("8.2")).toBeInTheDocument();
+      expect(row("8.4")).toBeInTheDocument();
+      expect(row("8.3")).toBeInTheDocument();
+      expect(row("8.2")).toBeInTheDocument();
     });
   });
 
@@ -104,20 +107,48 @@ describe("Catalog display", () => {
     await waitFor(() => expect(screen.getByText(/8\.2\.10/)).toBeInTheDocument());
   });
 
-  it("shows checkmark for installed versions", async () => {
+  it("shows an Installed badge for installed versions", async () => {
     setupDefaults({
       catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" })],
     });
     renderPHP();
-    await waitFor(() => expect(screen.getByTitle("Installed")).toBeInTheDocument());
+    await waitFor(() => expect(within(row("8.2")).getByText("Installed")).toBeInTheDocument());
   });
 
-  it("shows EOL tag for end-of-life versions", async () => {
+  it("keeps end-of-life versions behind a toggle until asked", async () => {
     setupDefaults({
-      catalog: [mockCatalogEntry({ major: "7.4", end_of_life: true })],
+      catalog: [
+        mockCatalogEntry({ major: "8.4" }),
+        mockCatalogEntry({ major: "7.4", latest_patch: "7.4.33", end_of_life: true }),
+        mockCatalogEntry({ major: "5.6", latest_patch: "5.6.40", end_of_life: true }),
+      ],
     });
     renderPHP();
-    await waitFor(() => expect(screen.getByText("EOL")).toBeInTheDocument());
+    const toggle = await screen.findByRole("button", { name: /Show 2 end-of-life versions/ });
+    expect(screen.queryByTestId("php-row-5.6")).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(within(row("5.6")).getByText("End of life")).toBeInTheDocument();
+    expect(within(row("5.6")).getByRole("button", { name: "Install PHP 5.6" })).toBeInTheDocument();
+    expect(screen.getByText(/no bug or security fixes/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Hide 2 end-of-life versions/ }));
+    expect(screen.queryByTestId("php-row-5.6")).not.toBeInTheDocument();
+  });
+
+  it("always lists installed end-of-life versions first", async () => {
+    setupDefaults({
+      catalog: [
+        mockCatalogEntry({ major: "8.4" }),
+        mockCatalogEntry({ major: "7.3", end_of_life: true, installed: true, installed_patch: "7.3.33" }),
+      ],
+    });
+    renderPHP();
+    await screen.findByTestId("php-row-7.3");
+    const rows = screen.getAllByTestId(/^php-row-/).map((r) => r.dataset.testid);
+    expect(rows).toEqual(["php-row-7.3", "php-row-8.4"]);
+    expect(within(row("7.3")).getByText("End of life")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /end-of-life/ })).not.toBeInTheDocument();
   });
 
   it("shows security tag for security-only versions", async () => {
@@ -125,7 +156,7 @@ describe("Catalog display", () => {
       catalog: [mockCatalogEntry({ major: "8.1", security_only: true })],
     });
     renderPHP();
-    await waitFor(() => expect(screen.getByText("security")).toBeInTheDocument());
+    await waitFor(() => expect(within(row("8.1")).getByText("security fixes only")).toBeInTheDocument());
   });
 
   it("shows Install button for non-installed versions", async () => {
@@ -149,7 +180,7 @@ describe("Catalog display", () => {
       catalog: [mockCatalogEntry({ major: "8.2", installed: true, has_update: false, installed_patch: "8.2.29" })],
     });
     renderPHP();
-    await waitFor(() => screen.getByText("8.2"));
+    await waitFor(() => row("8.2"));
     expect(screen.queryByText("Install")).not.toBeInTheDocument();
     expect(screen.queryByText("Update")).not.toBeInTheDocument();
   });
@@ -253,7 +284,7 @@ describe("Rescan", () => {
     renderPHP();
     await waitFor(() => screen.getByText("Rescan"));
     await userEvent.click(screen.getByText("Rescan"));
-    await waitFor(() => expect(screen.getByText("8.4")).toBeInTheDocument());
+    await waitFor(() => expect(row("8.4")).toBeInTheDocument());
   });
 });
 
@@ -419,7 +450,7 @@ describe("Start / Stop", () => {
       catalog: [mockCatalogEntry({ major: "8.2", installed: false, running: false })],
     });
     renderPHP();
-    await waitFor(() => screen.getByText("8.2"));
+    await waitFor(() => row("8.2"));
     expect(screen.queryByTitle("Start PHP 8.2")).not.toBeInTheDocument();
   });
 
@@ -443,11 +474,11 @@ describe("Start / Stop", () => {
     await waitFor(() => expect(m.php.stop).toHaveBeenCalledWith("8.2"));
   });
 
-  it("shows running dot for running versions", async () => {
+  it("shows the port of running versions", async () => {
     setupDefaults({
       catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10", running: true })],
     });
     renderPHP();
-    await waitFor(() => expect(screen.getByTitle("Running")).toBeInTheDocument());
+    await waitFor(() => expect(within(row("8.2")).getByText(/running on :\d+/)).toBeInTheDocument());
   });
 });

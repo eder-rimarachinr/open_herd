@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Check, Download, AlertCircle, AlertTriangle, Trash2, Hexagon } from "lucide-react";
+import { RefreshCw, Download, AlertCircle, AlertTriangle, Trash2, Hexagon, ChevronRight } from "lucide-react";
 import { api, NodeInstallProgress, NodeReleaseEntry, NodeStatus } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import styles from "./PHP.module.css";
 import node from "./Node.module.css";
+import list from "./VersionList.module.css";
 
 const POLL_MS = 1500;
+
+const EOL_TITLE = "No longer maintained: no bug or security fixes";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -23,6 +26,7 @@ export default function Node() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy,       setBusy]       = useState<string | null>(null); // version being activated / removed
   const [installs,   setInstalls]   = useState<Record<string, NodeInstallProgress>>({});
+  const [showEol,    setShowEol]    = useState(false);
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   const fetchStatus = useCallback(async () => {
@@ -108,7 +112,78 @@ export default function Node() {
 
   const active = status?.active ?? null;
   const activeMajor = active ? Number(active.split(".")[0]) : null;
-  const ltsOf = (version: string) => releases.find((r) => r.version === version)?.lts ?? null;
+  const installed = [...(status?.installed ?? [])].sort((a, b) => compareVersions(b.version, a.version));
+  const releaseOfMajor = (major: number) => releases.find((r) => r.major === major);
+  const majorOf = (version: string) => Number(version.split(".")[0]);
+  // The newest installed patch of each line carries the Update button for that line.
+  const newestInstalled = new Set(
+    installed.filter((inst, i) => installed.findIndex((o) => majorOf(o.version) === majorOf(inst.version)) === i)
+      .map((inst) => inst.version),
+  );
+  // Lines with nothing installed; an installed line offers its update on its own row.
+  const available = releases.filter((r) => !installed.some((i) => majorOf(i.version) === r.major));
+  const supported = available.filter((r) => !r.end_of_life);
+  const endOfLife = available.filter((r) => r.end_of_life);
+
+  const dismissError = (version: string) =>
+    setInstalls((p) => { const n = { ...p }; delete n[version]; return n; });
+
+  /** Install / Update button, or the running download's progress, for `rel`. */
+  function installControl(rel: NodeReleaseEntry, update: boolean) {
+    const prog = installs[rel.version];
+    if (prog && prog.state !== "done" && prog.state !== "error") {
+      return (
+        <div className={list.progress}>
+          <div className={list.progressTrack}><div className={list.progressFill} style={{ width: `${prog.percent}%` }} /></div>
+          <span className={list.progressLabel}>{prog.message}</span>
+        </div>
+      );
+    }
+    if (prog?.state === "error") {
+      return (
+        <button className={styles.btnError} title="Click to dismiss" onClick={() => dismissError(rel.version)}>
+          <AlertCircle size={12} /> {prog.error ?? "Install failed"}
+        </button>
+      );
+    }
+    const activates = update && activeMajor === rel.major;
+    return (
+      <button
+        className={update ? styles.btnUpdate : styles.btnInstall}
+        onClick={() => handleInstall(rel.version, activates)}
+        title={activates ? `Install ${rel.version} and make it the active version` : `Install ${rel.version}`}
+        aria-label={`Install Node ${rel.version}`}
+      >
+        <Download size={13} /> {update ? `Update to ${rel.version}` : "Install"}
+      </button>
+    );
+  }
+
+  function lineBadges(rel: NodeReleaseEntry | undefined) {
+    if (!rel) return null;
+    return (
+      <>
+        {rel.lts
+          ? <span className={`${styles.tag} ${styles.tagActive}`}>LTS {rel.lts}</span>
+          : <span className={`${styles.tag} ${styles.tagSecurity}`}>Current</span>}
+        {rel.security && <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>}
+        {rel.end_of_life && <span className={`${styles.tag} ${styles.tagEol}`} title={EOL_TITLE}>End of life</span>}
+      </>
+    );
+  }
+
+  function releaseRow(rel: NodeReleaseEntry) {
+    return (
+      <div key={rel.version} className={[list.row, rel.end_of_life ? list.rowEol : ""].join(" ")} data-testid={`node-release-${rel.major}`}>
+        <span className={list.ver}>{rel.version}</span>
+        <div className={list.info}>
+          <div className={list.badges}>{lineBadges(rel)}</div>
+          <div className={list.meta}>Released {rel.date}</div>
+        </div>
+        <div className={list.actions}>{installControl(rel, false)}</div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -145,26 +220,30 @@ export default function Node() {
       ))}
 
       {/* ── Installed ──────────────────────────────────────────────── */}
-      <div className="section-label">Installed versions</div>
-      {status && status.installed.length === 0 && (
-        <div className={styles.emptyTable}>No Node versions installed yet. Install one from the list below.</div>
-      )}
-      <div className={styles.grid}>
-        {status?.installed.map((inst) => {
+      <div className="section-label">Installed</div>
+      <div className={list.list}>
+        {installed.length === 0 && (
+          <div className={list.empty}>No Node versions installed yet. Install one from the list below.</div>
+        )}
+        {installed.map((inst) => {
           const isActive = inst.version === active;
-          const lts = ltsOf(inst.version);
+          const rel = releaseOfMajor(majorOf(inst.version));
+          const update = rel && newestInstalled.has(inst.version) && compareVersions(rel.version, inst.version) > 0 ? rel : null;
           return (
-            <div key={inst.version} className={[styles.card, isActive ? styles.cardSelected : ""].join(" ")}>
-              <div className={styles.cardTop}>
-                <span className={styles.major}>{inst.version}</span>
-                <span className={styles.chips}>
-                  {lts && <span className={`${styles.tag} ${styles.tagActive}`}>LTS {lts}</span>}
-                </span>
+            <div
+              key={inst.version}
+              className={[list.row, isActive ? list.rowActive : "", rel?.end_of_life ? list.rowEol : ""].join(" ")}
+              data-testid={`node-installed-${inst.version}`}
+            >
+              <span className={list.ver}>{inst.version}</span>
+              <div className={list.info}>
+                <div className={list.badges}>{lineBadges(rel)}</div>
+                <div className={list.meta} title={inst.path}>{inst.path}</div>
               </div>
-              <div className={styles.patch} title={inst.path}>{inst.path}</div>
-              <div className={styles.cardFoot}>
+              <div className={list.actions}>
+                {update && installControl(update, true)}
                 {isActive ? (
-                  <span className={styles.running}><span className="status-dot on" /> Active</span>
+                  <span className={list.activeLabel}><span className="status-dot on" /> Active</span>
                 ) : (
                   <button
                     className={styles.btnUpdate}
@@ -175,17 +254,15 @@ export default function Node() {
                     {busy === inst.version ? "Switching…" : "Activate"}
                   </button>
                 )}
-                <span className={styles.actions}>
-                  <button
-                    className={[styles.btnIcon, styles.btnIconStop].join(" ")}
-                    onClick={() => handleUninstall(inst.version)}
-                    disabled={isActive || busy !== null}
-                    title={isActive ? "Activate another version before uninstalling this one" : `Uninstall Node ${inst.version}`}
-                    aria-label={`Uninstall Node ${inst.version}`}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </span>
+                <button
+                  className={[styles.btnIcon, styles.btnIconStop].join(" ")}
+                  onClick={() => handleUninstall(inst.version)}
+                  disabled={isActive || busy !== null}
+                  title={isActive ? "Activate another version before uninstalling this one" : `Uninstall Node ${inst.version}`}
+                  aria-label={`Uninstall Node ${inst.version}`}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           );
@@ -195,67 +272,42 @@ export default function Node() {
       {/* ── Available ──────────────────────────────────────────────── */}
       <div className="section-label">Available from nodejs.org</div>
       {relError && <div className={node.error}><AlertCircle size={14} /> {relError}</div>}
-      <div className={styles.grid}>
-        {releases.map((rel) => {
-          const prog = installs[rel.version];
-          const installing = prog && prog.state !== "done" && prog.state !== "error";
-          return (
-            <div key={rel.version} className={styles.card}>
-              <div className={styles.cardTop}>
-                <span className={styles.major}>{rel.version}</span>
-                {rel.installed && <span className={styles.checkmark} title="Installed"><Check size={14} strokeWidth={2.5} /></span>}
-                <span className={styles.chips}>
-                  {rel.security && <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>}
-                  {rel.lts
-                    ? <span className={`${styles.tag} ${styles.tagActive}`}>LTS {rel.lts}</span>
-                    : <span className={`${styles.tag} ${styles.tagSecurity}`}>Current</span>}
-                </span>
-              </div>
-              <div className={styles.patch}>
-                Released {rel.date}
-                {rel.update_available && <span className={styles.updateNote}> · newer than your {rel.major}.x</span>}
-              </div>
-              {installing ? (
-                <div className={styles.progress}>
-                  <div className={styles.progressTrack}>
-                    <div className={styles.progressFill} style={{ width: `${prog.percent}%` }} />
-                  </div>
-                  <span className={styles.progressLabel}>{prog.message}</span>
-                </div>
-              ) : (
-                <div className={styles.cardFoot}>
-                  {rel.installed
-                    ? <span className={styles.notInstalled}>{rel.active ? "Installed · active" : "Installed"}</span>
-                    : <span className={styles.notInstalled}>Not installed</span>}
-                  <span className={styles.actions}>
-                    {prog?.state === "error" && (
-                      <button
-                        className={styles.btnError}
-                        title="Click to dismiss"
-                        onClick={() => setInstalls((p) => { const n = { ...p }; delete n[rel.version]; return n; })}
-                      >
-                        <AlertCircle size={12} /> {prog.error ?? "Install failed"}
-                      </button>
-                    )}
-                    {prog?.state !== "error" && !rel.installed && (
-                      <button
-                        className={rel.update_available ? styles.btnUpdate : styles.btnInstall}
-                        onClick={() => handleInstall(rel.version, rel.update_available && activeMajor === rel.major)}
-                        title={rel.update_available && activeMajor === rel.major
-                          ? `Install ${rel.version} and make it the active version`
-                          : `Install ${rel.version}`}
-                        aria-label={`Install Node ${rel.version}`}
-                      >
-                        <Download size={13} /> {rel.update_available ? "Update" : "Install"}
-                      </button>
-                    )}
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {!relError && (
+        <div className={list.list}>
+          {supported.map(releaseRow)}
+          {supported.length === 0 && endOfLife.length === 0 && (
+            <div className={list.empty}>Every maintained Node line is already installed.</div>
+          )}
+          {endOfLife.length > 0 && (
+            <button
+              className={[list.eolToggle, showEol ? list.eolToggleOpen : ""].join(" ")}
+              onClick={() => setShowEol((v) => !v)}
+              aria-expanded={showEol}
+            >
+              <ChevronRight size={14} />
+              {showEol ? "Hide" : "Show"} {endOfLife.length} end-of-life {endOfLife.length === 1 ? "version" : "versions"}
+              <span className={list.meta}>({endOfLife.map((r) => r.major).join(", ")})</span>
+            </button>
+          )}
+          {showEol && endOfLife.length > 0 && (
+            <>
+              <div className={list.eolNote}>{EOL_TITLE}. Use them only for projects that still need them.</div>
+              {endOfLife.map(releaseRow)}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/** Numeric comparison of `a.b.c` versions: negative when `a` is older. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
 }

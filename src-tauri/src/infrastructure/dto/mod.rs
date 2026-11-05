@@ -196,6 +196,7 @@ pub struct NodeReleaseEntry {
     pub installed: bool,
     pub active: bool,
     pub update_available: bool,
+    pub end_of_life: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,6 +243,7 @@ impl From<NodeReleaseView> for NodeReleaseEntry {
             installed: v.installed,
             active: v.active,
             update_available: v.update_available,
+            end_of_life: v.end_of_life,
         }
     }
 }

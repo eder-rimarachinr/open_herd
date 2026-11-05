@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 use crate::domain::ports::{download::DownloadProgress, task::TaskState};
+use crate::infrastructure::php::catalog::php_line;
 
 pub mod node;
 pub mod tracker;
@@ -70,21 +71,6 @@ fn verify_sha256(path: &Path, expected: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ── Known PHP hashes ──────────────────────────────────────────────────────────
-
-fn known_php_hash(filename: &str) -> Option<&'static str> {
-    match filename {
-        "php-7.4.33-nts-Win32-vc15-x64.zip" => Some("14ae3250d4447c8ccfc4c45a70d90adfbcd61e728d85f0be56a7ddf8f9c8aace"),
-        "php-8.0.30-nts-Win32-vs16-x64.zip" => Some("dfb70498ffa2c617f2f655a155564697e3c9cca41709938fd1a5997d1d5b0785"),
-        "php-8.1.34-nts-Win32-vs16-x64.zip" => Some("9cfe246cb144076c16f5913a3ef88a474c3dd7e60f0f0c8bb95faf68674016cc"),
-        "php-8.2.35-nts-Win32-vs16-x64.zip" => Some("798ffa4b9ce22a820d57048e9695df7245bf917ed067917f256942a10918a8cc"),
-        "php-8.3.36-nts-Win32-vs16-x64.zip" => Some("3c9242622c7402b47c38d2ec2ed779cef3a290fd6f2bde6c35f9c482699e7900"),
-        "php-8.4.27-nts-Win32-vs17-x64.zip" => Some("93bd8a815a52156606fb906d0573437908c61f96e2cc52c03a51e36a41bf5236"),
-        "php-8.5.12-nts-Win32-vs17-x64.zip" => Some("2ab242af38d76bdf417cde5ec048b1bcd76a5a40f39a3d15d5f046f38571c477"),
-        _ => None,
-    }
-}
-
 // ── Nginx download ────────────────────────────────────────────────────────────
 
 /// Starts the download as a task on the current Tokio runtime and returns at
@@ -108,31 +94,16 @@ fn set_nginx(progress: &Arc<DownloadState>, state: TaskState, msg: &str, pct: u8
 
 // ── PHP download ──────────────────────────────────────────────────────────────
 
-pub struct PhpRelease { pub major: String, pub version: String, pub url: String }
-
-pub fn php_releases() -> Vec<PhpRelease> {
-    vec![
-        r("8.5","8.5.12"), r("8.4","8.4.27"), r("8.3","8.3.36"),
-        r("8.2","8.2.35"), r("8.1","8.1.34"), r("8.0","8.0.30"), r("7.4","7.4.33"),
-    ]
-}
-fn r(major: &str, version: &str) -> PhpRelease { PhpRelease { major: major.into(), version: version.into(), url: String::new() } }
-
-fn compiler_variants(major: &str) -> &'static [&'static str] {
-    match major {
-        "8.5" => &["vs17"], "8.4" => &["vs17","vs16"],
-        "8.3"|"8.2"|"8.1"|"8.0" => &["vs16","vs17"],
-        "7.4" => &["vc15"], _ => &["vs16","vs17","vc15"],
-    }
-}
-
-async fn resolve_php_url(client: &reqwest::Client, major: &str, version: &str) -> Option<(String, String)> {
-    let base = "https://windows.php.net/downloads/releases";
-    let arc  = "https://windows.php.net/downloads/releases/archives";
-    for vs in compiler_variants(major) {
-        let f = format!("php-{}-nts-Win32-{}-x64.zip", version, vs);
-        if url_exists(client, &format!("{}/{}", base, f)).await { return Some((format!("{}/{}", base, f), f)); }
-        if url_exists(client, &format!("{}/{}", arc, f)).await  { return Some((format!("{}/{}", arc, f), f)); }
+/// Tries the current releases folder first, then the archive (where every
+/// end-of-life build lives). `windows.php.net/downloads` redirects to these.
+async fn resolve_php_url(client: &reqwest::Client, filename: &str) -> Option<String> {
+    const BASES: [&str; 2] = [
+        "https://windows.php.net/downloads/releases",
+        "https://windows.php.net/downloads/releases/archives",
+    ];
+    for base in BASES {
+        let url = format!("{base}/{filename}");
+        if url_exists(client, &url).await { return Some(url); }
     }
     None
 }
@@ -142,62 +113,112 @@ async fn resolve_php_url(client: &reqwest::Client, major: &str, version: &str) -
 pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     let major   = major.to_string();
     let php_dir = php_dir.to_path_buf();
-    let release = match php_releases().into_iter().find(|r| r.major == major) {
-        Some(r) => r,
-        None => { set_php(&progress, &major, TaskState::Error, &format!("Unknown PHP version: {}", major), 0); return; }
+    let Some(release) = php_line(&major) else {
+        set_php(&progress, &major, TaskState::Error, &format!("Unknown PHP version: {}", major), 0);
+        return;
     };
     tokio::spawn(async move {
-        let client = http_client();
-        let dest   = php_dir.join(&release.major);
+        let client   = http_client();
+        let dest     = php_dir.join(release.major);
+        let filename = release.filename();
         set_php(&progress, &major, TaskState::Downloading, &format!("Locating PHP {} on windows.php.net…", release.version), 3);
-        let (url, filename) = match resolve_php_url(&client, &release.major, &release.version).await {
-            Some(p) => p,
-            None => { set_php(&progress, &major, TaskState::Error, &format!("PHP {} not found on windows.php.net", release.version), 0); return; }
-        };
-        // Refuse to install a PHP build we have no pinned hash for. Skipping
-        // verification silently (the old Option<None> path) would defeat the
-        // whole point of integrity checking.
-        let expected_hash = match known_php_hash(&filename) {
-            Some(h) => h,
-            None => {
-                set_php(&progress, &major, TaskState::Error, &format!("No pinned SHA-256 for {} — refusing to install an unverified PHP build.", filename), 0);
-                return;
-            }
+        let Some(url) = resolve_php_url(&client, &filename).await else {
+            set_php(&progress, &major, TaskState::Error, &format!("PHP {} not found on windows.php.net", release.version), 0);
+            return;
         };
         set_php(&progress, &major, TaskState::Downloading, &format!("Downloading PHP {}…", release.version), 8);
         let major2 = major.clone();
-        let result = fetch_zip(&url, &dest, "", Some(expected_hash), &progress, move |p, pct, msg| {
+        // Every line carries a pinned SHA-256: an unverified build is never installed.
+        let result = fetch_zip(&url, &dest, "", Some(release.sha256), &progress, move |p, pct, msg| {
             set_php(p, &major2, TaskState::Downloading, msg, pct);
         }).await;
-        match result {
-            Ok(()) => {
-                set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92);
-                let dest = dest.clone();
-                let _ = tokio::task::spawn_blocking(move || configure_ini(&dest)).await;
-                set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100);
+        if let Err(e) = result {
+            set_php(&progress, &major, TaskState::Error, &e.to_string(), 0);
+            return;
+        }
+        set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92);
+        let dest2 = dest.clone();
+        let legacy = release.legacy_extension_names();
+        let _ = tokio::task::spawn_blocking(move || configure_ini(&dest2, legacy)).await;
+        let starts = tokio::task::spawn_blocking(move || php_starts(&dest)).await.unwrap_or(PhpStart::Ok);
+        match starts {
+            PhpStart::Ok => set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100),
+            PhpStart::MissingRuntime => {
+                let rt = release.runtime;
+                let msg = format!(
+                    "PHP {} is installed but cannot start: Windows is missing the {}. Install it from {} and press Rescan.",
+                    release.version, rt.label(), rt.download_url(),
+                );
+                set_php(&progress, &major, TaskState::Error, &msg, 0);
             }
-            Err(e) => set_php(&progress, &major, TaskState::Error, &e.to_string(), 0),
+            PhpStart::Failed(why) => {
+                let msg = format!("PHP {} is installed but `php -v` failed: {why}", release.version);
+                set_php(&progress, &major, TaskState::Error, &msg, 0);
+            }
         }
     });
+}
+
+#[derive(Debug, PartialEq)]
+enum PhpStart { Ok, MissingRuntime, Failed(String) }
+
+/// Windows' STATUS_DLL_NOT_FOUND / STATUS_INVALID_IMAGE_FORMAT-style loader
+/// failures, as a process exit code: a Visual C++ runtime DLL is missing.
+fn is_missing_dll(code: i32) -> bool {
+    const STATUS_DLL_NOT_FOUND: u32 = 0xC000_0135;
+    const STATUS_ENTRYPOINT_NOT_FOUND: u32 = 0xC000_0139;
+    const STATUS_INVALID_IMAGE_FORMAT: u32 = 0xC000_007B;
+    [STATUS_DLL_NOT_FOUND, STATUS_ENTRYPOINT_NOT_FOUND, STATUS_INVALID_IMAGE_FORMAT].contains(&(code as u32))
+}
+
+/// Runs `php.exe -v` from a fresh install: an old build on a machine without
+/// its Visual C++ runtime extracts fine and then never starts.
+fn php_starts(dir: &Path) -> PhpStart {
+    // TODO(linux): Linux uses the system PHP; nothing is downloaded there.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new(dir.join("php.exe")).arg("-v")
+            .creation_flags(CREATE_NO_WINDOW).output();
+        match out {
+            Ok(o) if o.status.success() => PhpStart::Ok,
+            Ok(o) => match o.status.code() {
+                Some(code) if is_missing_dll(code) => PhpStart::MissingRuntime,
+                code => PhpStart::Failed(format!("exit code {code:?}: {}", String::from_utf8_lossy(&o.stderr).trim())),
+            },
+            Err(e) => PhpStart::Failed(e.to_string()),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = dir; PhpStart::Ok }
 }
 
 fn set_php(progress: &Arc<DownloadState>, major: &str, state: TaskState, msg: &str, pct: u8) {
     progress.php.lock().insert(major.to_string(), DownloadProgress { state, message: msg.into(), percent: pct, error: None });
 }
 
-fn configure_ini(dest_dir: &Path) {
+/// `legacy_names`: PHP before 7.2 spells extensions `php_<name>.dll`.
+fn configure_ini(dest_dir: &Path, legacy_names: bool) {
     let src = dest_dir.join("php.ini-production");
     let dst = dest_dir.join("php.ini");
     if dst.exists() { return; }
     let content = if src.exists() { std::fs::read_to_string(&src).unwrap_or_default() } else { minimal_php_ini().to_string() };
+    let _ = std::fs::write(dst, configured_ini(content, legacy_names));
+}
+
+fn configured_ini(content: String, legacy_names: bool) -> String {
     let mut out = content;
     for ext in &["curl","mbstring","openssl","pdo_mysql","pdo_sqlite","fileinfo","intl","zip"] {
-        out = out.replace(&format!(";extension={}", ext), &format!("extension={}", ext));
+        let name = if legacy_names { format!("php_{ext}.dll") } else { ext.to_string() };
+        out = out.replace(&format!(";extension={name}"), &format!("extension={name}"));
     }
+    // 7.4+ writes `;extension_dir`, older php.ini files `; extension_dir`.
     out = out.replace(";extension_dir = \"ext\"", "extension_dir = \"ext\"");
+    out = out.replace("; extension_dir = \"ext\"", "extension_dir = \"ext\"");
     out = out.replace(";cgi.force_redirect = 1", "cgi.force_redirect = 0");
     out = out.replace(";cgi.fix_pathinfo=1", "cgi.fix_pathinfo=1");
-    let _ = std::fs::write(dst, out);
+    out
 }
 
 fn minimal_php_ini() -> &'static str {
@@ -291,6 +312,30 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::TempDir;
+
+    #[test]
+    fn legacy_ini_enables_dll_spelled_extensions_and_ext_dir() {
+        let ini = "; extension_dir = \"ext\"\n;extension=php_curl.dll\n;extension=php_xsl.dll\n;cgi.force_redirect = 1\n".to_string();
+        let out = configured_ini(ini, true);
+        assert!(out.contains("\nextension=php_curl.dll\n"), "{out}");
+        assert!(out.contains(";extension=php_xsl.dll"), "only the chosen extensions are enabled");
+        assert!(out.starts_with("extension_dir = \"ext\""));
+        assert!(out.contains("cgi.force_redirect = 0"));
+    }
+
+    #[test]
+    fn modern_ini_keeps_short_names() {
+        let out = configured_ini(";extension_dir = \"ext\"\n;extension=curl\n".to_string(), false);
+        assert_eq!(out, "extension_dir = \"ext\"\nextension=curl\n");
+    }
+
+    #[test]
+    fn loader_failures_mean_a_missing_runtime() {
+        assert!(is_missing_dll(0xC000_0135_u32 as i32));
+        assert!(is_missing_dll(-1073741515)); // the same code as Windows reports it
+        assert!(!is_missing_dll(1));
+        assert!(!is_missing_dll(255));
+    }
 
     fn write_zip(path: &Path, files: &[(&str, &[u8])]) {
         let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
