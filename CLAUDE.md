@@ -151,7 +151,7 @@ The TypeScript types of the API live in `src/api/generated/` and are **generated
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages (`src/pages/`): Sites (complete), PHP (partial), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
+Pages (`src/pages/`): Sites (complete), PHP (partial), Node (install LTS versions + switch the system-wide active one), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
 
 Verify backend/runtime changes in the desktop app (`npm run tauri dev`), not by serving the React UI in a browser: there is no daemon there. Startup posts `/daemon/quit` to any running instance, so a dev launch closes the user's open Open Herd.
 
@@ -193,6 +193,10 @@ Linux support is currently deferred: PHP on Linux is not functional yet (it spaw
 ## Processes (Windows)
 
 nginx and php-cgi are spawned through `infrastructure/process_guard.rs`: created suspended, assigned to a Job Object with `KILL_ON_JOB_CLOSE`, then resumed — so they (nginx workers included) die with the app however it ends. php-cgi runs with `PHP_FCGI_MAX_REQUESTS=0`, and a supervisor task (`AppContainer::spawn_background_tasks`, every 2 s) restarts it if it exits, giving up after 5 restarts per minute. Shutdown goes through `config_handlers::graceful_shutdown` → `AppHandle::exit` (set via `AppContainer::set_exit_hook`).
+
+## Node versions (Windows)
+
+`infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_stable_releases`: maintained LTS lines + newer Current), zips are verified against `SHASUMS256.txt`.
 
 ## Async tasks
 
