@@ -8,6 +8,7 @@ pub mod file_manager;
 pub mod fs;
 pub mod logging;
 pub mod nginx;
+pub mod node;
 pub mod persistence;
 pub mod php;
 pub mod process_guard;
