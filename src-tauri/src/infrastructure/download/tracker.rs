@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::DownloadState;
-use crate::domain::ports::download::{DownloadProgress, DownloadProgressPort};
+use crate::domain::{node::NodeVersion, ports::download::{DownloadProgress, DownloadProgressPort}};
 
 /// Adaptador de progreso de descargas — envuelve el `DownloadState` legacy
 /// (mutex compartido, poblado desde hilos de fondo) detrás del puerto de dominio.
@@ -42,6 +42,17 @@ impl DownloadProgressPort for DownloadTracker {
     async fn php_progress(&self, major: &str) -> Option<DownloadProgress> {
         self.state.php.lock().get(major).cloned()
     }
+
+    async fn start_node_download(&self, version: &NodeVersion, dest_dir: &Path) {
+        let already_active = self.state.node.lock().get(version.as_str())
+            .is_some_and(|p| p.state.is_active());
+        if already_active { return; }
+        super::node::download_node(version, dest_dir, self.state.clone());
+    }
+
+    async fn node_progress(&self, version: &NodeVersion) -> Option<DownloadProgress> {
+        self.state.node.lock().get(version.as_str()).cloned()
+    }
 }
 
 #[cfg(test)]
@@ -54,6 +65,7 @@ mod tests {
         let tracker = DownloadTracker::new();
         assert!(tracker.nginx_progress().await.is_none());
         assert!(tracker.php_progress("8.2").await.is_none());
+        assert!(tracker.node_progress(&NodeVersion::parse("22.19.0").unwrap()).await.is_none());
     }
 
     #[tokio::test]

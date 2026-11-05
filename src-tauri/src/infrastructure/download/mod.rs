@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::domain::ports::{download::DownloadProgress, task::TaskState};
 
+pub mod node;
 pub mod tracker;
 
 const NGINX_VERSION: &str = "1.26.3";
@@ -17,11 +18,17 @@ const NGINX_SHA256:  &str = "39ca13277b361910f9e463a7e958e11566f7ede8a6f0df08a21
 pub struct DownloadState {
     pub nginx: Mutex<Option<DownloadProgress>>,
     pub php:   Mutex<std::collections::HashMap<String, DownloadProgress>>,
+    /// Keyed by exact Node version (`22.19.0`).
+    pub node:  Mutex<std::collections::HashMap<String, DownloadProgress>>,
 }
 
 impl DownloadState {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { nginx: Mutex::new(None), php: Mutex::new(std::collections::HashMap::new()) })
+        Arc::new(Self {
+            nginx: Mutex::new(None),
+            php: Mutex::new(std::collections::HashMap::new()),
+            node: Mutex::new(std::collections::HashMap::new()),
+        })
     }
 }
 
