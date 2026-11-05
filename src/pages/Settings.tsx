@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Save, FolderPlus, FolderOpen, X, Plus, Check } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, AppConfig, PHPVersion } from "../api/client";
+import { api, AppConfig, NodeStatus, PHPVersion } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import styles from "./Settings.module.css";
 
@@ -9,6 +9,9 @@ export default function Settings() {
   const { toast } = useToast();
   const [config,     setConfig]     = useState<AppConfig | null>(null);
   const [phpVersions, setPhpVersions] = useState<PHPVersion[]>([]);
+  // Node versions may live outside base_dir (nvm-windows' folder), so the path
+  // comes from the Node manager, not from config.
+  const [nodeStatus, setNodeStatus] = useState<NodeStatus | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [offline,    setOffline]    = useState(false);
   const [saving,     setSaving]     = useState(false);
@@ -31,6 +34,7 @@ export default function Settings() {
       .catch(() => setOffline(true))
       .finally(() => setLoading(false));
     api.php.versions().then(setPhpVersions).catch(() => {});
+    api.node.status().then(setNodeStatus).catch(() => {});
   }, []);
 
   const dirty = config !== null && (
@@ -185,12 +189,18 @@ export default function Settings() {
               { label: "Base",  value: config.base_dir },
               { label: "Nginx", value: config.nginx_dir },
               { label: "PHP",   value: config.php_dir },
+              ...(nodeStatus ? [{
+                label: "Node",
+                value: nodeStatus.store_dir,
+                note: nodeStatus.mode === "nvm-windows" ? "nvm-windows" : undefined,
+              }] : []),
               { label: "Certs", value: config.certs_dir },
               { label: "Logs",  value: config.logs_dir },
-            ].map(({ label, value }) => (
+            ].map(({ label, value, note }: { label: string; value: string; note?: string }) => (
               <div key={label} className={styles.pathRow}>
                 <span className={styles.pathLabel}>{label}</span>
                 <code className={styles.pathValue}>{value}</code>
+                {note && <span className={styles.pathNote}>{note}</span>}
               </div>
             ))}
           </div>
