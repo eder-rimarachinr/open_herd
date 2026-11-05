@@ -111,6 +111,13 @@ POST     /api/v1/php/versions/{version}/start
 POST     /api/v1/php/versions/{version}/stop
 GET/PUT  /api/v1/php/versions/{version}/ini
 
+GET      /api/v1/node
+GET      /api/v1/node/releases[?refresh=1]
+POST     /api/v1/node/install
+GET      /api/v1/node/install/{version}/progress
+POST     /api/v1/node/versions/{version}/activate
+DELETE   /api/v1/node/versions/{version}
+
 GET      /api/v1/nginx/status
 GET      /api/v1/nginx/info
 POST     /api/v1/nginx/download
