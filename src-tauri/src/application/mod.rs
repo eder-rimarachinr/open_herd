@@ -1,4 +1,5 @@
 pub mod nginx;
+pub mod node;
 pub mod php;
 pub mod services;
 pub mod site;
