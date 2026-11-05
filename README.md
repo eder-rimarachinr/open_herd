@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/eder-rimarachinr/open_herd/actions/workflows/ci.yml/badge.svg)](https://github.com/eder-rimarachinr/open_herd/actions/workflows/ci.yml)
 
-A local PHP development environment for Windows: serve your projects at `https://project.test` with nginx, any PHP version from 7.4 to 8.5 and trusted SSL certificates — managed from one small desktop app.
+A local PHP development environment for Windows: serve your projects at `https://project.test` with nginx, any PHP version from 5.6 to 8.5, the Node.js version each project needs and trusted SSL certificates — managed from one small desktop app.
 
 ![Open Herd](assets/logo.png)
 
@@ -16,8 +16,10 @@ A local PHP development environment for Windows: serve your projects at `https:/
 
 ## Features
 
-- **Sites** — Add a project folder and it is served at `name.test`. Scan a projects directory to register every subfolder at once. Laravel, CodeIgniter 4/3, WordPress, SPA (`dist/` / `build/`) and static sites are detected and get the right document root.
-- **PHP** — Install PHP 7.4 – 8.5 from windows.php.net (every download verified against a pinned SHA-256), or use the PHP already on your machine (XAMPP, WAMP, Laragon, `PATH`, or folders you configure). Pick the PHP version per site, and edit each version's `php.ini` extensions and settings from the app. When a newer patch release exists, the PHP page shows it with an **Update** button.
+- **Sites** — Add a project folder and it is served at `name.test`. Scan a projects directory to register every subfolder at once. Laravel, CodeIgniter 4/3, WordPress, SPA (`dist/` / `build/`) and static sites are detected and get the right document root. If the folder you pick only wraps the real project (`laravel\` holding `todoList\`), the site points at the project inside. You can change a site's folder later from its detail panel; the project type and vhost follow.
+- **PHP** — Install PHP 5.6 – 8.5 from windows.php.net (every download verified against a pinned SHA-256), or use the PHP already on your machine (XAMPP, WAMP, Laragon, `PATH`, or folders you configure). Pick the PHP version per site, and edit each version's `php.ini` extensions and settings from the app. When a newer patch release exists, the PHP page shows it with an **Update** button. If an old build is missing its Microsoft Visual C++ runtime, the install says which one to get.
+- **Node.js** — Install any LTS line from nodejs.org (4.x to the latest) and switch the active version for the whole system. Works alongside [nvm-windows](https://github.com/coreybutler/nvm-windows) when it is installed (same versions folder), and warns when another Node on `PATH` would shadow the active one.
+- **Old versions on demand** — The PHP and Node pages list installed versions first, then supported ones; end-of-life lines (PHP 5.6–8.0, Node LTS lines nodejs.org no longer maintains) wait behind a *Show end-of-life versions* toggle for legacy projects.
 - **nginx** — Downloaded and verified on first use; vhosts are generated for every site.
 - **HTTPS** — One click per site via [mkcert](https://github.com/FiloSottile/mkcert): certificates your browser trusts.
 - **DNS** — `.test` entries are added to and removed from the Windows `hosts` file for you.
@@ -59,6 +61,7 @@ Notes:
 4. **Sites** page → **+** to add a project folder, or add your projects directory under *Scanned Dirs* and press **Scan**.
 5. Press **Start all** in the sidebar, then open `http://name.test`.
 6. Optional: select a site and press **Enable HTTPS**. The first time, mkcert installs its local root certificate; accept the prompt.
+7. Optional: **Node** page → install the Node versions your projects use and **Activate** one. Terminals opened after the switch use it.
 
 ---
 
@@ -71,6 +74,8 @@ Installed: `%USERPROFILE%\.phpenv\` · Portable: `data\` next to `open-herd.exe`
 ├── config.json              Settings (ports, default PHP, scanned dirs, PHP dirs)
 ├── sites.json               Registered sites
 ├── php/<major>/             PHP versions installed by Open Herd
+├── node/                    Node versions (v<x.y.z>/) and the `current` link — only without nvm-windows,
+│                            which keeps its own folder (%LOCALAPPDATA%\nvm) and link (C:\nvm4w\nodejs)
 ├── nginx/
 │   ├── nginx.conf           Generated on every start (previous one kept as nginx.conf.bak)
 │   └── sites/*.conf         One vhost per site
@@ -90,6 +95,9 @@ If `config.json` or `sites.json` ever becomes unreadable, Open Herd renames it t
 | nginx won't start / port 80 or 443 in use | Another web server is using it (Laravel Herd, IIS, Apache/XAMPP…). Stop it, or change the HTTP/HTTPS ports in **Settings**. |
 | `name.test` doesn't resolve | Open Herd was not running as administrator when the site was added. Run it as administrator and press *Refresh config* on the site, or add the `hosts` line yourself. |
 | Site answers 502 Bad Gateway | The site's PHP version isn't running. Press **Start all**, or start that version on the **PHP** page. |
+| An old PHP (5.6–7.x) installs but won't start | Its Microsoft Visual C++ runtime is missing: the install message names it and links the download (2012 for 5.6, 2015-2022 for 7.x). Install it and press *Rescan*. |
+| Site shows a file listing instead of the app | The folder isn't the project root (type *Generic*). Select the site and use **Change** next to its path to pick the folder with `artisan`, `wp-config.php`… |
+| `node -v` still shows the old version | Open a new terminal. If it persists, the Node page warns about another Node folder earlier on `PATH`; remove it. |
 | "Daemon offline" banner | The app's internal API (`127.0.0.1:7878`) didn't start. Usually another process holds that port. Restart Open Herd; the reason is in `logs\daemon-crash.log`. |
 | Something else | The **Logs** page shows what the app did and nginx's error log. |
 
@@ -174,6 +182,8 @@ Stack: Tauri 2 · React 18 · TypeScript · Vite · Rust (axum, tokio, reqwest, 
 | Static | `index.html` | project root |
 | Generic | anything else | project root, directory listing on |
 
+A *Generic* folder that holds exactly one Laravel, CodeIgniter, WordPress or SPA project one level down is treated as a wrapper: the site is created on that subfolder instead (on add, bulk add and scan).
+
 ---
 
 ## Platform status
@@ -201,6 +211,15 @@ Open Herd installs these builds (NTS, x64) from windows.php.net:
 | 8.2 | 8.2.35 | Security fixes only |
 | 8.1 | 8.1.34 | End of life — no more Windows builds |
 | 8.0 / 7.4 | 8.0.30 / 7.4.33 | End of life — for legacy projects only |
+| 7.3 / 7.2 | 7.3.33 / 7.2.34 | End of life — legacy, needs the VC++ 2015-2022 runtime |
+| 7.1 / 7.0 | 7.1.33 / 7.0.33 | End of life — legacy, needs the VC++ 2015-2022 runtime |
+| 5.6 | 5.6.40 | End of life — legacy, needs the VC++ 2012 runtime |
+
+The end-of-life builds come from windows.php.net's archive, which publishes no checksums; their SHA-256 were recorded from the files it serves and every later download is checked against them.
+
+## Supported Node.js versions
+
+The newest release of every LTS line that nodejs.org ships as a Windows x64 zip — 4.x (Argon) up to the current LTS — plus the newest "Current" line when it is ahead of every LTS. The list is read from `nodejs.org/dist/index.json` (cached for an hour), so new releases show up without an Open Herd update. Lines with no release in six months are marked end of life.
 
 8.2.35, 8.3.36, 8.4.27 and 8.5.12 fix CVE-2026-109618 and CVE-2026-109619 ([INCIBE-CERT notice](https://www.incibe.es/incibe-cert/alerta-temprana/avisos/multiples-vulnerabilidades-en-php), October 2026). Open Herd does not update installed versions on its own: press **Update** on the PHP page for each version you use.
 
@@ -222,10 +241,13 @@ A personal backlog, roughly in priority order. Issues and ideas are welcome on [
 - [x] Redesigned UI (dark and light themes)
 - [x] Patched PHP releases for CVE-2026-109618 / CVE-2026-109619
 - [x] NSIS, MSI and portable releases built by GitHub Actions
+- [x] Node.js page: install LTS lines and switch the active version (nvm-windows aware)
+- [x] End-of-life PHP (5.6 – 8.0) and Node (4.x and up) lines for legacy projects, in a list layout
+- [x] Wrapper folders resolved to the project inside; a site's folder can be changed after creation
 
 ### Next
 
-- [ ] Release v0.2.1 with the patched PHP versions
+- [ ] Release v0.3.0 (patched PHP versions, Node page, legacy versions)
 - [ ] Read the PHP release list from windows.php.net instead of a list built into the app, so security patches don't wait for an Open Herd release
 - [ ] Code-sign the installers (no more SmartScreen warning)
 

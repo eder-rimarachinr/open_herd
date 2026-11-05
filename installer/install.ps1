@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/TU_USUARIO/open_herd/main/installer/install.ps1 | iex
 #
 # O con versión específica:
-#   $env:OPENHERD_VERSION = "0.2.0"
+#   $env:OPENHERD_VERSION = "0.3.0"
 #   irm https://...install.ps1 | iex
 
 [CmdletBinding()]
