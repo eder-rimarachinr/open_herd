@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Check, Download, AlertCircle, X, Plus, Settings2, Play, Square, FileCog, FolderOpen } from "lucide-react";
+import { RefreshCw, Download, AlertCircle, X, Plus, Settings2, Play, Square, FileCog, FolderOpen, ChevronRight } from "lucide-react";
 import { api, AppConfig, CatalogEntry, InstallProgress, PhpExtension, PhpIniConfig, PhpSetting } from "../api/client";
 import { phpPort } from "../api/ports";
 import { useToast } from "../context/ToastContext";
 import styles from "./PHP.module.css";
+import list from "./VersionList.module.css";
+
+const EOL_TITLE = "No longer maintained: no bug or security fixes";
 
 // ── Extension categories with display labels ──────────────────────────────────
 const CATEGORY_LABELS: Record<string, string> = {
@@ -31,6 +34,7 @@ export default function PHP() {
   const [iniSaving,  setIniSaving]  = useState(false);
   const [iniEdits,    setIniEdits]    = useState<Record<string, boolean>>({}); // extension toggles
   const [settingEdits, setSettingEdits] = useState<Record<string, string>>({}); // setting values
+  const [showEol, setShowEol] = useState(false);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
@@ -194,6 +198,124 @@ export default function PHP() {
       })).filter(g => g.exts.length > 0)
     : [];
 
+  // Installed lines first (any age), then supported ones; end-of-life lines
+  // nobody installed wait behind a toggle.
+  const installedLines = catalog.filter((e) => e.installed);
+  const supportedLines = catalog.filter((e) => !e.installed && !e.end_of_life);
+  const eolLines       = catalog.filter((e) => !e.installed && e.end_of_life);
+
+  function phpRow(entry: CatalogEntry) {
+    const prog = installs[entry.major];
+    const installing = prog && prog.state !== "done" && prog.state !== "error";
+    const isOpen = iniPanel === entry.major;
+    const port = phpPort(entry.major);
+    const isDefault = config?.default_php === entry.major;
+
+    return (
+      <div
+        key={entry.major}
+        className={[
+          list.row,
+          isDefault && entry.installed ? list.rowActive : "",
+          isOpen ? list.rowSelected : "",
+          entry.end_of_life ? list.rowEol : "",
+        ].join(" ")}
+        data-testid={`php-row-${entry.major}`}
+      >
+        <span className={list.ver}>
+          {entry.installed ? entry.installed_patch || entry.major : entry.latest_patch}
+        </span>
+        <div className={list.info}>
+          <div className={list.badges}>
+            {entry.installed && <span className={`${styles.tag} ${styles.tagActive}`}>Installed</span>}
+            {entry.security_only && <span className={`${styles.tag} ${styles.tagSecurity}`}>security fixes only</span>}
+            {entry.end_of_life && <span className={`${styles.tag} ${styles.tagEol}`} title={EOL_TITLE}>End of life</span>}
+            {!entry.security_only && !entry.end_of_life && <span className={`${styles.tag} ${styles.tagActive}`}>supported</span>}
+          </div>
+          <div className={list.meta}>
+            PHP {entry.major}
+            {entry.running && <> · running on :{port ?? "?"}</>}
+            {entry.installed && entry.has_update && <b> · {entry.latest_patch} available</b>}
+          </div>
+        </div>
+
+        <div className={list.actions}>
+          {installing && prog ? (
+            <div className={list.progress}>
+              <div className={list.progressTrack}><div className={list.progressFill} style={{ width: `${prog.percent}%` }} /></div>
+              <span className={list.progressLabel}>{prog.message}</span>
+            </div>
+          ) : (
+            <>
+              {prog?.state === "error" && (
+                <button
+                  className={styles.btnError}
+                  title="Click to dismiss"
+                  onClick={() => setInstalls((prev) => { const n = { ...prev }; delete n[entry.major]; return n; })}
+                >
+                  <AlertCircle size={12} /> {prog.error ?? "Install failed"}
+                </button>
+              )}
+              {prog?.state !== "error" && !entry.installed && (
+                <button className={styles.btnInstall} onClick={() => handleInstall(entry.major)} aria-label={`Install PHP ${entry.major}`}>
+                  <Download size={13} /> Install
+                </button>
+              )}
+              {prog?.state !== "error" && entry.installed && entry.has_update && (
+                <button className={styles.btnUpdate} onClick={() => handleInstall(entry.major)} aria-label={`Update PHP ${entry.major}`}>
+                  Update
+                </button>
+              )}
+              {entry.installed && (
+                <label className={styles.defaultLabel} title="PHP version new sites use">
+                  <input
+                    type="radio"
+                    name="active_php"
+                    checked={isDefault}
+                    onChange={() => handleSetActive(entry.major)}
+                  />
+                  Default
+                </label>
+              )}
+              {entry.installed && !entry.running && (
+                <button
+                  className={styles.btnIcon}
+                  onClick={() => handleStart(entry.major)}
+                  disabled={toggling[entry.major]}
+                  title={`Start PHP ${entry.major}`}
+                  aria-label={`Start PHP ${entry.major}`}
+                >
+                  <Play size={13} />
+                </button>
+              )}
+              {entry.installed && entry.running && (
+                <button
+                  className={[styles.btnIcon, styles.btnIconStop].join(" ")}
+                  onClick={() => handleStop(entry.major)}
+                  disabled={toggling[entry.major]}
+                  title={`Stop PHP ${entry.major}`}
+                  aria-label={`Stop PHP ${entry.major}`}
+                >
+                  <Square size={12} />
+                </button>
+              )}
+              {entry.installed && (
+                <button
+                  className={[styles.btnIcon, isOpen ? styles.btnIconActive : ""].join(" ")}
+                  onClick={() => isOpen ? setIniPanel(null) : openIniPanel(entry.major)}
+                  title="Configure php.ini extensions"
+                  aria-expanded={isOpen}
+                >
+                  <Settings2 size={14} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -219,125 +341,27 @@ export default function PHP() {
         </div>
       )}
 
-      <div className={styles.grid}>
-        {catalog.map((entry) => {
-          const prog = installs[entry.major];
-          const installing = prog && prog.state !== "done" && prog.state !== "error";
-          const isOpen = iniPanel === entry.major;
-          const port = phpPort(entry.major);
-
-          return (
-            <div
-              key={entry.major}
-              className={[
-                styles.card,
-                entry.end_of_life ? styles.eol : "",
-                isOpen ? styles.cardSelected : "",
-              ].join(" ")}
-            >
-              <div className={styles.cardTop}>
-                <span className={styles.major}>{entry.major}</span>
-                {entry.installed && <span className={styles.checkmark} title="Installed"><Check size={14} strokeWidth={2.5} /></span>}
-                <span className={styles.chips}>
-                  {entry.security_only && <span className={`${styles.tag} ${styles.tagSecurity}`}>security</span>}
-                  {entry.end_of_life   && <span className={`${styles.tag} ${styles.tagEol}`}>EOL</span>}
-                  {!entry.security_only && !entry.end_of_life && <span className={`${styles.tag} ${styles.tagActive}`}>supported</span>}
-                </span>
-              </div>
-
-              <div className={styles.patch}>
-                {entry.installed
-                  ? entry.installed_patch || "installed"
-                  : `latest ${entry.latest_patch}`}
-                {entry.installed && entry.has_update && <span className={styles.updateNote}> · {entry.latest_patch} available</span>}
-              </div>
-
-              {installing && prog ? (
-                <div className={styles.progress}>
-                  <div className={styles.progressTrack}>
-                    <div className={styles.progressFill} style={{ width: `${prog.percent}%` }} />
-                  </div>
-                  <span className={styles.progressLabel}>{prog.message}</span>
-                </div>
-              ) : (
-                <div className={styles.cardFoot}>
-                  {entry.installed ? (
-                    <label className={styles.defaultLabel}>
-                      <input
-                        type="radio"
-                        name="active_php"
-                        checked={config?.default_php === entry.major}
-                        onChange={() => handleSetActive(entry.major)}
-                      />
-                      Default
-                    </label>
-                  ) : (
-                    <span className={styles.notInstalled}>Not installed</span>
-                  )}
-
-                  {entry.running ? (
-                    <span className={styles.running}>
-                      <span className="status-dot on" title="Running" />
-                      {port ? `:${port}` : "on"}
-                    </span>
-                  ) : null}
-
-                  <span className={styles.actions}>
-                    {prog?.state === "error" && (
-                      <button
-                        className={styles.btnError}
-                        title="Click to dismiss"
-                        onClick={() => setInstalls((prev) => { const n = { ...prev }; delete n[entry.major]; return n; })}
-                      >
-                        <AlertCircle size={12} /> {prog.error ?? "Install failed"}
-                      </button>
-                    )}
-                    {prog?.state !== "error" && !entry.installed && (
-                      <button className={styles.btnInstall} onClick={() => handleInstall(entry.major)}>
-                        <Download size={13} /> Install
-                      </button>
-                    )}
-                    {prog?.state !== "error" && entry.installed && entry.has_update && (
-                      <button className={styles.btnUpdate} onClick={() => handleInstall(entry.major)}>
-                        Update
-                      </button>
-                    )}
-                    {entry.installed && !entry.running && (
-                      <button
-                        className={styles.btnIcon}
-                        onClick={() => handleStart(entry.major)}
-                        disabled={toggling[entry.major]}
-                        title={`Start PHP ${entry.major}`}
-                      >
-                        <Play size={13} />
-                      </button>
-                    )}
-                    {entry.installed && entry.running && (
-                      <button
-                        className={[styles.btnIcon, styles.btnIconStop].join(" ")}
-                        onClick={() => handleStop(entry.major)}
-                        disabled={toggling[entry.major]}
-                        title={`Stop PHP ${entry.major}`}
-                      >
-                        <Square size={12} />
-                      </button>
-                    )}
-                    {entry.installed && (
-                      <button
-                        className={[styles.btnIcon, isOpen ? styles.btnIconActive : ""].join(" ")}
-                        onClick={() => isOpen ? setIniPanel(null) : openIniPanel(entry.major)}
-                        title="Configure php.ini extensions"
-                        aria-expanded={isOpen}
-                      >
-                        <Settings2 size={14} />
-                      </button>
-                    )}
-                  </span>
-                </div>
-              )}
+      <div className={list.list}>
+        {[...installedLines, ...supportedLines].map(phpRow)}
+        {eolLines.length > 0 && (
+          <button
+            className={[list.eolToggle, showEol ? list.eolToggleOpen : ""].join(" ")}
+            onClick={() => setShowEol((v) => !v)}
+            aria-expanded={showEol}
+          >
+            <ChevronRight size={14} />
+            {showEol ? "Hide" : "Show"} {eolLines.length} end-of-life {eolLines.length === 1 ? "version" : "versions"}
+            <span className={list.meta}>({eolLines.map((e) => e.major).join(", ")})</span>
+          </button>
+        )}
+        {showEol && eolLines.length > 0 && (
+          <>
+            <div className={list.eolNote}>
+              {EOL_TITLE}. Older builds need the matching Microsoft Visual C++ runtime; if it is missing, the install tells you which one.
             </div>
-          );
-        })}
+            {eolLines.map(phpRow)}
+          </>
+        )}
       </div>
 
       {/* ── php.ini panel ──────────────────────────────────────────── */}

@@ -133,10 +133,12 @@ impl NodeReleasesPort for FakeNodeReleases {
     async fn releases(&self, _refresh: bool) -> Result<Vec<NodeReleaseInfo>, InfrastructureError> {
         if self.fail { return Err(InfrastructureError::DownloadFailed("nodejs.org unreachable".into())); }
         let today = chrono::Local::now().date_naive();
-        Ok(vec![NodeReleaseInfo {
-            version: NodeVersion::parse("24.21.0").unwrap(), date: today, lts: Some("Krypton".into()),
-            security: false, has_win_x64_zip: true,
-        }])
+        let rel = |v: &str, date: chrono::NaiveDate, lts: &str| NodeReleaseInfo {
+            version: NodeVersion::parse(v).unwrap(), date, lts: Some(lts.into()), security: false, has_win_x64_zip: true,
+        };
+        // 10.x: an LTS line nodejs.org stopped releasing years ago.
+        let long_ago = chrono::NaiveDate::from_ymd_opt(2021, 4, 6).unwrap_or(today);
+        Ok(vec![rel("24.21.0", today, "Krypton"), rel("10.24.1", long_ago, "Dubnium")])
     }
 }
 

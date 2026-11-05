@@ -64,9 +64,21 @@ pub struct NodeReleaseInfo {
 /// treated as no longer maintained (`index.json` has no end-of-life dates).
 const MAINTAINED_WITHIN_DAYS: i64 = 183;
 
-/// Newest release of each LTS line that is still maintained, plus the newest
-/// non-LTS ("Current") line when it is newer than every LTS line. Newest first.
-pub fn select_stable_releases(all: &[NodeReleaseInfo], today: NaiveDate) -> Vec<NodeReleaseInfo> {
+/// A release line worth offering: its newest release with a Windows zip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeOffer {
+    pub release: NodeReleaseInfo,
+    /// The line gets no more releases (no fixes, security ones included).
+    pub end_of_life: bool,
+}
+
+/// The newest release of every LTS line, maintained or not, so projects pinned
+/// to an old Node (10, 8…) can still get it; plus the newest non-LTS
+/// ("Current") line when it is maintained and newer than every LTS line.
+/// Old odd-numbered lines are skipped: they were never meant for production.
+/// Only lines with a Windows x64 zip count (nodejs.org has them from 4.x on).
+/// Newest first.
+pub fn select_releases(all: &[NodeReleaseInfo], today: NaiveDate) -> Vec<NodeOffer> {
     let mut newest_per_major: Vec<&NodeReleaseInfo> = Vec::new();
     for r in all.iter().filter(|r| r.has_win_x64_zip) {
         match newest_per_major.iter_mut().find(|n| n.version.major() == r.version.major()) {
@@ -75,18 +87,19 @@ pub fn select_stable_releases(all: &[NodeReleaseInfo], today: NaiveDate) -> Vec<
         }
     }
     let maintained = |r: &NodeReleaseInfo| (today - r.date).num_days() < MAINTAINED_WITHIN_DAYS;
-    let mut out: Vec<NodeReleaseInfo> = newest_per_major.iter()
-        .filter(|r| r.lts.is_some() && maintained(r))
-        .map(|r| (*r).clone())
+    let offer = |r: &NodeReleaseInfo| NodeOffer { release: r.clone(), end_of_life: !maintained(r) };
+    let mut out: Vec<NodeOffer> = newest_per_major.iter()
+        .filter(|r| r.lts.is_some())
+        .map(|r| offer(r))
         .collect();
-    let newest_lts_major = out.iter().map(|r| r.version.major()).max().unwrap_or(0);
+    let newest_lts_major = out.iter().map(|o| o.release.version.major()).max().unwrap_or(0);
     if let Some(current) = newest_per_major.iter()
         .filter(|r| r.lts.is_none() && r.version.major() > newest_lts_major && maintained(r))
         .max_by(|a, b| a.version.cmp(&b.version))
     {
-        out.push((*current).clone());
+        out.push(offer(current));
     }
-    out.sort_by(|a, b| b.version.cmp(&a.version));
+    out.sort_by(|a, b| b.release.version.cmp(&a.release.version));
     out
 }
 
@@ -129,25 +142,41 @@ mod tests {
             rel("24.21.0", "2026-10-01", Some("Krypton"), true),
             rel("24.22.0", "2026-10-20", Some("Krypton"), false), // no Windows zip: ignored
             rel("22.21.0", "2026-08-01", Some("Jod"), true),
-            rel("20.19.5", "2026-03-01", Some("Iron"), true),     // > 183 days old
+            rel("20.19.5", "2026-03-01", Some("Iron"), true),     // > 183 days old: end of life
             rel("25.9.0",  "2026-04-10", None, true),             // Current older than LTS 26
+            rel("11.15.0", "2019-04-30", None, true),             // old odd line: skipped
+            rel("10.24.1", "2021-04-06", Some("Dubnium"), true),
+            rel("10.24.0", "2021-02-23", Some("Dubnium"), true),
+            rel("5.12.0",  "2016-06-23", None, false),
+            rel("4.9.1",   "2018-03-29", Some("Argon"), true),
+            rel("0.12.18", "2017-02-22", None, false),            // no Windows zip
         ]
     }
 
-    fn versions(rs: &[NodeReleaseInfo]) -> Vec<&str> { rs.iter().map(|r| r.version.as_str()).collect() }
+    fn versions(rs: &[NodeOffer]) -> Vec<&str> { rs.iter().map(|o| o.release.version.as_str()).collect() }
+    fn eol(rs: &[NodeOffer], ver: &str) -> bool { rs.iter().find(|o| o.release.version.as_str() == ver).unwrap().end_of_life }
 
     #[test]
-    fn filter_keeps_maintained_lts_lines_newest_first() {
-        let picked = select_stable_releases(&fixtures(), d("2026-11-05"));
-        assert_eq!(versions(&picked), ["26.13.0", "24.21.0", "22.21.0"]);
+    fn offers_every_lts_line_back_to_the_oldest_zip_newest_first() {
+        let picked = select_releases(&fixtures(), d("2026-11-05"));
+        assert_eq!(versions(&picked), ["26.13.0", "24.21.0", "22.21.0", "20.19.5", "10.24.1", "4.9.1"]);
     }
 
     #[test]
-    fn filter_includes_current_when_newer_than_lts() {
+    fn unmaintained_lines_are_end_of_life() {
+        let picked = select_releases(&fixtures(), d("2026-11-05"));
+        assert!(!eol(&picked, "26.13.0") && !eol(&picked, "22.21.0"));
+        assert!(eol(&picked, "20.19.5") && eol(&picked, "10.24.1") && eol(&picked, "4.9.1"));
+    }
+
+    #[test]
+    fn current_line_only_when_maintained_and_newer_than_lts() {
         let mut all = fixtures();
         all.push(rel("27.1.0", "2026-11-01", None, true));
         all.push(rel("27.0.0", "2026-10-30", None, true));
-        let picked = select_stable_releases(&all, d("2026-11-05"));
-        assert_eq!(versions(&picked), ["27.1.0", "26.13.0", "24.21.0", "22.21.0"]);
+        let picked = select_releases(&all, d("2026-11-05"));
+        assert_eq!(versions(&picked)[..2], ["27.1.0", "26.13.0"]);
+        assert!(!eol(&picked, "27.1.0"));
+        assert!(!versions(&picked).contains(&"25.9.0"));
     }
 }

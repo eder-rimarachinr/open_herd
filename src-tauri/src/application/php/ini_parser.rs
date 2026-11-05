@@ -83,8 +83,11 @@ pub fn parse_extensions(content: &str) -> Vec<ExtensionState> {
 
 pub fn apply_extension_changes(content: &str, changes: &[ExtensionChange]) -> String {
     let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+    // PHP before 7.2 only loads `php_<name>.dll`: keep that spelling where the file uses it.
+    let legacy = content.lines()
+        .any(|l| extension_directive(l).is_some() && l.contains("php_") && l.contains(".dll"));
     for change in changes {
-        let directive = format!("extension={}", change.name);
+        let directive = if legacy { format!("extension=php_{}.dll", change.name) } else { format!("extension={}", change.name) };
         let wanted = if change.enabled { directive.clone() } else { format!(";{directive}") };
         // Prefer an active line for this exact extension, then a commented one.
         let matching = |active: bool| lines.iter().position(|l| {
@@ -245,6 +248,16 @@ mod tests {
     #[test]
     fn enabling_a_missing_extension_appends_it() {
         assert_eq!(apply_extension_changes("[PHP]\n", &[toggle("intl", true)]), "[PHP]\nextension=intl\n");
+    }
+
+    #[test]
+    fn legacy_files_keep_the_dll_spelling() {
+        // PHP 5.6–7.1 ignore `extension=curl`; their php.ini lists `php_<name>.dll`.
+        let ini = ";extension=php_curl.dll\nextension=php_intl.dll\n";
+        assert_eq!(
+            apply_extension_changes(ini, &[toggle("curl", true), toggle("intl", false), toggle("gd", true)]),
+            "extension=php_curl.dll\n;extension=php_intl.dll\nextension=php_gd.dll\n"
+        );
     }
 
     #[test]

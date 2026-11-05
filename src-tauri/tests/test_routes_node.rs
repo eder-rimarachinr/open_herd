@@ -63,8 +63,9 @@ async fn releases_list_marks_installed() {
     let tmp = TempDir::new().unwrap();
     let server = make_server_with_node(&tmp, FakeNodeManager::new(&["24.21.0"], Some("24.21.0")), false);
     let body = server.get("/api/v1/node/releases").await.json::<Vec<Value>>();
-    assert_eq!(body.len(), 1);
+    assert_eq!(body.len(), 2);
     assert_eq!(body[0]["version"], "24.21.0");
+    assert_eq!(body[0]["end_of_life"], false);
     assert_eq!(body[0]["major"], 24);
     assert_eq!(body[0]["lts"], "Krypton");
     assert_eq!(body[0]["installed"], true);
@@ -100,4 +101,16 @@ async fn install_progress_is_idle_before_any_download() {
     let body = server.get("/api/v1/node/install/24.21.0/progress").await.json::<Value>();
     assert_eq!(body["version"], "24.21.0");
     assert_eq!(body["state"], "idle");
+}
+
+#[tokio::test]
+async fn releases_include_old_lts_lines_marked_end_of_life() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server_with_node(&tmp, FakeNodeManager::new(&[], None), false);
+    let body = server.get("/api/v1/node/releases").await.json::<Vec<Value>>();
+    let node10 = body.iter().find(|r| r["major"] == 10).expect("Node 10 is offered");
+    assert_eq!(node10["version"], "10.24.1");
+    assert_eq!(node10["lts"], "Dubnium");
+    assert_eq!(node10["end_of_life"], true);
+    assert_eq!(node10["installed"], false);
 }
