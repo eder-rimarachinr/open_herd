@@ -32,6 +32,7 @@ export default function Sites() {
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [folderLoading,  setFolderLoading]  = useState(false);
   const [changingPhp,    setChangingPhp]    = useState(false);
+  const [changingPath,   setChangingPath]   = useState(false);
   const [deleteLoading,  setDeleteLoading]  = useState(false);
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [config,         setConfig]         = useState<any>(null);
@@ -114,7 +115,8 @@ export default function Sites() {
       const site = await api.sites.create({ domain, path, php_version: newPhp || config?.default_php });
       setSites((prev) => sortSites([...prev, site]));
       selectSite(site.id);
-      toast(`${site.domain} added`);
+      // The daemon points a folder that only wraps one project at that project.
+      toast(site.path !== path ? `${site.domain} added, using the project in ${site.path}` : `${site.domain} added`);
     }
     catch (e: any) { setError(e.message); }
     finally { setAddingLoading(false); }
@@ -198,6 +200,30 @@ export default function Sites() {
     }
     catch (e: any) { setError(e.message); }
     finally { setChangingPhp(false); }
+  }
+
+  /** Re-points the selected site at another folder; the daemon re-detects the
+   *  project type and rewrites the vhost. */
+  async function changePath() {
+    if (!selected) return;
+    let path: string;
+    try {
+      const picked = await open({ directory: true, multiple: false, defaultPath: selected.path, title: "Select the site folder" });
+      if (!picked) return;
+      path = typeof picked === "string" ? picked : picked[0];
+    } catch { return; }
+    if (!path || path === selected.path) return;
+    setChangingPath(true); setError(null);
+    try {
+      const updated = await api.sites.update(selected.id, { path });
+      setSites((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+      toast(`${updated.domain} now serves ${updated.path} (${TYPE_LABELS[updated.project_type] ?? updated.project_type})`);
+    }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg); toast(msg, "error");
+    }
+    finally { setChangingPath(false); }
   }
 
   async function pickPath(setter: (p: string) => void) {
@@ -521,6 +547,14 @@ export default function Sites() {
                 <div className={s.propGrid}>
                   <PropRow label="Path">
                     <code className={s.mono}>{selected.path}</code>
+                    <button
+                      className={[s.actionBtn, s.actionBtnSm].join(" ")}
+                      onClick={changePath}
+                      disabled={changingPath}
+                      aria-label="Change site folder"
+                    >
+                      <FolderOpen size={13} /> {changingPath ? "Changing…" : "Change"}
+                    </button>
                   </PropRow>
                   <PropRow label="URL">
                     <button className={s.linkBtn} onClick={() => openUrl(siteUrl)}>

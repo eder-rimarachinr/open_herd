@@ -96,6 +96,7 @@ pub async fn create_site(
 pub struct UpdateSiteRequest {
     php_version: Option<String>,
     active:      Option<bool>,
+    path:        Option<String>,
 }
 
 pub async fn update_site(
@@ -103,7 +104,7 @@ pub async fn update_site(
     Path(id): Path<String>,
     ApiJson(body): ApiJson<UpdateSiteRequest>,
 ) -> impl IntoResponse {
-    let cmd = UpdateSiteCommand { site_id: id, php_version: body.php_version, active: body.active };
+    let cmd = UpdateSiteCommand { site_id: id, php_version: body.php_version, active: body.active, path: body.path };
     match container.update_site_uc.execute(cmd).await {
         Ok(site) => Json(site_mapper::to_legacy(&site)).into_response(),
         Err(e)   => domain_err(&e).into_response(),

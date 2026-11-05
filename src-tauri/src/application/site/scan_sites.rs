@@ -70,7 +70,10 @@ impl ScanSitesUseCase {
                 let domain_str = format!("{}.test", name.to_lowercase());
                 if seen_domains.contains(&domain_str) { continue; }
 
-                let path_str = path.to_string_lossy().to_string();
+                // The domain keeps the scanned folder name; the path may be the
+                // single framework project that folder wraps.
+                let (path_str, project_type) =
+                    project_type_detector::resolve_site_root(&path.to_string_lossy());
 
                 // Validar — dominios con caracteres inválidos se saltan silenciosamente
                 let domain = match DomainName::new(&domain_str) {
@@ -85,7 +88,7 @@ impl ScanSitesUseCase {
                 let mut site = crate::domain::site::entity::Site::new(
                     name.clone(), domain, site_path,
                 );
-                site.project_type = project_type_detector::detect(&path_str);
+                site.project_type = project_type;
                 if let Some(ref ver) = cmd.default_php {
                     if let Some(v) = crate::domain::site::value_objects::PhpVersion::parse(ver) {
                         site.php_version = Some(v);
