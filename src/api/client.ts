@@ -68,8 +68,14 @@ import type { ServiceStatus } from "./generated/ServiceStatus";
 import type { Site } from "./generated/Site";
 import type { SiteInfo } from "./generated/SiteInfo";
 import type { TaskState } from "./generated/TaskState";
+import type { NodeInstallProgress } from "./generated/NodeInstallProgress";
+import type { NodeInstalled } from "./generated/NodeInstalled";
+import type { NodeMode } from "./generated/NodeMode";
+import type { NodeReleaseEntry } from "./generated/NodeReleaseEntry";
+import type { NodeStatus } from "./generated/NodeStatus";
 export type {
   AppConfig, AsyncTask, CatalogEntry, DaemonStatus, InstallProgress, NginxInfo, NginxRunning, NginxStatus, PHPVersion, PhpExtension, PhpIniConfig, PhpSetting, PhpVersionStatus, ProjectType, ServiceStatus, Site, SiteInfo, TaskState,
+  NodeInstallProgress, NodeInstalled, NodeMode, NodeReleaseEntry, NodeStatus,
 };
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -128,6 +134,19 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ extensions, settings }),
       }),
+  },
+
+  node: {
+    status: () => request<NodeStatus>("/node"),
+    // Fetches nodejs.org's release index on a cold cache: give it time.
+    releases: (refresh = false) =>
+      request<NodeReleaseEntry[]>(`/node/releases${refresh ? "?refresh=1" : ""}`, { timeoutMs: TIMEOUT_LONG }),
+    install: (version: string) =>
+      request<{ ok: boolean; state: TaskState }>("/node/install", { method: "POST", body: JSON.stringify({ version }), timeoutMs: TIMEOUT_LONG }),
+    installProgress: (version: string) => request<NodeInstallProgress>(`/node/install/${version}/progress`),
+    activate: (version: string) => request<NodeStatus>(`/node/versions/${version}/activate`, { method: "POST" }),
+    uninstall: (version: string) =>
+      request<{ ok: boolean }>(`/node/versions/${version}`, { method: "DELETE", timeoutMs: TIMEOUT_LONG }),
   },
 
   config: {

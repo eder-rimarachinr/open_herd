@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{delete, get, post},
     http::{Method, StatusCode, header},
     extract::Request,
     middleware::{self, Next},
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 use crate::infrastructure::container::AppContainer;
-use crate::ports::http::{config_handlers, nginx_handlers, php_handlers, site_handlers};
+use crate::ports::http::{config_handlers, nginx_handlers, node_handlers, php_handlers, site_handlers};
 
 /// Extract the hostname from a `Host` or `authority` value, dropping the port.
 /// Handles bracketed IPv6 (`[::1]:7878`).
@@ -107,6 +107,12 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/php/versions/{version}/start",   post(php_handlers::start_php_fpm))
         .route("/api/v1/php/versions/{version}/stop",    post(php_handlers::stop_php_fpm))
         .route("/api/v1/php/versions/{version}/ini",     get(php_handlers::get_php_ini).put(php_handlers::update_php_ini))
+        .route("/api/v1/node",                           get(node_handlers::node_status))
+        .route("/api/v1/node/releases",                  get(node_handlers::node_releases))
+        .route("/api/v1/node/install",                   post(node_handlers::install_node))
+        .route("/api/v1/node/install/{version}/progress", get(node_handlers::install_node_progress))
+        .route("/api/v1/node/versions/{version}/activate", post(node_handlers::activate_node))
+        .route("/api/v1/node/versions/{version}",        delete(node_handlers::uninstall_node))
         .route("/api/v1/nginx/status",                  get(nginx_handlers::nginx_status))
         .route("/api/v1/nginx/info",                    get(nginx_handlers::nginx_info))
         .route("/api/v1/nginx/download",                post(nginx_handlers::download_nginx))

@@ -216,10 +216,12 @@
 
 .iniLoading { padding: 32px; text-align: center; color: var(--text-3); font-size: 12px; }
 
+/* The height cap lives on each column, not on the grid: a grid's auto row
+   grows with its content, so a capped grid let the columns spill out under
+   the footer instead of scrolling. */
 .iniBody {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
-  max-height: 460px;
 }
 
 .iniExtensions {
@@ -228,6 +230,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 0 24px;
   align-content: start;
+  max-height: 460px;
   overflow-y: auto;
   min-width: 0;
 }
@@ -235,6 +238,7 @@
 .iniSettings {
   padding: 4px 16px 14px;
   border-left: 1px solid var(--border);
+  max-height: 460px;
   overflow-y: auto;
   min-width: 0;
 }
@@ -359,6 +363,6 @@
 }
 
 @media (max-width: 1000px) {
-  .iniBody { grid-template-columns: 1fr; max-height: none; }
+  .iniBody { grid-template-columns: 1fr; }
   .iniSettings { border-left: none; border-top: 1px solid var(--border); }
 }

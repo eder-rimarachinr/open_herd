@@ -2,6 +2,13 @@ use std::{path::PathBuf, sync::{Arc, OnceLock}, time::{Duration, Instant}};
 
 use crate::{
     application::{
+        node::{
+            activate_node::ActivateNodeUseCase,
+            get_node_status::GetNodeStatusUseCase,
+            install_node::InstallNodeUseCase,
+            list_node_releases::ListNodeReleasesUseCase,
+            uninstall_node::UninstallNodeUseCase,
+        },
         nginx::{
             download_nginx::DownloadNginxUseCase,
             reload_nginx::ReloadNginxUseCase,
@@ -38,6 +45,7 @@ use crate::{
         file_manager::FileManagerPort,
         download::DownloadProgressPort,
         logger::LoggerPort,
+        node::{NodeManagerPort, NodeReleasesPort},
         php_ini::PhpIniStore,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
@@ -52,6 +60,7 @@ use crate::infrastructure::{
     file_manager::SystemFileManager,
     download::tracker::DownloadTracker,
     nginx::adapter::NginxAdapter,
+    node::releases::HttpNodeReleases,
     persistence::json_site_repository::JsonSiteRepository,
     logging::InMemoryLogger,
     php::{adapter::PhpProcessAdapter, detector::SystemPhpDetector, ini_store::FsPhpIniStore, process as php_process, version_repository::InMemoryPhpVersionRepository},
@@ -82,6 +91,8 @@ pub struct AppContainer {
     pub downloads: Arc<dyn DownloadProgressPort>,
     pub ssl_tasks: Arc<dyn SslTaskPort>,
     pub logger: Arc<dyn LoggerPort>,
+    pub node_manager:  Arc<dyn NodeManagerPort>,
+    pub node_releases: Arc<dyn NodeReleasesPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -110,6 +121,13 @@ pub struct AppContainer {
     pub restart_nginx_uc:  RestartNginxUseCase,
     pub download_nginx_uc: DownloadNginxUseCase,
 
+    // ── Casos de uso — Node ──────────────────────────────────────────────────
+    pub get_node_status_uc:    GetNodeStatusUseCase,
+    pub list_node_releases_uc: ListNodeReleasesUseCase,
+    pub install_node_uc:       InstallNodeUseCase,
+    pub activate_node_uc:      ActivateNodeUseCase,
+    pub uninstall_node_uc:     UninstallNodeUseCase,
+
     // ── Casos de uso — Services ──────────────────────────────────────────────
     pub start_services_uc: StartServicesUseCase,
     pub stop_services_uc:  StopServicesUseCase,
@@ -131,6 +149,21 @@ pub struct SystemAdapters {
     pub file_manager: Option<Arc<dyn FileManagerPort>>,
     /// nginx: binds ports 80/443 and spawns processes on the real machine.
     pub web_server: Option<Arc<dyn WebServerPort>>,
+    /// Node: repoints the active-version junction and edits the user PATH.
+    pub node_manager: Option<Arc<dyn NodeManagerPort>>,
+    /// Node: reads the release list from nodejs.org (network).
+    pub node_releases: Option<Arc<dyn NodeReleasesPort>>,
+}
+
+#[cfg(windows)]
+fn default_node_manager(base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
+    Arc::new(crate::infrastructure::node::manager::WindowsNodeManager::detect(base_dir))
+}
+
+// TODO(linux): no Node manager yet; every call reports "not supported".
+#[cfg(not(windows))]
+fn default_node_manager(_base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
+    Arc::new(crate::infrastructure::node::unsupported::UnsupportedNodeManager)
 }
 
 impl AppContainer {
@@ -148,6 +181,8 @@ impl AppContainer {
         for warning in &state.load_warnings { logger.log(warning.clone()); }
         let web_server:   Arc<dyn WebServerPort>   = system.web_server.unwrap_or_else(|| Arc::new(NginxAdapter::new(state.clone(), logger.clone())));
         let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
+        let node_manager: Arc<dyn NodeManagerPort> = system.node_manager.unwrap_or_else(|| default_node_manager(base_dir.clone()));
+        let node_releases: Arc<dyn NodeReleasesPort> = system.node_releases.unwrap_or_else(|| Arc::new(HttpNodeReleases::new()));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let file_manager: Arc<dyn FileManagerPort> = system.file_manager.unwrap_or_else(|| Arc::new(SystemFileManager));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
@@ -186,6 +221,13 @@ impl AppContainer {
         let restart_nginx_uc  = RestartNginxUseCase::new(web_server.clone());
         let download_nginx_uc = DownloadNginxUseCase::new(downloads.clone());
 
+        // ── Use cases — Node ─────────────────────────────────────────────────
+        let get_node_status_uc    = GetNodeStatusUseCase::new(node_manager.clone());
+        let list_node_releases_uc = ListNodeReleasesUseCase::new(node_manager.clone(), node_releases.clone());
+        let install_node_uc       = InstallNodeUseCase::new(node_manager.clone(), downloads.clone());
+        let activate_node_uc      = ActivateNodeUseCase::new(node_manager.clone());
+        let uninstall_node_uc     = UninstallNodeUseCase::new(node_manager.clone(), downloads.clone());
+
         // ── Use cases — Services ─────────────────────────────────────────────
         let start_services_uc = StartServicesUseCase::new(php_detector.clone(), php_process_port.clone(), web_server.clone(), php_version_repo.clone());
         let stop_services_uc  = StopServicesUseCase::new(php_process_port.clone(), web_server.clone());
@@ -196,6 +238,8 @@ impl AppContainer {
             started_at: state.started_at,
             legacy: state,
             site_repo, web_server, dns, ssl, file_manager, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
+            node_manager, node_releases,
+            get_node_status_uc, list_node_releases_uc, install_node_uc, activate_node_uc, uninstall_node_uc,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,
             bulk_add_sites_uc, refresh_site_config_uc,

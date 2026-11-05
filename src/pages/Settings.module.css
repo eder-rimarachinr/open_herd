@@ -117,7 +117,7 @@
 
 .pathRow {
   display: grid;
-  grid-template-columns: 100px 1fr;
+  grid-template-columns: 100px 1fr auto;
   gap: 16px;
   align-items: center;
   padding: 10px 18px;
@@ -138,4 +138,14 @@
   font-size: 12px;
   color: var(--text-2);
   overflow-wrap: anywhere;
+}
+
+/* Who owns a path that lives outside base_dir (Node under nvm-windows). */
+.pathNote {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
 }

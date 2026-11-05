@@ -159,6 +159,93 @@ pub struct PhpIniConfig {
     pub settings: Vec<PhpSetting>,
 }
 
+// ── Node ──────────────────────────────────────────────────────────────────────
+
+/// Who manages the active Node version.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub enum NodeMode { NvmWindows, OpenHerd }
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct NodeInstalled {
+    pub version: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct NodeStatus {
+    pub mode: NodeMode,
+    pub store_dir: String,
+    pub link_path: String,
+    pub active: Option<String>,
+    pub installed: Vec<NodeInstalled>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct NodeReleaseEntry {
+    pub version: String,
+    pub major: u32,
+    pub date: String,
+    pub lts: Option<String>,
+    pub security: bool,
+    pub installed: bool,
+    pub active: bool,
+    pub update_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct NodeInstallProgress {
+    pub version: String,
+    #[cfg_attr(test, ts(as = "ts_bindings::TaskStateWire"))]
+    pub state: TaskState,
+    pub message: String,
+    pub percent: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub error: Option<String>,
+}
+
+use crate::{
+    application::node::list_node_releases::NodeReleaseView,
+    domain::ports::node::{NodeEnvironment, NodeManagerMode},
+};
+
+impl From<NodeEnvironment> for NodeStatus {
+    fn from(e: NodeEnvironment) -> Self {
+        Self {
+            mode: match e.mode { NodeManagerMode::NvmWindows => NodeMode::NvmWindows, NodeManagerMode::OpenHerd => NodeMode::OpenHerd },
+            store_dir: e.store_dir.to_string_lossy().into_owned(),
+            link_path: e.link_path.to_string_lossy().into_owned(),
+            active: e.active.map(|v| v.to_string()),
+            installed: e.installed.into_iter()
+                .map(|i| NodeInstalled { version: i.version.to_string(), path: i.path.to_string_lossy().into_owned() })
+                .collect(),
+            warnings: e.warnings,
+        }
+    }
+}
+
+impl From<NodeReleaseView> for NodeReleaseEntry {
+    fn from(v: NodeReleaseView) -> Self {
+        Self {
+            version: v.release.version.to_string(),
+            major: v.release.version.major(),
+            date: v.release.date.format("%Y-%m-%d").to_string(),
+            lts: v.release.lts,
+            security: v.release.security,
+            installed: v.installed,
+            active: v.active,
+            update_available: v.update_available,
+        }
+    }
+}
+
 // ── php.ini view → HTTP DTOs ──────────────────────────────────────────────────
 
 use crate::application::php::{get_php_ini::PhpIniView, ini_parser::{ExtensionState, SettingValue}};
