@@ -40,6 +40,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 // Get reference to the mocked api after hoisting
 import { api } from "../api/client";
+import { open } from "@tauri-apps/plugin-dialog";
 const m = api as Record<string, any>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -437,6 +438,48 @@ describe("PHP version per site", () => {
         await waitFor(() => screen.getByRole("combobox"));
         await userEvent.selectOptions(screen.getByRole("combobox"), "8.1");
         await waitFor(() => expect(m.sites.refreshConfig).toHaveBeenCalled());
+    });
+});
+
+// ── Site folder ───────────────────────────────────────────────────────────────
+
+describe("Site folder", () => {
+    it("re-points the site at a picked folder and shows the re-detected type", async () => {
+        const nested = "D:\\projects\\laravel\\todoList";
+        vi.mocked(open).mockResolvedValueOnce(nested);
+        m.sites.update.mockResolvedValue(mockSite({ path: nested, project_type: "laravel" }));
+        await renderAndSelect(mockSite({ path: "D:\\projects\\laravel", project_type: "generic" }));
+        expect(typeBadge("Generic")).toBeDefined();
+
+        await userEvent.click(screen.getByRole("button", { name: "Change site folder" }));
+
+        await waitFor(() => expect(m.sites.update).toHaveBeenCalledWith("site-1", { path: nested }));
+        await waitFor(() => expect(screen.getAllByText(nested).length).toBeGreaterThan(0));
+        expect(typeBadge("Laravel")).toBeDefined();
+    });
+
+    it("does nothing when the picker is cancelled or the folder is unchanged", async () => {
+        const site = mockSite();
+        await renderAndSelect(site);
+
+        vi.mocked(open).mockResolvedValueOnce(null);
+        await userEvent.click(screen.getByRole("button", { name: "Change site folder" }));
+        vi.mocked(open).mockResolvedValueOnce(site.path);
+        await userEvent.click(screen.getByRole("button", { name: "Change site folder" }));
+
+        await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+        expect(m.sites.update).not.toHaveBeenCalled();
+    });
+
+    it("shows the daemon's error when the folder is rejected", async () => {
+        vi.mocked(open).mockResolvedValueOnce("relative/dir");
+        m.sites.update.mockRejectedValue(new Error("la ruta debe ser absoluta"));
+        await renderAndSelect();
+
+        await userEvent.click(screen.getByRole("button", { name: "Change site folder" }));
+
+        await waitFor(() => expect(screen.getAllByText("la ruta debe ser absoluta").length).toBeGreaterThan(0));
+        expect(screen.getAllByText("D:\\projects\\myapp").length).toBeGreaterThan(0);
     });
 });
 

@@ -41,7 +41,10 @@ impl CreateSiteUseCase {
     pub async fn execute(&self, cmd: CreateSiteCommand) -> Result<Site, ApplicationError> {
         // 1. Validar value objects (reglas de dominio)
         let domain = DomainName::new(&cmd.domain)?;
-        let path   = SitePath::new(&cmd.path)?;
+        SitePath::new(&cmd.path)?;
+        // A folder that only wraps the real project points at the project.
+        let (root, project_type) = project_type_detector::resolve_site_root(&cmd.path);
+        let path = SitePath::new(&root)?;
 
         // 2. Verificar que el dominio no esté ya registrado
         if self.site_repo.find_by_domain(&domain).await?.is_some() {
@@ -52,7 +55,7 @@ impl CreateSiteUseCase {
 
         // 3. Construir la entidad
         let mut site = Site::new(cmd.domain.clone(), domain, path);
-        site.project_type = project_type_detector::detect(&cmd.path);
+        site.project_type = project_type;
         if let Some(ref ver) = cmd.default_php {
             if let Some(v) = crate::domain::site::value_objects::PhpVersion::parse(ver) {
                 site.php_version = Some(v);

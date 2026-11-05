@@ -49,7 +49,9 @@ impl BulkAddSitesUseCase {
                 Ok(d) => d,
                 Err(_) => continue,
             };
-            let site_path = match SitePath::new(&item.path) {
+            if SitePath::new(&item.path).is_err() { continue; }
+            let (root, project_type) = project_type_detector::resolve_site_root(&item.path);
+            let site_path = match SitePath::new(&root) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -59,7 +61,7 @@ impl BulkAddSitesUseCase {
             let mut site = crate::domain::site::entity::Site::new(
                 item.domain.clone(), domain, site_path,
             );
-            site.project_type = project_type_detector::detect(&item.path);
+            site.project_type = project_type;
             if let Some(ref ver) = default_php {
                 if let Some(v) = crate::domain::site::value_objects::PhpVersion::parse(ver) {
                     site.php_version = Some(v);

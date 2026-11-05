@@ -358,3 +358,130 @@ async fn open_folder_unknown_site_returns_404() {
     server.post("/api/v1/sites/nope/open-folder").await.assert_status(StatusCode::NOT_FOUND);
     assert!(file_manager.opened.lock().unwrap().is_empty());
 }
+
+// ── Wrapper folders & path changes ────────────────────────────────────────────
+
+/// `<tmp>/projects/<wrapper>/<app>` with a Laravel app (artisan + public/) in `<app>`.
+fn laravel_in_wrapper(tmp: &TempDir, wrapper: &str, app: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let wrapper_dir = tmp.path().join("projects").join(wrapper);
+    let app_dir = wrapper_dir.join(app);
+    std::fs::create_dir_all(app_dir.join("public")).unwrap();
+    std::fs::write(app_dir.join("artisan"), "").unwrap();
+    (wrapper_dir, app_dir)
+}
+
+fn vhost(tmp: &TempDir, domain: &str) -> String {
+    std::fs::read_to_string(tmp.path().join("nginx").join("sites").join(format!("{domain}.conf"))).unwrap()
+}
+
+fn fwd(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+#[tokio::test]
+async fn create_site_on_a_wrapper_folder_uses_the_nested_project() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let (wrapper, app) = laravel_in_wrapper(&tmp, "laravel", "todoList");
+
+    let resp = server.post("/api/v1/sites")
+        .json(&serde_json::json!({ "domain": "todo-list.test", "path": wrapper.to_str().unwrap() }))
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["path"], app.to_str().unwrap());
+    assert_eq!(body["project_type"], "laravel");
+    assert!(vhost(&tmp, "todo-list.test").contains(&format!("{}/public", fwd(&app))));
+}
+
+#[tokio::test]
+async fn create_site_keeps_a_wrapper_with_two_projects() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let (wrapper, _) = laravel_in_wrapper(&tmp, "apps", "one");
+    laravel_in_wrapper(&tmp, "apps", "two");
+
+    let body = server.post("/api/v1/sites")
+        .json(&serde_json::json!({ "domain": "apps.test", "path": wrapper.to_str().unwrap() }))
+        .await
+        .json::<serde_json::Value>();
+    assert_eq!(body["path"], wrapper.to_str().unwrap());
+    assert_eq!(body["project_type"], "generic");
+}
+
+#[tokio::test]
+async fn scan_and_bulk_use_the_nested_project() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let (_, scanned_app) = laravel_in_wrapper(&tmp, "laravel", "todoList");
+    let bulk_wrapper = tmp.path().join("bulk");
+    let bulk_app = bulk_wrapper.join("blog");
+    std::fs::create_dir_all(bulk_app.join("public")).unwrap();
+    std::fs::write(bulk_app.join("artisan"), "").unwrap();
+
+    server.put("/api/v1/config")
+        .json(&serde_json::json!({ "scanned_dirs": [tmp.path().join("projects").to_str().unwrap()] }))
+        .await;
+    let scanned = server.post("/api/v1/sites/scan").await.json::<Vec<serde_json::Value>>();
+    assert_eq!(scanned.len(), 1);
+    assert_eq!(scanned[0]["domain"], "laravel.test", "domain keeps the scanned folder name");
+    assert_eq!(scanned[0]["path"], scanned_app.to_str().unwrap());
+    assert_eq!(scanned[0]["project_type"], "laravel");
+
+    let list = server.post("/api/v1/sites/bulk")
+        .json(&serde_json::json!([{ "domain": "blog.test", "path": bulk_wrapper.to_str().unwrap() }]))
+        .await
+        .json::<Vec<serde_json::Value>>();
+    let blog = list.iter().find(|s| s["domain"] == "blog.test").unwrap();
+    assert_eq!(blog["path"], bulk_app.to_str().unwrap());
+    assert_eq!(blog["project_type"], "laravel");
+}
+
+#[tokio::test]
+async fn update_site_path_redetects_type_and_rewrites_the_vhost() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let (wrapper, app) = laravel_in_wrapper(&tmp, "laravel", "todoList");
+    laravel_in_wrapper(&tmp, "laravel", "second"); // two apps: create keeps the wrapper
+
+    let id = server.post("/api/v1/sites")
+        .json(&serde_json::json!({ "domain": "todo-list.test", "path": wrapper.to_str().unwrap() }))
+        .await
+        .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
+    assert!(vhost(&tmp, "todo-list.test").contains("autoindex on"));
+
+    let resp = server.put(&format!("/api/v1/sites/{id}"))
+        .json(&serde_json::json!({ "path": app.to_str().unwrap() }))
+        .await;
+    resp.assert_status_ok();
+    let body = resp.json::<serde_json::Value>();
+    assert_eq!(body["path"], app.to_str().unwrap());
+    assert_eq!(body["project_type"], "laravel");
+
+    let conf = vhost(&tmp, "todo-list.test");
+    assert!(conf.contains(&format!("{}/public", fwd(&app))), "vhost not re-pointed: {conf}");
+    assert!(!conf.contains("autoindex on"));
+
+    // Persisted, not only returned.
+    let stored = server.get(&format!("/api/v1/sites/{id}")).await.json::<serde_json::Value>();
+    assert_eq!(stored["path"], app.to_str().unwrap());
+    assert_eq!(stored["project_type"], "laravel");
+}
+
+#[tokio::test]
+async fn update_site_rejects_a_relative_path_and_keeps_the_old_one() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server(&tmp);
+    let id = server.post("/api/v1/sites").json(&site_body(&tmp)).await
+        .json::<serde_json::Value>()["id"].as_str().unwrap().to_string();
+
+    let resp = server.put(&format!("/api/v1/sites/{id}"))
+        .json(&serde_json::json!({ "path": "relative/dir", "php_version": "8.1" }))
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert!(resp.json::<serde_json::Value>()["error"].is_string());
+
+    let stored = server.get(&format!("/api/v1/sites/{id}")).await.json::<serde_json::Value>();
+    assert_eq!(stored["path"], tmp.path().to_str().unwrap());
+    assert_ne!(stored["php_version"], "8.1", "a rejected update must change nothing");
+}

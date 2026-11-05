@@ -141,6 +141,13 @@ impl Site {
         self.touch();
     }
 
+    /// Re-points the site at another folder with the project type found there.
+    pub fn relocate(&mut self, path: SitePath, project_type: ProjectType) {
+        self.path = path;
+        self.project_type = project_type;
+        self.touch();
+    }
+
     /// Cambia el tipo de proyecto detectado.
     pub fn set_project_type(&mut self, project_type: ProjectType) {
         self.project_type = project_type;
