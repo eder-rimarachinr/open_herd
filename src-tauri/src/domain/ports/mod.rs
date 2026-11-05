@@ -2,6 +2,7 @@ pub mod dns;
 pub mod file_manager;
 pub mod download;
 pub mod logger;
+pub mod node;
 pub mod php_ini;
 pub mod process_manager;
 pub mod ssl;

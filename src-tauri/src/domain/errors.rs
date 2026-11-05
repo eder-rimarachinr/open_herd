@@ -27,6 +27,18 @@ pub enum DomainError {
     /// Cambio de php.ini rechazado por la validación (error del usuario, 400).
     #[error("Cambio de php.ini no válido: {0}")]
     InvalidPhpIniChange(String),
+    /// Versión de Node mal formada (400). Se valida antes de tocar rutas.
+    #[error("Versión de Node no válida: {0}")]
+    InvalidNodeVersion(String),
+    /// Esa versión de Node no está instalada (404).
+    #[error("Node {0} no está instalado")]
+    NodeVersionNotInstalled(String),
+    /// No se puede desinstalar la versión activa (409).
+    #[error("Node {0} es la versión activa: activa otra antes de desinstalarla")]
+    NodeVersionActive(String),
+    /// Hay una descarga en curso para esa versión (409).
+    #[error("Node {0} se está descargando")]
+    NodeVersionBusy(String),
 }
 
 /// Errores originados en la capa de infraestructura (IO, procesos, red).
@@ -42,6 +54,10 @@ pub enum InfrastructureError {
     DownloadFailed(String),
     #[error("Recurso no encontrado: {0}")]
     NotFound(String),
+    /// El estado de la máquina impide la operación sin riesgo (409), p. ej. el
+    /// enlace de Node es una carpeta real que no vamos a borrar.
+    #[error("{0}")]
+    Conflict(String),
 }
 
 /// Errores de casos de uso — agregan contexto de aplicación sobre los de capas inferiores.
