@@ -90,6 +90,28 @@ describe("Node page", () => {
     expect(screen.getByRole("button", { name: "Activate Node 24.21.0" })).toBeInTheDocument();
   });
 
+  it("Update on the active major activates the new patch once installed", async () => {
+    m.node.releases.mockResolvedValue([
+      release({ version: "22.21.0", major: 22, lts: "Jod", update_available: true }),
+      release({ version: "24.22.0", major: 24, update_available: true }),
+    ]);
+    m.node.installProgress.mockResolvedValue({ version: "22.21.0", state: "done", percent: 100, message: "" });
+    m.node.activate.mockResolvedValue(status({ active: "22.21.0" }));
+    renderNode();
+    await userEvent.click(await screen.findByRole("button", { name: "Install Node 22.21.0" }));
+    await waitFor(() => expect(m.node.activate).toHaveBeenCalledWith("22.21.0"), { timeout: 4000 });
+  });
+
+  it("Update on a major that is not active only installs", async () => {
+    m.node.releases.mockResolvedValue([release({ version: "24.22.0", major: 24, update_available: true })]);
+    m.node.installProgress.mockResolvedValue({ version: "24.22.0", state: "done", percent: 100, message: "" });
+    renderNode();
+    await userEvent.click(await screen.findByRole("button", { name: "Install Node 24.22.0" }));
+    await waitFor(() => expect(m.node.installProgress).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() => expect(m.node.status).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(m.node.activate).not.toHaveBeenCalled();
+  });
+
   it("shows PATH warnings", async () => {
     m.node.status.mockResolvedValue(status({ warnings: ["Another Node on the system PATH: C:\\Program Files\\nodejs"] }));
     renderNode();

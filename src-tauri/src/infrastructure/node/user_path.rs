@@ -9,8 +9,9 @@ pub trait UserPathEditor: Send + Sync {
     /// Appends `dir` to the user PATH unless it is already there; `true` if it
     /// was added. Never touches the machine PATH.
     fn ensure_entry(&self, dir: &Path) -> Result<bool, InfrastructureError>;
-    /// Machine PATH directories that contain a `node.exe`, in PATH order.
-    fn machine_node_dirs(&self) -> Vec<PathBuf>;
+    /// Directories that contain a `node.exe`, in the order a new terminal
+    /// searches them: machine PATH entries, then user PATH entries.
+    fn node_dirs_on_path(&self) -> Vec<PathBuf>;
 }
 
 /// Case-insensitive, trailing-separator-insensitive comparison of PATH entries.
@@ -77,10 +78,12 @@ mod windows_impl {
             Ok(true)
         }
 
-        fn machine_node_dirs(&self) -> Vec<PathBuf> {
-            let path = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(MACHINE_ENV)
+        fn node_dirs_on_path(&self) -> Vec<PathBuf> {
+            let read = |root: RegKey, key: &str| root.open_subkey(key)
                 .and_then(|k| k.get_value::<String, _>("Path")).unwrap_or_default();
-            path.split(';')
+            let machine = read(RegKey::predef(HKEY_LOCAL_MACHINE), MACHINE_ENV);
+            let user = read(RegKey::predef(HKEY_CURRENT_USER), "Environment");
+            machine.split(';').chain(user.split(';'))
                 .filter(|e| !e.trim().is_empty())
                 .map(|e| PathBuf::from(super::super::nvm::expand_env(e.trim())))
                 .filter(|d| d.join("node.exe").exists())

@@ -33,6 +33,9 @@ struct Layout {
     mode: NodeManagerMode,
     store_dir: PathBuf,
     link_path: PathBuf,
+    /// nvm mode only: the standalone `current` link a pre-nvm Open Herd put on
+    /// the user PATH, which would shadow `NVM_SYMLINK` if still there.
+    legacy_link: Option<PathBuf>,
 }
 
 impl WindowsNodeManager {
@@ -48,10 +51,13 @@ impl WindowsNodeManager {
 
     fn layout(&self) -> Layout {
         match (self.nvm)() {
-            Some(n) => Layout { mode: NodeManagerMode::NvmWindows, store_dir: n.home, link_path: n.symlink },
+            Some(n) => Layout {
+                mode: NodeManagerMode::NvmWindows, store_dir: n.home, link_path: n.symlink,
+                legacy_link: Some(self.base_dir.join("node").join("current")),
+            },
             None => {
                 let store_dir = self.base_dir.join("node");
-                Layout { mode: NodeManagerMode::OpenHerd, link_path: store_dir.join("current"), store_dir }
+                Layout { mode: NodeManagerMode::OpenHerd, link_path: store_dir.join("current"), store_dir, legacy_link: None }
             }
         }
     }
@@ -89,16 +95,23 @@ fn read_active(link: &Path) -> Option<NodeVersion> {
     NodeVersion::parse(&target.file_name()?.to_string_lossy()).ok()
 }
 
-/// Machine-PATH `node.exe` folders that win over our link: all of them when
-/// the link is not on the machine PATH (it is on the user PATH, which comes
-/// after), otherwise only the ones listed before it.
-fn shadowing_dirs(machine_node_dirs: &[PathBuf], link: &Path) -> Vec<PathBuf> {
-    machine_node_dirs.iter().take_while(|d| !same_dir(d, link)).cloned().collect()
+/// `node.exe` folders on the effective PATH (machine entries, then user
+/// entries) that come before our link and therefore win over it.
+fn shadowing_dirs(node_dirs_on_path: &[PathBuf], link: &Path) -> Vec<PathBuf> {
+    node_dirs_on_path.iter().take_while(|d| !same_dir(d, link)).cloned().collect()
+}
+
+fn shadow_warning(dir: &Path, l: &Layout) -> String {
+    if l.legacy_link.as_deref().is_some_and(|legacy| same_dir(dir, legacy)) {
+        format!("Open Herd añadió {} a tu PATH de usuario antes de que instalaras nvm, y va antes que el enlace de nvm: quítalo del PATH de usuario para que el cambio de versión tenga efecto.", dir.display())
+    } else {
+        format!("Otro Node en el PATH va antes que el de Open Herd: {}", dir.display())
+    }
 }
 
 fn environment_blocking(l: &Layout, path: &dyn UserPathEditor) -> NodeEnvironment {
-    let warnings = shadowing_dirs(&path.machine_node_dirs(), &l.link_path).into_iter()
-        .map(|d| format!("Otro Node en el PATH del sistema va antes que el de Open Herd: {}", d.display()))
+    let warnings = shadowing_dirs(&path.node_dirs_on_path(), &l.link_path).iter()
+        .map(|d| shadow_warning(d, l))
         .collect();
     NodeEnvironment {
         mode: l.mode,
@@ -116,17 +129,43 @@ fn activate_blocking(l: &Layout, version: &NodeVersion, path: &dyn UserPathEdito
         return Err(InfrastructureError::NotFound(format!("Node {version} no está instalado en {}", l.store_dir.display())));
     }
     let link = &l.link_path;
-    if is_link(link) {
-        std::fs::remove_dir(link)?;
-    } else if link.exists() {
+    if link.exists() && !is_link(link) {
         return Err(InfrastructureError::Conflict(format!(
             "{} es una carpeta real, no un enlace: Open Herd no la toca. Muévela o bórrala y vuelve a intentarlo.", link.display())));
-    } else if let Some(parent) = link.parent() {
-        std::fs::create_dir_all(parent)?;
     }
-    junction::create(&target, link)?;
+    if let Some(parent) = link.parent() { std::fs::create_dir_all(parent)?; }
+    // PATH first: if the registry write fails, nothing has switched yet.
     if l.mode == NodeManagerMode::OpenHerd {
         path.ensure_entry(link)?;
+    }
+    swap_link(link, &target)
+}
+
+/// Where the new junction is built before it replaces the link.
+fn staging_path(link: &Path) -> PathBuf {
+    let mut s = link.as_os_str().to_owned();
+    s.push(".open-herd-new");
+    PathBuf::from(s)
+}
+
+/// Points `link` at `target` without ever leaving the user with no Node: the
+/// new junction is built beside the old link and renamed over it, and the old
+/// target is restored if the swap fails half-way.
+fn swap_link(link: &Path, target: &Path) -> Result<(), InfrastructureError> {
+    let staging = staging_path(link);
+    if is_link(&staging) { std::fs::remove_dir(&staging)?; } // leftover of an interrupted switch
+    junction::create(target, &staging)?;
+    let previous = link_target(link);
+    if is_link(link) {
+        if let Err(e) = std::fs::remove_dir(link) {
+            let _ = std::fs::remove_dir(&staging);
+            return Err(e.into());
+        }
+    }
+    if let Err(e) = std::fs::rename(&staging, link) {
+        if let Some(prev) = previous { let _ = junction::create(prev, link); }
+        let _ = std::fs::remove_dir(&staging);
+        return Err(e.into());
     }
     Ok(())
 }
@@ -166,13 +205,14 @@ mod tests {
     use tempfile::TempDir;
 
     #[derive(Default)]
-    struct RecordingPath { added: Mutex<Vec<PathBuf>>, machine: Vec<PathBuf> }
+    struct RecordingPath { added: Mutex<Vec<PathBuf>>, path_dirs: Vec<PathBuf>, fail: bool }
     impl UserPathEditor for RecordingPath {
         fn ensure_entry(&self, dir: &Path) -> Result<bool, InfrastructureError> {
+            if self.fail { return Err(InfrastructureError::ProcessFailed("registry locked".into())); }
             self.added.lock().push(dir.to_path_buf());
             Ok(true)
         }
-        fn machine_node_dirs(&self) -> Vec<PathBuf> { self.machine.clone() }
+        fn node_dirs_on_path(&self) -> Vec<PathBuf> { self.path_dirs.clone() }
     }
 
     fn v(s: &str) -> NodeVersion { NodeVersion::parse(s).unwrap() }
@@ -282,6 +322,44 @@ mod tests {
         m.uninstall(&v("22.19.0")).await.unwrap();
         assert!(!f.nvm_home.join("v22.19.0").exists());
         assert!(matches!(m.uninstall(&v("22.19.0")).await, Err(InfrastructureError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn failed_switch_keeps_previous_version() {
+        let f = fixture();
+        fake_install(&f.nvm_home, "22.19.0");
+        fake_install(&f.nvm_home, "24.21.0");
+        let m = nvm_manager(&f);
+        m.activate(&v("22.19.0")).await.unwrap();
+        // Something that is not ours sits where the new junction is staged:
+        // creating it fails, and the old link must survive.
+        std::fs::write(staging_path(&f.link), "not a link").unwrap();
+        assert!(m.activate(&v("24.21.0")).await.is_err());
+        assert_eq!(m.environment().await.unwrap().active, Some(v("22.19.0")));
+        assert!(f.link.join("node.exe").exists());
+    }
+
+    #[tokio::test]
+    async fn standalone_path_failure_leaves_link_untouched() {
+        let f = fixture();
+        fake_install(&f.base.join("node"), "22.19.0");
+        let path = Arc::new(RecordingPath { fail: true, ..Default::default() });
+        let m = WindowsNodeManager::with_layout(f.base.clone(), Arc::new(|| None), path);
+        assert!(m.activate(&v("22.19.0")).await.is_err());
+        assert!(!f.base.join("node").join("current").exists(), "no half-done switch");
+    }
+
+    #[tokio::test]
+    async fn warns_about_a_stale_open_herd_path_entry_in_nvm_mode() {
+        let f = fixture();
+        let stale = f.base.join("node").join("current");
+        let path = Arc::new(RecordingPath { path_dirs: vec![stale.clone(), f.link.clone()], ..Default::default() });
+        let loc = NvmLocation { home: f.nvm_home.clone(), symlink: f.link.clone() };
+        let m = WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(loc.clone())), path);
+        let warnings = m.environment().await.unwrap().warnings;
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(&stale.display().to_string()), "{}", warnings[0]);
+        assert!(warnings[0].contains("PATH de usuario"), "tells the user how to fix it: {}", warnings[0]);
     }
 
     #[test]

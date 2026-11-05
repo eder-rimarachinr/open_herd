@@ -78,7 +78,9 @@ export default function Node() {
     delete pollRefs.current[version];
   }
 
-  async function handleInstall(version: string) {
+  /** `activateWhenDone`: an "Update" of the active major switches to the new
+   *  patch, so the user really ends up on it. */
+  async function handleInstall(version: string, activateWhenDone = false) {
     setInstalls((p) => ({ ...p, [version]: { version, state: "pending", message: "Starting…", percent: 0 } }));
     try {
       await api.node.install(version);
@@ -94,7 +96,8 @@ export default function Node() {
           stopPolling(version);
           if (prog.state !== "error") {
             setInstalls((p) => { const n = { ...p }; delete n[version]; return n; });
-            await Promise.all([fetchStatus(), fetchReleases()]);
+            if (activateWhenDone) await handleActivate(version);
+            else await Promise.all([fetchStatus(), fetchReleases()]);
           }
         }
       } catch { /* daemon busy: try again on the next tick */ }
@@ -104,6 +107,7 @@ export default function Node() {
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
   const active = status?.active ?? null;
+  const activeMajor = active ? Number(active.split(".")[0]) : null;
   const ltsOf = (version: string) => releases.find((r) => r.version === version)?.lts ?? null;
 
   return (
@@ -236,7 +240,10 @@ export default function Node() {
                     {prog?.state !== "error" && !rel.installed && (
                       <button
                         className={rel.update_available ? styles.btnUpdate : styles.btnInstall}
-                        onClick={() => handleInstall(rel.version)}
+                        onClick={() => handleInstall(rel.version, rel.update_available && activeMajor === rel.major)}
+                        title={rel.update_available && activeMajor === rel.major
+                          ? `Install ${rel.version} and make it the active version`
+                          : `Install ${rel.version}`}
                         aria-label={`Install Node ${rel.version}`}
                       >
                         <Download size={13} /> {rel.update_available ? "Update" : "Install"}
