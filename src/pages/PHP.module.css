@@ -110,14 +110,21 @@
   color: var(--text-2);
 }
 
-.defaultLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
+/* The one version new sites use: solid, unlike the outlined status tags. */
+.tagDefault { background: var(--accent-fill); color: #052E22; border-color: transparent; }
+
+.btnMakeDefault {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
   font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
 }
-.defaultLabel input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+.btnMakeDefault:hover { color: var(--accent); border-color: var(--accent-border); }
 
 .notInstalled { color: var(--text-3); }
 

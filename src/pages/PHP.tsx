@@ -227,6 +227,7 @@ export default function PHP() {
         </span>
         <div className={list.info}>
           <div className={list.badges}>
+            {entry.installed && isDefault && <span className={`${styles.tag} ${styles.tagDefault}`} title="PHP version new sites use">Default</span>}
             {entry.installed && <span className={`${styles.tag} ${styles.tagActive}`}>Installed</span>}
             {entry.security_only && <span className={`${styles.tag} ${styles.tagSecurity}`}>security fixes only</span>}
             {entry.end_of_life && <span className={`${styles.tag} ${styles.tagEol}`} title={EOL_TITLE}>End of life</span>}
@@ -266,16 +267,15 @@ export default function PHP() {
                   Update
                 </button>
               )}
-              {entry.installed && (
-                <label className={styles.defaultLabel} title="PHP version new sites use">
-                  <input
-                    type="radio"
-                    name="active_php"
-                    checked={isDefault}
-                    onChange={() => handleSetActive(entry.major)}
-                  />
-                  Default
-                </label>
+              {entry.installed && !isDefault && (
+                <button
+                  className={styles.btnMakeDefault}
+                  onClick={() => handleSetActive(entry.major)}
+                  title="Use this version for new sites"
+                  aria-label={`Make PHP ${entry.major} the default`}
+                >
+                  Make default
+                </button>
               )}
               {entry.installed && !entry.running && (
                 <button
@@ -322,7 +322,7 @@ export default function PHP() {
         <div>
           <h1 className="page-title">PHP</h1>
           <p className="page-sub">
-            Each installed version runs its own php-cgi; sites pick one in their detail panel.
+            Each installed version runs its own FastCGI process (php-cgi on Windows, php-fpm on Linux); sites pick one in their detail panel.
           </p>
         </div>
         <button className={styles.btnGhost} onClick={handleRescan} disabled={rescanning}>
@@ -437,7 +437,7 @@ export default function PHP() {
                 <button className={styles.btnGhost} onClick={() => setIniPanel(null)}>
                   Cancel
                 </button>
-                <span className={styles.iniNote}>Changes restart php-cgi {iniPanel} and reload nginx.</span>
+                <span className={styles.iniNote}>Changes restart PHP {iniPanel} and reload nginx.</span>
               </div>
             </>
           )}
