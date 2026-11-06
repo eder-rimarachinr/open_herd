@@ -3,4 +3,4 @@
 /**
  * Who manages the active Node version.
  */
-export type NodeMode = "nvm-windows" | "open-herd";
+export type NodeMode = "nvm-windows" | "nvm" | "open-herd";

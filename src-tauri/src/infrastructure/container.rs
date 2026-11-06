@@ -160,10 +160,9 @@ fn default_node_manager(base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
     Arc::new(crate::infrastructure::node::manager::WindowsNodeManager::detect(base_dir))
 }
 
-// TODO(linux): no Node manager yet; every call reports "not supported".
 #[cfg(not(windows))]
-fn default_node_manager(_base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
-    Arc::new(crate::infrastructure::node::unsupported::UnsupportedNodeManager)
+fn default_node_manager(base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
+    Arc::new(crate::infrastructure::node::linux::LinuxNodeManager::detect(base_dir))
 }
 
 impl AppContainer {

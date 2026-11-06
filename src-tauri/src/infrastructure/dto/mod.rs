@@ -165,7 +165,7 @@ pub struct PhpIniConfig {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-pub enum NodeMode { NvmWindows, OpenHerd }
+pub enum NodeMode { NvmWindows, Nvm, OpenHerd }
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
@@ -220,7 +220,11 @@ use crate::{
 impl From<NodeEnvironment> for NodeStatus {
     fn from(e: NodeEnvironment) -> Self {
         Self {
-            mode: match e.mode { NodeManagerMode::NvmWindows => NodeMode::NvmWindows, NodeManagerMode::OpenHerd => NodeMode::OpenHerd },
+            mode: match e.mode {
+                NodeManagerMode::NvmWindows => NodeMode::NvmWindows,
+                NodeManagerMode::Nvm => NodeMode::Nvm,
+                NodeManagerMode::OpenHerd => NodeMode::OpenHerd,
+            },
             store_dir: e.store_dir.to_string_lossy().into_owned(),
             link_path: e.link_path.to_string_lossy().into_owned(),
             active: e.active.map(|v| v.to_string()),

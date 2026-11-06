@@ -134,7 +134,7 @@ impl NodeReleasesPort for FakeNodeReleases {
         if self.fail { return Err(InfrastructureError::DownloadFailed("nodejs.org unreachable".into())); }
         let today = chrono::Local::now().date_naive();
         let rel = |v: &str, date: chrono::NaiveDate, lts: &str| NodeReleaseInfo {
-            version: NodeVersion::parse(v).unwrap(), date, lts: Some(lts.into()), security: false, has_win_x64_zip: true,
+            version: NodeVersion::parse(v).unwrap(), date, lts: Some(lts.into()), security: false, has_build: true,
         };
         // 10.x: an LTS line nodejs.org stopped releasing years ago.
         let long_ago = chrono::NaiveDate::from_ymd_opt(2021, 4, 6).unwrap_or(today);

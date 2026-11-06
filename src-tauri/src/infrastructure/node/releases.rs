@@ -14,6 +14,15 @@ use crate::{
 const INDEX_URL: &str = "https://nodejs.org/dist/index.json";
 const CACHE_TTL: Duration = Duration::from_secs(3600);
 
+/// The `files` entry of the build Open Herd downloads on this machine.
+const BUILD_FILE: &str = if cfg!(windows) {
+    "win-x64-zip"
+} else if cfg!(target_arch = "aarch64") {
+    "linux-arm64"
+} else {
+    "linux-x64"
+};
+
 #[derive(Deserialize)]
 struct RawRelease {
     version: String,
@@ -38,7 +47,7 @@ pub fn parse_index(json: &str) -> Result<Vec<NodeReleaseInfo>, InfrastructureErr
             date: NaiveDate::parse_from_str(&r.date, "%Y-%m-%d").ok()?,
             lts: r.lts.as_str().map(str::to_string),
             security: r.security,
-            has_win_x64_zip: r.files.iter().any(|f| f == "win-x64-zip"),
+            has_build: r.files.iter().any(|f| f == BUILD_FILE),
         })
     }).collect())
 }
@@ -89,10 +98,10 @@ mod tests {
         assert_eq!(list.len(), 2, "the prerelease is skipped");
         assert_eq!(list[0].version.as_str(), "26.13.0");
         assert_eq!(list[0].lts.as_deref(), Some("Lithium"));
-        assert!(list[0].has_win_x64_zip);
+        assert!(list[0].has_build);
         assert_eq!(list[1].lts, None);
         assert!(list[1].security);
-        assert!(!list[1].has_win_x64_zip);
+        assert!(!list[1].has_build);
     }
 
     #[test]

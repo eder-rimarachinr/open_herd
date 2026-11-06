@@ -58,9 +58,6 @@ pub fn detect() -> Option<NvmLocation> {
     Some(NvmLocation { home, symlink })
 }
 
-// TODO(linux): nvm (nvm-sh) keeps versions in ~/.nvm/versions/node; not handled yet.
-#[cfg(not(windows))]
-pub fn detect() -> Option<NvmLocation> { None }
 
 #[cfg(test)]
 mod tests {

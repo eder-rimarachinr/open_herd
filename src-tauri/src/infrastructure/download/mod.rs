@@ -5,7 +5,10 @@ use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 use crate::domain::ports::{download::DownloadProgress, task::TaskState};
+#[cfg(windows)]
 use crate::infrastructure::php::catalog::php_line;
+#[cfg(not(windows))]
+use crate::infrastructure::php::catalog::{static_php_line, STATIC_PHP_BASE};
 
 pub mod node;
 pub mod tracker;
@@ -47,6 +50,7 @@ pub(crate) fn http_client() -> reqwest::Client {
         .build().unwrap_or_default()
 }
 
+#[cfg(windows)]
 async fn url_exists(client: &reqwest::Client, url: &str) -> bool {
     client.head(url).send().await.map(|r| r.status().is_success()).unwrap_or(false)
 }
@@ -96,6 +100,7 @@ fn set_nginx(progress: &Arc<DownloadState>, state: TaskState, msg: &str, pct: u8
 
 /// Tries the current releases folder first, then the archive (where every
 /// end-of-life build lives). `windows.php.net/downloads` redirects to these.
+#[cfg(windows)]
 async fn resolve_php_url(client: &reqwest::Client, filename: &str) -> Option<String> {
     const BASES: [&str; 2] = [
         "https://windows.php.net/downloads/releases",
@@ -110,6 +115,7 @@ async fn resolve_php_url(client: &reqwest::Client, filename: &str) -> Option<Str
 
 /// Starts the download as a task on the current Tokio runtime and returns at
 /// once; progress is published through `progress`.
+#[cfg(windows)]
 pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     let major   = major.to_string();
     let php_dir = php_dir.to_path_buf();
@@ -159,11 +165,83 @@ pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
     });
 }
 
+/// Linux: the static-php-cli `php-fpm` and `php` tarballs (x86_64), each
+/// checked against its pinned SHA-256, into `php_dir/<major>`. Starts the
+/// download as a task on the current Tokio runtime and returns at once.
+#[cfg(not(windows))]
+pub fn download_php(major: &str, php_dir: &Path, progress: Arc<DownloadState>) {
+    let major   = major.to_string();
+    let php_dir = php_dir.to_path_buf();
+    let Some(release) = static_php_line(&major) else {
+        set_php(&progress, &major, TaskState::Error, &format!("PHP {major} has no Linux build (static builds cover PHP 8.0 and newer)"), 0);
+        return;
+    };
+    if std::env::consts::ARCH != "x86_64" {
+        set_php(&progress, &major, TaskState::Error, &format!("PHP downloads need an x86_64 machine (this one is {})", std::env::consts::ARCH), 0);
+        return;
+    }
+    tokio::spawn(async move {
+        let dest = php_dir.join(release.major);
+        // php-fpm first: the detector only counts the install once `php` is there too.
+        let parts = [("fpm", "php-fpm", release.fpm_sha256, 0u8), ("cli", "php CLI", release.cli_sha256, 44u8)];
+        for (sapi, label, sha, base) in parts {
+            let url = format!("{STATIC_PHP_BASE}/{}", release.filename(sapi));
+            set_php(&progress, &major, TaskState::Downloading, &format!("Downloading PHP {} ({label})…", release.version), base + 4);
+            let major2 = major.clone();
+            let result = fetch_tar_gz(&url, &dest, "", Some(sha), &progress, move |p, pct, msg| {
+                set_php(p, &major2, TaskState::Downloading, &format!("{label}: {msg}"), base + pct / 2);
+            }).await;
+            if let Err(e) = result {
+                set_php(&progress, &major, TaskState::Error, &e.to_string(), 0);
+                return;
+            }
+        }
+        set_php(&progress, &major, TaskState::Configuring, "Configuring php.ini…", 92);
+        let dest2 = dest.clone();
+        let _ = tokio::task::spawn_blocking(move || configure_static_ini(&dest2)).await;
+        let starts = tokio::task::spawn_blocking(move || php_starts(&dest))
+            .await.unwrap_or_else(|e| PhpStart::Failed(e.to_string()));
+        match starts {
+            PhpStart::Ok => set_php(&progress, &major, TaskState::Done, &format!("PHP {} installed", release.version), 100),
+            PhpStart::Failed(why) => {
+                let msg = format!("PHP {} is installed but `php -v` failed: {why}", release.version);
+                set_php(&progress, &major, TaskState::Error, &msg, 0);
+            }
+        }
+    });
+}
+
+/// php.ini for a static build: its extensions are compiled in, so there is
+/// nothing to enable; only sane development limits. An existing file (user
+/// edits) is kept.
+#[cfg(not(windows))]
+fn configure_static_ini(dest_dir: &Path) {
+    let dst = dest_dir.join("php.ini");
+    if dst.exists() { return; }
+    let _ = std::fs::write(dst, "\
+; Open Herd: static PHP build (static-php-cli). Extensions are compiled in;
+; `php -m` lists them.
+memory_limit = 512M
+upload_max_filesize = 64M
+post_max_size = 64M
+max_execution_time = 120
+display_errors = Off
+log_errors = On
+cgi.fix_pathinfo = 1
+");
+}
+
 #[derive(Debug, PartialEq)]
-enum PhpStart { Ok, MissingRuntime, Failed(String) }
+enum PhpStart {
+    Ok,
+    #[cfg(windows)]
+    MissingRuntime,
+    Failed(String),
+}
 
 /// Windows' STATUS_DLL_NOT_FOUND / STATUS_INVALID_IMAGE_FORMAT-style loader
 /// failures, as a process exit code: a Visual C++ runtime DLL is missing.
+#[cfg(windows)]
 fn is_missing_dll(code: i32) -> bool {
     const STATUS_DLL_NOT_FOUND: u32 = 0xC000_0135;
     const STATUS_ENTRYPOINT_NOT_FOUND: u32 = 0xC000_0139;
@@ -171,27 +249,26 @@ fn is_missing_dll(code: i32) -> bool {
     [STATUS_DLL_NOT_FOUND, STATUS_ENTRYPOINT_NOT_FOUND, STATUS_INVALID_IMAGE_FORMAT].contains(&(code as u32))
 }
 
-/// Runs `php.exe -v` from a fresh install: an old build on a machine without
-/// its Visual C++ runtime extracts fine and then never starts.
+/// Runs `php -v` from a fresh install: an old Windows build on a machine
+/// without its Visual C++ runtime extracts fine and then never starts, and a
+/// Linux binary may not run on this machine at all.
 fn php_starts(dir: &Path) -> PhpStart {
-    // TODO(linux): Linux uses the system PHP; nothing is downloaded there.
-    #[cfg(target_os = "windows")]
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(dir.join(if cfg!(windows) { "php.exe" } else { "php" }));
+    cmd.arg("-v");
+    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let out = std::process::Command::new(dir.join("php.exe")).arg("-v")
-            .creation_flags(CREATE_NO_WINDOW).output();
-        match out {
-            Ok(o) if o.status.success() => PhpStart::Ok,
-            Ok(o) => match o.status.code() {
-                Some(code) if is_missing_dll(code) => PhpStart::MissingRuntime,
-                code => PhpStart::Failed(format!("exit code {code:?}: {}", String::from_utf8_lossy(&o.stderr).trim())),
-            },
-            Err(e) => PhpStart::Failed(e.to_string()),
-        }
+        cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    #[cfg(not(target_os = "windows"))]
-    { let _ = dir; PhpStart::Ok }
+    match cmd.output() {
+        Ok(o) if o.status.success() => PhpStart::Ok,
+        #[cfg(windows)]
+        Ok(o) if o.status.code().is_some_and(is_missing_dll) => PhpStart::MissingRuntime,
+        Ok(o) => PhpStart::Failed(format!("exit code {:?}: {}", o.status.code(), String::from_utf8_lossy(&o.stderr).trim())),
+        Err(e) => PhpStart::Failed(e.to_string()),
+    }
 }
 
 fn set_php(progress: &Arc<DownloadState>, major: &str, state: TaskState, msg: &str, pct: u8) {
@@ -199,6 +276,7 @@ fn set_php(progress: &Arc<DownloadState>, major: &str, state: TaskState, msg: &s
 }
 
 /// `legacy_names`: PHP before 7.2 spells extensions `php_<name>.dll`.
+#[cfg(windows)]
 fn configure_ini(dest_dir: &Path, legacy_names: bool) {
     let src = dest_dir.join("php.ini-production");
     let dst = dest_dir.join("php.ini");
@@ -207,6 +285,7 @@ fn configure_ini(dest_dir: &Path, legacy_names: bool) {
     let _ = std::fs::write(dst, configured_ini(content, legacy_names));
 }
 
+#[cfg(any(windows, test))]
 fn configured_ini(content: String, legacy_names: bool) -> String {
     let mut out = content;
     for ext in &["curl","mbstring","openssl","pdo_mysql","pdo_sqlite","fileinfo","intl","zip"] {
@@ -221,6 +300,7 @@ fn configured_ini(content: String, legacy_names: bool) -> String {
     out
 }
 
+#[cfg(windows)]
 fn minimal_php_ini() -> &'static str {
     "extension_dir = \"ext\"\ncgi.force_redirect = 0\ncgi.fix_pathinfo = 1\ndisplay_errors = Off\nlog_errors = On\nextension=curl\nextension=mbstring\nextension=openssl\nextension=pdo_mysql\nextension=pdo_sqlite\nextension=fileinfo\n"
 }
@@ -236,17 +316,33 @@ pub fn is_install_complete(dir: &Path) -> bool {
     !dir.join(INSTALL_INCOMPLETE_MARKER).exists()
 }
 
+/// Unpacks an archive over a destination dir, stripping a top-level prefix.
+type Extractor = fn(&Path, &Path, &str) -> anyhow::Result<()>;
+
 async fn fetch_zip<F>(url: &str, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
 where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
+    fetch_archive(url, dest_dir, "_download.zip", extract_zip, strip_prefix, expected_sha256, progress, on_progress).await
+}
+
+#[cfg(not(windows))]
+async fn fetch_tar_gz<F>(url: &str, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
+where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
+    fetch_archive(url, dest_dir, "_download.tar.gz", extract_tar_gz, strip_prefix, expected_sha256, progress, on_progress).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn fetch_archive<F>(url: &str, dest_dir: &Path, temp_name: &str, extract: Extractor, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, on_progress: F) -> anyhow::Result<()>
+where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
     tokio::fs::create_dir_all(dest_dir).await?;
-    let zip_path = dest_dir.join("_download.zip");
-    let result = download_and_extract(url, &zip_path, dest_dir, strip_prefix, expected_sha256, progress, on_progress).await;
+    let archive_path = dest_dir.join(temp_name);
+    let result = download_and_extract(url, &archive_path, dest_dir, extract, strip_prefix, expected_sha256, progress, on_progress).await;
     // The archive is only a temporary: never leave it behind, success or not.
-    let _ = tokio::fs::remove_file(&zip_path).await;
+    let _ = tokio::fs::remove_file(&archive_path).await;
     result
 }
 
-async fn download_and_extract<F>(url: &str, zip_path: &Path, dest_dir: &Path, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
+#[allow(clippy::too_many_arguments)]
+async fn download_and_extract<F>(url: &str, zip_path: &Path, dest_dir: &Path, extract: Extractor, strip_prefix: &str, expected_sha256: Option<&str>, progress: &Arc<DownloadState>, mut on_progress: F) -> anyhow::Result<()>
 where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
     use tokio::io::AsyncWriteExt;
     let mut resp = http_client().get(url).send().await?;
@@ -273,7 +369,7 @@ where F: FnMut(&Arc<DownloadState>, u8, &str) + Send {
     on_progress(progress, 73, "Extracting…");
     tokio::task::spawn_blocking(move || {
         if let Some(expected) = expected { verify_sha256(&zip, &expected)?; }
-        extract_zip(&zip, &dest, &strip)
+        extract(&zip, &dest, &strip)
     }).await?
 }
 
@@ -307,6 +403,33 @@ fn extract_zip(zip_path: &Path, dest_dir: &Path, strip_prefix: &str) -> anyhow::
     Ok(())
 }
 
+/// The `.tar.gz` counterpart of [`extract_zip`] (Linux PHP and Node), with the
+/// same in-progress marker and path checks. Keeps symlinks and file modes.
+#[cfg(not(windows))]
+fn extract_tar_gz(archive_path: &Path, dest_dir: &Path, strip_prefix: &str) -> anyhow::Result<()> {
+    use std::path::Component;
+    let marker = dest_dir.join(INSTALL_INCOMPLETE_MARKER);
+    std::fs::write(&marker, "extraction in progress or interrupted\n")?;
+    let file = std::fs::File::open(archive_path)?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let prefix = Path::new(strip_prefix.trim_end_matches('/'));
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let raw = entry.path()?.into_owned();
+        let name = if strip_prefix.is_empty() { raw.as_path() } else { raw.strip_prefix(prefix).unwrap_or(&raw) };
+        if name.as_os_str().is_empty() { continue; }
+        if name.components().any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))) { continue; }
+        let out_path = dest_dir.join(name);
+        if let Some(parent) = out_path.parent() { std::fs::create_dir_all(parent)?; }
+        // Replace files instead of writing through them: a running binary
+        // can't be overwritten in place, and an old symlink must not redirect the write.
+        if out_path.symlink_metadata().is_ok_and(|m| !m.is_dir()) { std::fs::remove_file(&out_path)?; }
+        entry.unpack(&out_path)?;
+    }
+    std::fs::remove_file(&marker)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +453,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn loader_failures_mean_a_missing_runtime() {
         assert!(is_missing_dll(0xC000_0135_u32 as i32));
         assert!(is_missing_dll(-1073741515)); // the same code as Windows reports it
@@ -374,22 +498,114 @@ mod tests {
         assert!(!is_install_complete(&dest));
     }
 
+    #[cfg(not(windows))]
+    fn write_tar_gz(path: &Path, files: &[(&str, &[u8], u32)], links: &[(&str, &str)]) {
+        let gz = flate2::write::GzEncoder::new(std::fs::File::create(path).unwrap(), flate2::Compression::fast());
+        let mut tar = tar::Builder::new(gz);
+        for (name, data, mode) in files {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(data.len() as u64);
+            h.set_mode(*mode);
+            h.set_cksum();
+            tar.append_data(&mut h, name, *data).unwrap();
+        }
+        for (name, target) in links {
+            let mut h = tar::Header::new_gnu();
+            h.set_entry_type(tar::EntryType::Symlink);
+            h.set_size(0);
+            tar.append_link(&mut h, name, target).unwrap();
+        }
+        tar.into_inner().unwrap().finish().unwrap();
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn tar_gz_extraction_strips_the_prefix_and_keeps_modes_and_links() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("v22.0.0");
+        std::fs::create_dir_all(&dest).unwrap();
+        let archive = tmp.path().join("node.tar.gz");
+        write_tar_gz(&archive,
+            &[("node-v22.0.0-linux-x64/bin/node", b"elf", 0o755), ("node-v22.0.0-linux-x64/lib/npm-cli.js", b"js", 0o644)],
+            &[("node-v22.0.0-linux-x64/bin/npm", "../lib/npm-cli.js")]);
+
+        extract_tar_gz(&archive, &dest, "node-v22.0.0-linux-x64/").unwrap();
+
+        assert!(is_install_complete(&dest));
+        let mode = std::fs::metadata(dest.join("bin/node")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o111, 0o111, "executable bit kept");
+        assert_eq!(std::fs::read_link(dest.join("bin/npm")).unwrap(), Path::new("../lib/npm-cli.js"));
+        assert_eq!(std::fs::read(dest.join("bin/npm")).unwrap(), b"js");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn tar_gz_extraction_replaces_existing_files() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("8.4");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("php-fpm"), b"old").unwrap();
+        std::fs::write(dest.join("php.ini"), b"user edits").unwrap();
+        let archive = tmp.path().join("fpm.tar.gz");
+        write_tar_gz(&archive, &[("php-fpm", b"new", 0o755)], &[]);
+
+        extract_tar_gz(&archive, &dest, "").unwrap();
+
+        assert_eq!(std::fs::read(dest.join("php-fpm")).unwrap(), b"new");
+        assert_eq!(std::fs::read(dest.join("php.ini")).unwrap(), b"user edits");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn corrupt_tar_gz_leaves_install_flagged_incomplete() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("8.4");
+        std::fs::create_dir_all(&dest).unwrap();
+        let archive = tmp.path().join("bad.tar.gz");
+        std::fs::write(&archive, b"not gzip").unwrap();
+        assert!(extract_tar_gz(&archive, &dest, "").is_err());
+        assert!(!is_install_complete(&dest));
+    }
+
+    async fn wait_for_php(state: &DownloadState, major: &str) -> DownloadProgress {
+        let deadline = std::time::Instant::now() + Duration::from_secs(600);
+        loop {
+            let p = state.php.lock().get(major).cloned();
+            if let Some(p) = p.filter(|p| !p.state.is_active()) { return p; }
+            assert!(std::time::Instant::now() < deadline, "download did not finish in time");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Real network: downloads the static PHP 8.4 php-fpm + CLI (~25 MB) from
+    /// static-php-cli into a temp dir. Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    #[ignore = "downloads ~25 MB from dl.static-php.dev"]
+    async fn real_static_php_download_installs_into_temp_dir() {
+        let tmp = TempDir::new().unwrap();
+        let state = DownloadState::new();
+        download_php("8.4", tmp.path(), state.clone());
+        let done = wait_for_php(&state, "8.4").await;
+        assert_eq!(done.state, TaskState::Done, "{}", done.message);
+        let dest = tmp.path().join("8.4");
+        assert!(dest.join("php-fpm").exists() && dest.join("php").exists());
+        assert!(dest.join("php.ini").exists());
+        assert!(is_install_complete(&dest));
+        assert!(!dest.join("_download.tar.gz").exists());
+    }
+
     /// Real network: downloads PHP 8.5 (~30 MB) from windows.php.net into a temp
     /// dir. Run with `cargo test -- --ignored`.
     #[tokio::test]
+    #[cfg(windows)]
     #[ignore = "downloads ~30 MB from windows.php.net"]
     async fn real_php_download_installs_into_temp_dir() {
         let tmp = TempDir::new().unwrap();
         let state = DownloadState::new();
         download_php("8.5", tmp.path(), state.clone());
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(600);
-        let final_state = loop {
-            let p = state.php.lock().get("8.5").cloned();
-            if let Some(p) = p.filter(|p| !p.state.is_active()) { break p; }
-            assert!(std::time::Instant::now() < deadline, "download did not finish in time");
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        };
+        let final_state = wait_for_php(&state, "8.5").await;
 
         assert_eq!(final_state.state, TaskState::Done, "{}", final_state.message);
         let dest = tmp.path().join("8.5");
