@@ -5,6 +5,11 @@
 //! every child is placed in a Job Object created with `KILL_ON_JOB_CLOSE`: the
 //! OS closes our handle to the job when this process ends — however it ends —
 //! and terminates everything still inside it, including nginx's workers.
+//!
+//! On Linux every child gets `PR_SET_PDEATHSIG(SIGTERM)` and its own process
+//! group: the kernel signals it when the app dies, and [`terminate`] stops the
+//! whole group (php-fpm / nginx master *and* workers) instead of only the
+//! master, whose orphaned workers would keep the port.
 
 use std::io;
 use std::process::{Child, Command};
@@ -24,6 +29,12 @@ pub fn spawn_guarded(cmd: &mut Command, logger: &dyn LoggerPort) -> io::Result<C
         ));
     }
     Ok(child)
+}
+
+/// Stops a child spawned by [`spawn_guarded`] and reaps it. Blocking (waits
+/// for the exit): call from a blocking thread.
+pub fn terminate(child: &mut Child) {
+    imp::terminate(child);
 }
 
 #[cfg(windows)]
@@ -113,6 +124,12 @@ mod imp {
         Ok((child, unguarded))
     }
 
+    /// The job holds the whole tree; killing the process is enough here.
+    pub fn terminate(child: &mut Child) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
     /// A process created with `CREATE_SUSPENDED` has a single suspended thread.
     /// `std::process::Child` exposes no thread handle, so find it through a
     /// thread snapshot.
@@ -149,11 +166,72 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use std::io;
+    use std::os::unix::process::CommandExt;
     use std::process::{Child, Command};
+    use std::sync::{mpsc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
 
-    // TODO(linux): tie children to the app with PR_SET_PDEATHSIG.
+    type Request = (Command, mpsc::Sender<io::Result<Child>>);
+
+    /// `PR_SET_PDEATHSIG` fires when the *thread* that forked the child exits,
+    /// not the process. Tokio's blocking threads come and go, so every child
+    /// is forked from this one thread, which lives as long as the app.
+    fn spawner() -> io::Result<mpsc::Sender<Request>> {
+        static SPAWNER: OnceLock<Result<Mutex<mpsc::Sender<Request>>, String>> = OnceLock::new();
+        let sender = SPAWNER.get_or_init(|| {
+            let (tx, rx) = mpsc::channel::<Request>();
+            std::thread::Builder::new()
+                .name("open-herd-spawner".into())
+                .spawn(move || {
+                    for (mut cmd, reply) in rx { let _ = reply.send(cmd.spawn()); }
+                })
+                .map(|_| Mutex::new(tx))
+                .map_err(|e| e.to_string())
+        });
+        match sender {
+            Ok(tx) => tx.lock().map(|tx| tx.clone()).map_err(|_| io::Error::other("spawner lock poisoned")),
+            Err(e) => Err(io::Error::other(e.clone())),
+        }
+    }
+
     pub fn spawn(cmd: &mut Command) -> io::Result<(Child, Option<io::Error>)> {
-        Ok((cmd.spawn()?, None))
+        cmd.process_group(0);
+        // SAFETY: only async-signal-safe calls (prctl, getppid) between fork
+        // and exec, and no allocation.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let cmd = std::mem::replace(cmd, Command::new("true"));
+        let (reply_tx, reply_rx) = mpsc::channel();
+        spawner()?.send((cmd, reply_tx)).map_err(|_| io::Error::other("spawner thread is gone"))?;
+        let child = reply_rx.recv().map_err(|_| io::Error::other("spawner thread is gone"))??;
+        Ok((child, None))
+    }
+
+    /// SIGTERM to the child's process group (php-fpm and nginx stop their
+    /// workers on it), SIGKILL to the group if it is still there after 5 s.
+    pub fn terminate(child: &mut Child) {
+        let Ok(pgid) = i32::try_from(child.id()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        };
+        // SAFETY: plain kill(2) on our own child's process group.
+        unsafe { libc::kill(-pgid, libc::SIGTERM); }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if !matches!(child.try_wait(), Ok(None)) { break; }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // Workers may outlive a master that has already exited: always sweep the group.
+        // SAFETY: as above; ESRCH (nothing left) is fine.
+        unsafe { libc::kill(-pgid, libc::SIGKILL); }
+        let _ = child.wait();
     }
 }
 
@@ -175,5 +253,40 @@ mod tests {
         let mut child = spawn_guarded(&mut cmd, logger.as_ref()).unwrap();
         assert_eq!(child.wait().unwrap().code(), Some(7));
         assert!(logger.recent(10).is_empty(), "no 'unguarded' warning expected");
+    }
+
+    #[cfg(not(windows))]
+    fn alive(pid: i32) -> bool {
+        // SAFETY: signal 0 only checks that the process exists.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// A master that forks a worker (like php-fpm): terminate stops both, not
+    /// only the master.
+    #[test]
+    #[cfg(not(windows))]
+    fn terminate_stops_the_whole_process_group() {
+        let logger = InMemoryLogger::new();
+        let dir = tempfile::TempDir::new().unwrap();
+        let pid_file = dir.path().join("worker.pid");
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", &format!("sleep 300 & echo $! > {}; wait", pid_file.display())]);
+        let mut child = spawn_guarded(&mut cmd, logger.as_ref()).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let worker: i32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse().ok()) { break pid; }
+            assert!(std::time::Instant::now() < deadline, "worker never started");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert!(alive(worker));
+
+        terminate(&mut child);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while alive(worker) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!alive(worker), "the worker must not outlive terminate()");
     }
 }

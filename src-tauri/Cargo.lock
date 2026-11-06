@@ -2893,6 +2893,7 @@ dependencies = [
  "dirs",
  "flate2",
  "junction",
+ "libc",
  "parking_lot",
  "reqwest",
  "serde",

@@ -104,7 +104,9 @@ export default function Nginx() {
           <p className={styles.heroPath}>
             {installed
               ? [info?.version && `nginx/${info.version}`, info?.binary_path].filter(Boolean).join(" · ")
-              : info ? "Nginx will be downloaded and installed automatically." : "Connecting to daemon…"}
+              : !info ? "Connecting to daemon…"
+              : info.os === "windows" || info.downloadable ? "Nginx will be downloaded and installed automatically."
+              : "No nginx found on this system."}
           </p>
         </div>
 
