@@ -2,6 +2,7 @@ const BASE = "http://127.0.0.1:7878/api/v1";
 
 const TIMEOUT_DEFAULT = 5_000;  // ms — standard API calls
 const TIMEOUT_LONG    = 15_000; // ms — operations that may take longer
+const TIMEOUT_USER    = 300_000; // ms — waits for the user (system password prompt)
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 // Module-level TTL cache for stable GET endpoints. Mutations call invalidate()
@@ -56,6 +57,7 @@ import type { CatalogEntry } from "./generated/CatalogEntry";
 import type { DaemonStatus } from "./generated/DaemonStatus";
 import type { InstallProgress } from "./generated/InstallProgress";
 import type { NginxInfo } from "./generated/NginxInfo";
+import type { NginxPortAccess } from "./generated/NginxPortAccess";
 import type { NginxRunning } from "./generated/NginxRunning";
 import type { NginxStatus } from "./generated/NginxStatus";
 import type { PHPVersion } from "./generated/PHPVersion";
@@ -74,7 +76,7 @@ import type { NodeMode } from "./generated/NodeMode";
 import type { NodeReleaseEntry } from "./generated/NodeReleaseEntry";
 import type { NodeStatus } from "./generated/NodeStatus";
 export type {
-  AppConfig, AsyncTask, CatalogEntry, DaemonStatus, InstallProgress, NginxInfo, NginxRunning, NginxStatus, PHPVersion, PhpExtension, PhpIniConfig, PhpSetting, PhpVersionStatus, ProjectType, ServiceStatus, Site, SiteInfo, TaskState,
+  AppConfig, AsyncTask, CatalogEntry, DaemonStatus, InstallProgress, NginxInfo, NginxPortAccess, NginxRunning, NginxStatus, PHPVersion, PhpExtension, PhpIniConfig, PhpSetting, PhpVersionStatus, ProjectType, ServiceStatus, Site, SiteInfo, TaskState,
   NodeInstallProgress, NodeInstalled, NodeMode, NodeReleaseEntry, NodeStatus,
 };
 
@@ -165,6 +167,8 @@ export const api = {
     start: () => request<unknown>("/nginx/start", { method: "POST" }),
     stop: () => request<unknown>("/nginx/stop", { method: "POST" }),
     reload: () => request<unknown>("/nginx/reload", { method: "POST" }),
+    /** Shows the system's password prompt (Linux, pkexec): resolves once the user answers. */
+    allowPorts: () => request<NginxPortAccess>("/nginx/allow-ports", { method: "POST", timeoutMs: TIMEOUT_USER }),
   },
 
   services: {
@@ -178,4 +182,4 @@ export const api = {
     logs: () => request<{ logs: string }>("/daemon/logs"),
   },
 };
-
+

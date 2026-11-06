@@ -1,6 +1,6 @@
 use tempfile::TempDir;
 mod common;
-use common::make_server;
+use common::{make_server, make_server_with_port_access, FakePortAccess};
 
 #[tokio::test]
 async fn nginx_status_returns_not_running() {
@@ -20,6 +20,35 @@ async fn nginx_info_returns_expected_fields() {
     assert!(body.get("running").is_some(),   "missing 'running' field");
     assert!(body.get("downloadable").is_some(), "missing 'downloadable' field");
     assert!(body.get("os").is_some(),        "missing 'os' field");
+    assert_eq!(body["port_access"]["needed"], false);
+}
+
+#[tokio::test]
+async fn info_lists_the_port_setup_and_allow_ports_grants_it() {
+    let tmp = TempDir::new().unwrap();
+    let access = FakePortAccess::new(true, false);
+    let server = make_server_with_port_access(&tmp, access.clone());
+
+    let info = server.get("/api/v1/nginx/info").await.json::<serde_json::Value>();
+    assert_eq!(info["port_access"]["needed"], true);
+    assert_eq!(info["port_access"]["can_prompt"], true);
+    assert!(info["port_access"]["commands"][0].as_str().unwrap().starts_with("sudo setcap"));
+
+    let resp = server.post("/api/v1/nginx/allow-ports").await;
+    resp.assert_status_ok();
+    assert_eq!(resp.json::<serde_json::Value>()["needed"], false);
+    assert_eq!(*access.grants.lock().unwrap(), 1);
+    let info = server.get("/api/v1/nginx/info").await.json::<serde_json::Value>();
+    assert_eq!(info["port_access"]["needed"], false);
+}
+
+#[tokio::test]
+async fn cancelled_password_prompt_is_a_conflict_with_a_message() {
+    let tmp = TempDir::new().unwrap();
+    let server = make_server_with_port_access(&tmp, FakePortAccess::new(true, true));
+    let resp = server.post("/api/v1/nginx/allow-ports").await;
+    resp.assert_status(axum::http::StatusCode::CONFLICT);
+    assert!(resp.json::<serde_json::Value>()["error"].as_str().unwrap().contains("Cancelled"));
 }
 
 #[tokio::test]

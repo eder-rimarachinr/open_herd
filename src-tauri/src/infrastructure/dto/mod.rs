@@ -66,6 +66,24 @@ pub struct NginxInfo {
     pub error_log: String,
     pub downloadable: bool,
     pub os: String,
+    pub port_access: NginxPortAccess,
+}
+
+/// One-time setup nginx needs for its ports (Linux: ports < 1024 are root-only).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct NginxPortAccess {
+    pub needed: bool,
+    /// Commands that do it, for a terminal.
+    pub commands: Vec<String>,
+    /// `POST /nginx/allow-ports` can show the system's password prompt.
+    pub can_prompt: bool,
+}
+
+impl From<crate::domain::ports::port_access::PortAccess> for NginxPortAccess {
+    fn from(a: crate::domain::ports::port_access::PortAccess) -> Self {
+        Self { needed: a.needed, commands: a.commands, can_prompt: a.can_prompt }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

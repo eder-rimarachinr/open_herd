@@ -15,6 +15,7 @@ use open_herd_lib::{
         ports::{
             dns::DnsPort, file_manager::FileManagerPort, ssl::SslPort, web_server::WebServerPort,
             node::{NodeEnvironment, NodeInstall, NodeManagerMode, NodeManagerPort, NodeReleasesPort},
+            port_access::{PortAccess, PortAccessPort},
         },
         site::entity::Site,
     },
@@ -142,6 +143,32 @@ impl NodeReleasesPort for FakeNodeReleases {
     }
 }
 
+/// Never runs setcap / systemctl / pkexec: reports `needed` until `grant`
+/// succeeds (or fails with "Cancelled" when `cancel` is set).
+pub struct FakePortAccess { pub needed: Mutex<bool>, pub cancel: bool, pub grants: Mutex<u32> }
+
+impl FakePortAccess {
+    pub fn new(needed: bool, cancel: bool) -> Arc<Self> {
+        Arc::new(Self { needed: Mutex::new(needed), cancel, grants: Mutex::new(0) })
+    }
+    fn state(&self) -> PortAccess {
+        let needed = *self.needed.lock().unwrap();
+        let commands = if needed { vec!["sudo setcap cap_net_bind_service=+ep '/x/nginx'".to_string()] } else { Vec::new() };
+        PortAccess { needed, commands, can_prompt: true }
+    }
+}
+
+#[async_trait]
+impl PortAccessPort for FakePortAccess {
+    async fn check(&self) -> PortAccess { self.state() }
+    async fn grant(&self) -> Result<PortAccess, InfrastructureError> {
+        *self.grants.lock().unwrap() += 1;
+        if self.cancel { return Err(InfrastructureError::Conflict("Cancelled: nothing was changed.".into())); }
+        *self.needed.lock().unwrap() = false;
+        Ok(self.state())
+    }
+}
+
 /// Real container over a temp `base_dir`, with the system-touching adapters
 /// (hosts file, trust store, file manager, Node junction/PATH, nodejs.org)
 /// replaced by fakes.
@@ -156,7 +183,7 @@ fn make_container_with(
     file_manager: Arc<RecordingFileManager>,
     web_server: Option<Arc<dyn WebServerPort>>,
 ) -> Arc<AppContainer> {
-    make_container_full(tmp, file_manager, web_server, FakeNodeManager::new(&[], None), Arc::new(FakeNodeReleases { fail: false }))
+    make_container_full(tmp, file_manager, web_server, FakeNodeManager::new(&[], None), Arc::new(FakeNodeReleases { fail: false }), FakePortAccess::new(false, false))
 }
 
 fn make_container_full(
@@ -165,6 +192,7 @@ fn make_container_full(
     web_server: Option<Arc<dyn WebServerPort>>,
     node_manager: Arc<dyn NodeManagerPort>,
     node_releases: Arc<dyn NodeReleasesPort>,
+    port_access: Arc<dyn PortAccessPort>,
 ) -> Arc<AppContainer> {
     AppContainer::with_adapters(make_state(tmp), SystemAdapters {
         dns: Some(Arc::new(NoopDns)),
@@ -173,14 +201,24 @@ fn make_container_full(
         web_server,
         node_manager: Some(node_manager),
         node_releases: Some(node_releases),
+        port_access: Some(port_access),
     })
+}
+
+/// Server whose nginx port setup is the given double.
+pub fn make_server_with_port_access(tmp: &TempDir, port_access: Arc<FakePortAccess>) -> TestServer {
+    let container = make_container_full(
+        tmp, Arc::new(RecordingFileManager::default()), None, FakeNodeManager::new(&[], None),
+        Arc::new(FakeNodeReleases { fail: false }), port_access,
+    );
+    TestServer::new(build_router(container)).unwrap()
 }
 
 /// Server whose Node manager / release list are the given doubles.
 pub fn make_server_with_node(tmp: &TempDir, node: Arc<FakeNodeManager>, releases_offline: bool) -> TestServer {
     let container = make_container_full(
         tmp, Arc::new(RecordingFileManager::default()), None, node,
-        Arc::new(FakeNodeReleases { fail: releases_offline }),
+        Arc::new(FakeNodeReleases { fail: releases_offline }), FakePortAccess::new(false, false),
     );
     TestServer::new(build_router(container)).unwrap()
 }

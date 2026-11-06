@@ -83,6 +83,34 @@
 
 /* ── Alert ─────────────────────────────────────────────────────────────────── */
 
+.portAccess {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--amber-border);
+  background: var(--amber-surface);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.portAccess button { flex-shrink: 0; align-self: center; }
+.portAccessBody { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.portAccessCmds {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+@media (max-width: 720px) { .portAccess { flex-wrap: wrap; } }
+
 .alert {
   display: flex;
   gap: 12px;

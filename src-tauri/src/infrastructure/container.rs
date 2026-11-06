@@ -47,6 +47,7 @@ use crate::{
         logger::LoggerPort,
         node::{NodeManagerPort, NodeReleasesPort},
         php_ini::PhpIniStore,
+        port_access::PortAccessPort,
         process_manager::{PhpDetectorPort, PhpProcessPort, PhpVersionRepository},
         ssl::SslPort,
         ssl_task::SslTaskPort,
@@ -59,7 +60,7 @@ use crate::infrastructure::{
     dns::hosts_adapter::HostsAdapter,
     file_manager::SystemFileManager,
     download::tracker::DownloadTracker,
-    nginx::adapter::NginxAdapter,
+    nginx::{adapter::NginxAdapter, port_access::NginxPortAccess},
     node::releases::HttpNodeReleases,
     persistence::json_site_repository::JsonSiteRepository,
     logging::InMemoryLogger,
@@ -93,6 +94,7 @@ pub struct AppContainer {
     pub logger: Arc<dyn LoggerPort>,
     pub node_manager:  Arc<dyn NodeManagerPort>,
     pub node_releases: Arc<dyn NodeReleasesPort>,
+    pub port_access:   Arc<dyn PortAccessPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -153,6 +155,8 @@ pub struct SystemAdapters {
     pub node_manager: Option<Arc<dyn NodeManagerPort>>,
     /// Node: reads the release list from nodejs.org (network).
     pub node_releases: Option<Arc<dyn NodeReleasesPort>>,
+    /// nginx ports: file capabilities and system services (Linux, via pkexec).
+    pub port_access: Option<Arc<dyn PortAccessPort>>,
 }
 
 #[cfg(windows)]
@@ -182,6 +186,7 @@ impl AppContainer {
         let dns:          Arc<dyn DnsPort>          = system.dns.unwrap_or_else(|| Arc::new(HostsAdapter::new()));
         let node_manager: Arc<dyn NodeManagerPort> = system.node_manager.unwrap_or_else(|| default_node_manager(base_dir.clone()));
         let node_releases: Arc<dyn NodeReleasesPort> = system.node_releases.unwrap_or_else(|| Arc::new(HttpNodeReleases::new()));
+        let port_access: Arc<dyn PortAccessPort> = system.port_access.unwrap_or_else(|| Arc::new(NginxPortAccess::new(state.clone())));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let file_manager: Arc<dyn FileManagerPort> = system.file_manager.unwrap_or_else(|| Arc::new(SystemFileManager));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
@@ -237,7 +242,7 @@ impl AppContainer {
             started_at: state.started_at,
             legacy: state,
             site_repo, web_server, dns, ssl, file_manager, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
-            node_manager, node_releases,
+            node_manager, node_releases, port_access,
             get_node_status_uc, list_node_releases_uc, install_node_uc, activate_node_uc, uninstall_node_uc,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,

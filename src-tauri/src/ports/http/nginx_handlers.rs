@@ -4,7 +4,7 @@ use crate::domain::ports::task::TaskState;
 use crate::{
     infrastructure::{
         container::AppContainer,
-        dto::{AsyncTask, NginxInfo, PhpVersionStatus, ServiceStatus},
+        dto::{AsyncTask, NginxInfo, NginxPortAccess, PhpVersionStatus, ServiceStatus},
         nginx::process as nginx_mgr,
     },
 };
@@ -34,11 +34,27 @@ pub async fn nginx_info(State(container): State<ContainerRef>) -> impl IntoRespo
         let version = binary.as_ref().and_then(|b| nginx_mgr::get_nginx_version(b)).unwrap_or_default();
         (binary.map(|b| b.to_string_lossy().to_string()).unwrap_or_default(), version)
     }).await.unwrap_or_default();
+    let port_access = container.port_access.check().await.into();
     Json(NginxInfo {
         installed: !binary_path.is_empty(), running, version, binary_path,
         config_valid: None, config_error: String::new(), error_log: String::new(),
         downloadable: cfg!(target_os = "windows"), os: std::env::consts::OS.into(),
+        port_access,
     })
+}
+
+// ── POST /api/v1/nginx/allow-ports ────────────────────────────────────────────
+
+/// Shows the system's password prompt and grants what `port_access` lists.
+/// Waits for the user, so the GUI calls it with a long timeout.
+pub async fn allow_ports(State(container): State<ContainerRef>) -> impl IntoResponse {
+    match container.port_access.grant().await {
+        Ok(access) => {
+            container.logger.log("nginx may now use ports below 1024".into());
+            Json(NginxPortAccess::from(access)).into_response()
+        }
+        Err(e) => crate::ports::http::error::app_error(&e.into()),
+    }
 }
 
 // ── POST /api/v1/nginx/download ───────────────────────────────────────────────
