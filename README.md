@@ -10,7 +10,7 @@ A local PHP development environment for Windows: serve your projects at `https:/
 
 **Project status:** a personal side project, built and maintained in my spare time. It is what I use every day for my own PHP work, so it is usable, but expect rough edges. See the [Roadmap](#roadmap) for what is done and what comes next.
 
-**Platform status:** Windows 10/11 (x64) is supported. Linux and macOS are not functional yet (see [Platform status](#platform-status)).
+**Platform status:** Windows 10/11 (x64) is supported. Linux is in progress (PHP and Node downloads work; sites are not verified yet), macOS is not functional yet (see [Platform status](#platform-status)).
 
 ---
 
@@ -190,12 +190,14 @@ A *Generic* folder that holds exactly one Laravel, CodeIgniter, WordPress or SPA
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
-| App, sites, nginx, SSL, hosts | ✅ | 🚧 | 🚧 |
-| PHP | `php-cgi.exe` on `127.0.0.1:9000 + major×10 + minor` (8.2 → 9082) | 🚧 needs php-fpm support | 🚧 |
-| Installers / releases | ✅ NSIS, MSI, portable zip | ❌ not published | ❌ |
+| App | ✅ | ✅ | 🚧 |
+| PHP | `php-cgi.exe` on `127.0.0.1:9000 + major×10 + minor` (8.2 → 9082) | ✅ `php-fpm` (static builds) on the same ports | 🚧 |
+| Node.js versions | ✅ nvm-windows aware | ✅ nvm aware | 🚧 |
+| Sites, nginx, SSL, hosts | ✅ | 🚧 untested (system nginx, root for ports 80/443 and `/etc/hosts`) | 🚧 |
+| Installers / releases | ✅ NSIS, MSI, portable zip | 🚧 `.deb` / AppImage built locally (`scripts/build-linux.sh`), not published yet | ❌ |
 | nginx/PHP stopped if the app crashes | ✅ | 🚧 | 🚧 |
 
-Linux and macOS support is planned; until then `installer/install.sh` has no release assets to download.
+`installer/install.sh` has no release assets to download until the Linux packages are published.
 
 ---
 
@@ -217,9 +219,13 @@ Open Herd installs these builds (NTS, x64) from windows.php.net:
 
 The end-of-life builds come from windows.php.net's archive, which publishes no checksums; their SHA-256 were recorded from the files it serves and every later download is checked against them.
 
+**On Linux** php.net publishes no binaries, so Open Herd installs the static x86_64 builds of [static-php-cli](https://static-php.dev) (a `php-fpm` and a `php` CLI per version, no root needed, into `~/.phpenv/php/<major>`): 8.5.8, 8.4.23, 8.3.32, 8.2.32, 8.1.34 and 8.0.30, each pinned by SHA-256. Their extensions are compiled in (bcmath, curl, gd, mbstring, mysqlnd / pdo_mysql, pgsql / pdo_pgsql, redis, sqlite, soap, zip, …; `php -m` lists them), so there is nothing to enable in php.ini. Lines older than 8.0 are Windows-only.
+
 ## Supported Node.js versions
 
-The newest release of every LTS line that nodejs.org ships as a Windows x64 zip — 4.x (Argon) up to the current LTS — plus the newest "Current" line when it is ahead of every LTS. The list is read from `nodejs.org/dist/index.json` (cached for an hour), so new releases show up without an Open Herd update. Lines with no release in six months are marked end of life.
+The newest release of every LTS line that nodejs.org ships for the platform (Windows x64 zips exist from 4.x (Argon) on) up to the current LTS, plus the newest "Current" line when it is ahead of every LTS. The list is read from `nodejs.org/dist/index.json` (cached for an hour), so new releases show up without an Open Herd update. Lines with no release in six months are marked end of life.
+
+On Linux, with [nvm](https://github.com/nvm-sh/nvm) installed, versions go into nvm's own folder (`nvm ls` sees them) and **Activate** sets nvm's `default` alias, which every new terminal uses. Without nvm they go into `~/.phpenv/node`, and `node`, `npm`, `npx` and `corepack` are linked into `~/.local/bin`.
 
 8.2.35, 8.3.36, 8.4.27 and 8.5.12 fix CVE-2026-109618 and CVE-2026-109619 ([INCIBE-CERT notice](https://www.incibe.es/incibe-cert/alerta-temprana/avisos/multiples-vulnerabilidades-en-php), October 2026). Open Herd does not update installed versions on its own: press **Update** on the PHP page for each version you use.
 
@@ -244,6 +250,7 @@ A personal backlog, roughly in priority order. Issues and ideas are welcome on [
 - [x] Node.js page: install LTS lines and switch the active version (nvm-windows aware)
 - [x] End-of-life PHP (5.6 – 8.0) and Node (4.x and up) lines for legacy projects, in a list layout
 - [x] Wrapper folders resolved to the project inside; a site's folder can be changed after creation
+- [x] Linux: PHP 8.0 – 8.5 downloads (static php-fpm builds), Node versions (nvm aware), `.deb` / AppImage build script
 
 ### Next
 
@@ -253,7 +260,7 @@ A personal backlog, roughly in priority order. Issues and ideas are welcome on [
 
 ### Later
 
-- [ ] Linux: PHP through php-fpm, child processes tied to the app (`PR_SET_PDEATHSIG`), release packages
+- [ ] Linux: verify sites / nginx / SSL / hosts end to end, child processes tied to the app, publish the `.deb` / AppImage from CI
 - [ ] macOS support
 - [ ] Optional services next to PHP (database, mail catcher)
 

@@ -87,7 +87,7 @@ impl NodeReleasesPort for FakeReleases {
 fn rel(ver: &str, date: &str, lts: Option<&str>) -> NodeReleaseInfo {
     NodeReleaseInfo {
         version: v(ver), date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
-        lts: lts.map(String::from), security: false, has_win_x64_zip: true,
+        lts: lts.map(String::from), security: false, has_build: true,
     }
 }
 

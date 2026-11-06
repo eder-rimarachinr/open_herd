@@ -23,6 +23,7 @@ const RESTART_WINDOW: Duration = Duration::from_secs(60);
 pub struct PhpProcesses { children: Mutex<HashMap<String, PhpChild>> }
 impl PhpProcesses { pub fn new() -> Arc<Self> { Arc::new(Self { children: Mutex::new(HashMap::new()) }) } }
 
+#[cfg(windows)]
 fn php_cgi_command(binary: &str, port: u16) -> Command {
     let mut cmd = Command::new(binary);
     cmd.args(["-b", &format!("127.0.0.1:{}", port)])
@@ -32,8 +33,51 @@ fn php_cgi_command(binary: &str, port: u16) -> Command {
     cmd
 }
 
+/// The FastCGI server for one PHP version: `php-cgi -b` on Windows.
+#[cfg(windows)]
+fn fastcgi_command(binary: &str, port: u16) -> std::io::Result<Command> {
+    Ok(php_cgi_command(binary, port))
+}
+
+/// php-fpm pool config: one pool on the TCP port php-cgi uses on Windows, so
+/// the nginx vhosts are the same on both systems.
+#[cfg(not(windows))]
+fn fpm_config(port: u16, error_log: &std::path::Path) -> String {
+    format!("\
+[global]
+error_log = {}
+daemonize = no
+
+[www]
+listen = 127.0.0.1:{port}
+pm = dynamic
+pm.max_children = 8
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+clear_env = no
+catch_workers_output = yes
+", error_log.display())
+}
+
+/// The FastCGI server for one PHP version on Linux: php-fpm in the foreground
+/// (so it stays our child and the supervisor sees it exit) with a generated
+/// pool config, and the install's own php.ini when it has one.
+#[cfg(not(windows))]
+fn fastcgi_command(binary: &str, port: u16) -> std::io::Result<Command> {
+    let dir = std::env::temp_dir().join("open-herd");
+    std::fs::create_dir_all(&dir)?;
+    let conf = dir.join(format!("php-fpm-{port}.conf"));
+    std::fs::write(&conf, fpm_config(port, &dir.join(format!("php-fpm-{port}.log"))))?;
+    let mut cmd = Command::new(binary);
+    cmd.arg("--nodaemonize").arg("--fpm-config").arg(&conf);
+    let ini = std::path::Path::new(binary).with_file_name("php.ini");
+    if ini.is_file() { cmd.arg("-c").arg(ini); }
+    Ok(cmd)
+}
+
 fn spawn_php_cgi(binary: &str, port: u16, logger: &dyn LoggerPort) -> std::io::Result<Child> {
-    process_guard::spawn_guarded(&mut php_cgi_command(binary, port), logger)
+    process_guard::spawn_guarded(&mut fastcgi_command(binary, port)?, logger)
 }
 
 pub fn start(php_proc: &PhpProcesses, logger: &dyn LoggerPort, version: &PhpVersion) -> Result<(), String> {
@@ -46,7 +90,7 @@ pub fn start(php_proc: &PhpProcesses, logger: &dyn LoggerPort, version: &PhpVers
     #[cfg(target_os = "windows")]
     let binary = find_php_cgi_windows(&version.binary_path)?;
     #[cfg(not(target_os = "windows"))]
-    let binary = version.fpm_binary.clone();
+    let binary = find_php_fpm(&version.fpm_binary, &version.major)?;
 
     let child = spawn_php_cgi(&binary, port, logger)
         .map_err(|e| format!("Failed to start PHP {}: {}", version.major, e))?;
@@ -139,16 +183,56 @@ fn find_php_cgi_windows(binary_path: &str) -> Result<String, String> {
     which::which("php-cgi").map(|p| p.to_string_lossy().into()).map_err(|_| format!("php-cgi.exe not found near {}", binary_path))
 }
 
+/// php-fpm for the PHP whose CLI is `binary_path`: beside it (Open Herd's
+/// static builds), Debian/Ubuntu's `/usr/sbin/php-fpm<major>`, then the PATH.
+#[cfg(not(target_os = "windows"))]
+fn find_php_fpm(binary_path: &str, major: &str) -> Result<String, String> {
+    let cli = std::path::Path::new(binary_path);
+    let mut candidates = Vec::new();
+    if cli.is_absolute() { candidates.push(cli.with_file_name("php-fpm")); }
+    candidates.push(std::path::PathBuf::from(format!("/usr/sbin/php-fpm{major}")));
+    if let Some(found) = candidates.into_iter().find(|p| p.is_file()) {
+        return Ok(found.to_string_lossy().into());
+    }
+    which::which(format!("php-fpm{major}")).or_else(|_| which::which("php-fpm"))
+        .map(|p| p.to_string_lossy().into())
+        .map_err(|_| format!("php-fpm not found for PHP {major} (looked beside {binary_path}, in /usr/sbin and on the PATH)"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infrastructure::logging::InMemoryLogger;
 
     #[test]
+    #[cfg(windows)]
     fn php_cgi_never_recycles_itself() {
         let cmd = php_cgi_command("php-cgi", 9082);
         let max = cmd.get_envs().find(|(k, _)| *k == "PHP_FCGI_MAX_REQUESTS").and_then(|(_, v)| v);
         assert_eq!(max, Some(std::ffi::OsStr::new("0")));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn fpm_listens_on_the_version_port_in_the_foreground() {
+        let conf = fpm_config(9084, std::path::Path::new("/tmp/fpm.log"));
+        assert!(conf.contains("listen = 127.0.0.1:9084\n"), "{conf}");
+        assert!(conf.contains("daemonize = no"));
+        assert!(conf.contains("error_log = /tmp/fpm.log"));
+        let cmd = fastcgi_command("/opt/php/8.4/php-fpm", 9084).unwrap();
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args[0], "--nodaemonize");
+        assert!(args[2].ends_with("php-fpm-9084.conf"), "{args:?}");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn php_fpm_is_found_beside_the_cli() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("php"), "").unwrap();
+        std::fs::write(tmp.path().join("php-fpm"), "").unwrap();
+        let cli = tmp.path().join("php").to_string_lossy().into_owned();
+        assert_eq!(find_php_fpm(&cli, "8.4").unwrap(), tmp.path().join("php-fpm").to_string_lossy());
     }
 
     #[test]

@@ -8,6 +8,9 @@ use crate::domain::{errors::InfrastructureError, node::{NodeReleaseInfo, NodeVer
 pub enum NodeManagerMode {
     /// nvm-windows is installed: versions live in `NVM_HOME`, the link is `NVM_SYMLINK`.
     NvmWindows,
+    /// nvm (nvm-sh, Linux) is installed: versions live in `$NVM_DIR/versions/node`,
+    /// the active one is nvm's `default` alias.
+    Nvm,
     /// No nvm: versions live in `<base_dir>/node`, the link is `<base_dir>/node/current`.
     OpenHerd,
 }

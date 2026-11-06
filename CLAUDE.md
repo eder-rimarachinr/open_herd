@@ -32,6 +32,12 @@ npm run tauri dev
 ```
 Produces `release/open-herd-vX.Y.Z-setup.exe` (NSIS), `-x64.msi` and `-portable.zip`. Requires `assets/logo.png`. (`dist/` is Vite's output, not the release folder.) Those exact names are what `installer/install.ps1` downloads — don't rename them.
 
+### Build for production (Linux)
+```bash
+scripts/build-linux.sh            # or --deb-only
+```
+Produces `release/open-herd-vX.Y.Z-amd64.deb` and `-x86_64.AppImage` (`tauri build --bundles deb,appimage`; `APPIMAGE_EXTRACT_AND_RUN=1` so it works without FUSE, e.g. in WSL). Needs the Tauri system libraries (`libwebkit2gtk-4.1-dev` & co., listed at the top of the script). Not wired into `release.yml` yet. Linux-only dependencies go under `[target.'cfg(not(windows))'.dependencies]` (`tar`, `flate2`) so the Windows build never compiles them.
+
 ### Release
 Bump the version in `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `package.json` (must all match), commit, then push an annotated tag `vX.Y.Z`. `.github/workflows/release.yml` checks the versions, runs the tests, builds with `build-portable.ps1` and creates a **draft** GitHub release (notes = tag message). Publish the draft by hand.
 
@@ -185,24 +191,30 @@ Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A
 
 | Feature | Windows | Linux |
 |---------|---------|-------|
-| PHP FastCGI | `php-cgi.exe` on TCP (port: `9000 + major*10 + minor`) | `php-fpm` on Unix socket `~/.phpenv/phpXX.sock` |
+| PHP FastCGI | `php-cgi.exe` on TCP (port: `9000 + major*10 + minor`) | `php-fpm --nodaemonize` on the same TCP port (pool config written to `$TMPDIR/open-herd/php-fpm-<port>.conf`) |
+| PHP builds | windows.php.net zips (5.6 – 8.5) | static-php-cli tarballs, x86_64 (8.0 – 8.5) |
+| Node | nvm-windows `NVM_HOME` + junction | nvm `versions/node` + `default` alias |
 | nginx | Auto-downloaded from nginx.org to `~/.phpenv/nginx/` | Must be system-installed (`apt install nginx`) |
 | mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
 | Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
 
-Linux support is currently deferred: PHP on Linux is not functional yet (it spawns the CLI `php`), and child processes are only tied to the app's lifetime on Windows.
+Linux status: the app, PHP (download, php-fpm) and Node work (developed and tested in WSL2 Ubuntu 26.04). Sites / nginx / SSL / hosts on Linux are not verified yet (system nginx; ports 80/443 and `/etc/hosts` need root), and child processes are only tied to the app's lifetime on Windows. Gate platform code with `cfg(windows)` / `cfg(not(windows))`; tests that only make sense on one side get the same `cfg` (e.g. the 5.6 catalog test is Windows-only, its Linux twin checks 8.0 – 8.5).
 
 ## Processes (Windows)
 
 nginx and php-cgi are spawned through `infrastructure/process_guard.rs`: created suspended, assigned to a Job Object with `KILL_ON_JOB_CLOSE`, then resumed — so they (nginx workers included) die with the app however it ends. php-cgi runs with `PHP_FCGI_MAX_REQUESTS=0`, and a supervisor task (`AppContainer::spawn_background_tasks`, every 2 s) restarts it if it exits, giving up after 5 restarts per minute. Shutdown goes through `config_handlers::graceful_shutdown` → `AppHandle::exit` (set via `AppContainer::set_exit_hook`).
 
-## Node versions (Windows)
+## Node versions
 
 `infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_releases`: the newest release of every LTS line with a Windows zip, 4.x on, lines silent for 6 months flagged `end_of_life`, + a newer maintained Current), zips are verified against `SHASUMS256.txt`.
+
+Linux: `infrastructure/node/linux.rs::LinuxNodeManager`. With nvm (`$NVM_DIR` or `~/.nvm`, recognised by its `nvm.sh`) it installs into `$NVM_DIR/versions/node/v<ver>` and activates by writing `v<ver>` to `$NVM_DIR/alias/default` (resolved like nvm does: specs, `node`, `lts/*` → `alias/lts/<name>`). Without nvm: `<base_dir>/node/v<ver>` + a `current` symlink (atomic rename), and `node`/`npm`/`npx`/`corepack` symlinks in `~/.local/bin` (real files there are never replaced, only warned about). Releases count when `index.json` lists the `linux-x64` (or `linux-arm64`) build (`NodeReleaseInfo::has_build`); the `.tar.gz` is verified against the same `SHASUMS256.txt`.
 
 ## PHP versions
 
 `infrastructure/php/catalog.rs::PHP_LINES` is the single list of installable PHP lines (5.6 – 8.5): newest patch, exact build tag as spelled in the file name (`VC15` up to 7.3, `vc15`/`vs16`/`vs17` after), pinned SHA-256, support status and Visual C++ runtime. Both `/php/catalog` and the download read it; a new patch means updating its row (and hash). Downloads try `releases/` then `releases/archives/`; nothing unpinned is installed. After extraction `php -v` runs and a loader failure is reported as the missing VC++ runtime. PHP < 7.2 uses `extension=php_<name>.dll` in php.ini (`legacy_extension_names`; `ini_parser` keeps that spelling).
+
+Linux uses `STATIC_PHP_LINES` in the same file instead (the catalog picks the table by `cfg`): static-php-cli's "common" builds from `dl.static-php.dev` (it redirects; reqwest follows), one `php-fpm` and one `php` CLI `.tar.gz` per line, both SHA-256-pinned (static-php-cli publishes no checksums). Extensions are compiled in, so the generated php.ini has no `extension=` lines. A new patch: download both tarballs, `sha256sum`, update the row; keep the support flags equal to the Windows row (a test checks it).
 
 ## Async tasks
 

@@ -57,14 +57,14 @@ pub struct NodeReleaseInfo {
     /// LTS codename (`"Jod"`), `None` for non-LTS releases.
     pub lts: Option<String>,
     pub security: bool,
-    pub has_win_x64_zip: bool,
+    pub has_build: bool,
 }
 
 /// A line still gets releases every few weeks; one silent for this long is
 /// treated as no longer maintained (`index.json` has no end-of-life dates).
 const MAINTAINED_WITHIN_DAYS: i64 = 183;
 
-/// A release line worth offering: its newest release with a Windows zip.
+/// A release line worth offering: its newest release with a build for this platform.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeOffer {
     pub release: NodeReleaseInfo,
@@ -76,11 +76,12 @@ pub struct NodeOffer {
 /// to an old Node (10, 8…) can still get it; plus the newest non-LTS
 /// ("Current") line when it is maintained and newer than every LTS line.
 /// Old odd-numbered lines are skipped: they were never meant for production.
-/// Only lines with a Windows x64 zip count (nodejs.org has them from 4.x on).
+/// Only lines with a build for this platform count (nodejs.org has Windows x64
+/// zips from 4.x on).
 /// Newest first.
 pub fn select_releases(all: &[NodeReleaseInfo], today: NaiveDate) -> Vec<NodeOffer> {
     let mut newest_per_major: Vec<&NodeReleaseInfo> = Vec::new();
-    for r in all.iter().filter(|r| r.has_win_x64_zip) {
+    for r in all.iter().filter(|r| r.has_build) {
         match newest_per_major.iter_mut().find(|n| n.version.major() == r.version.major()) {
             Some(slot) => if r.version > slot.version { *slot = r; },
             None => newest_per_major.push(r),
@@ -110,7 +111,7 @@ mod tests {
     fn v(s: &str) -> NodeVersion { NodeVersion::parse(s).unwrap() }
     fn d(s: &str) -> NaiveDate { NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap() }
     fn rel(ver: &str, date: &str, lts: Option<&str>, zip: bool) -> NodeReleaseInfo {
-        NodeReleaseInfo { version: v(ver), date: d(date), lts: lts.map(String::from), security: false, has_win_x64_zip: zip }
+        NodeReleaseInfo { version: v(ver), date: d(date), lts: lts.map(String::from), security: false, has_build: zip }
     }
 
     #[test]

@@ -51,6 +51,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(not(windows))'.dependencies]
+# PHP (static-php-cli builds) and Node ship as .tar.gz on Linux.
+tar = "0.4"
+flate2 = "1"
+
 [dev-dependencies]
 axum-test = "17"
 tempfile = "3"

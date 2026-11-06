@@ -3,10 +3,28 @@
 
 use std::{path::Path, sync::Arc};
 
-use super::{fetch_zip, http_client, DownloadState};
+#[cfg(windows)]
+use super::fetch_zip as fetch_archive;
+#[cfg(not(windows))]
+use super::fetch_tar_gz as fetch_archive;
+use super::{http_client, DownloadState};
 use crate::domain::{node::NodeVersion, ports::{download::DownloadProgress, task::TaskState}};
 
 const DIST: &str = "https://nodejs.org/dist";
+
+/// nodejs.org's platform tag and archive extension for this machine.
+#[cfg(windows)]
+const PLATFORM: (&str, &str) = ("win-x64", "zip");
+#[cfg(all(not(windows), target_arch = "aarch64"))]
+const PLATFORM: (&str, &str) = ("linux-arm64", "tar.gz");
+#[cfg(all(not(windows), not(target_arch = "aarch64")))]
+const PLATFORM: (&str, &str) = ("linux-x64", "tar.gz");
+
+/// The archive to download and the top-level folder inside it.
+fn archive_for(v: &str) -> (String, String) {
+    let (platform, ext) = PLATFORM;
+    (format!("node-v{v}-{platform}.{ext}"), format!("node-v{v}-{platform}/"))
+}
 
 /// Hash for `filename` in a `SHASUMS256.txt` body (`<hex>  <name>` lines).
 pub(crate) fn sha_from_shasums(text: &str, filename: &str) -> Option<String> {
@@ -24,16 +42,15 @@ fn set(progress: &DownloadState, version: &NodeVersion, state: TaskState, msg: &
 }
 
 /// Starts the download as a task on the current Tokio runtime and returns at
-/// once. `dest_dir` is the final `v<version>` folder; the zip's top-level
-/// `node-v<version>-win-x64/` folder is stripped so `node.exe` lands in it
-/// (the layout nvm-windows uses too).
-// TODO(linux): fetch the `linux-x64` tarball instead.
+/// once. `dest_dir` is the final `v<version>` folder; the archive's top-level
+/// `node-v<version>-<platform>/` folder is stripped, so `node.exe` (Windows) or
+/// `bin/node` (Linux) lands in it: the layout nvm-windows and nvm use too.
 pub fn download_node(version: &NodeVersion, dest_dir: &Path, progress: Arc<DownloadState>) {
     let version  = version.clone();
     let dest_dir = dest_dir.to_path_buf();
     tokio::spawn(async move {
         let v        = version.as_str();
-        let filename = format!("node-v{v}-win-x64.zip");
+        let (filename, prefix) = archive_for(v);
         set(&progress, &version, TaskState::Downloading, &format!("Fetching checksums for Node {v}…"), 3);
         let sums_url = format!("{DIST}/v{v}/SHASUMS256.txt");
         let sums = match fetch_text(&sums_url).await {
@@ -46,9 +63,8 @@ pub fn download_node(version: &NodeVersion, dest_dir: &Path, progress: Arc<Downl
         };
         set(&progress, &version, TaskState::Downloading, &format!("Downloading Node {v}…"), 8);
         let url    = format!("{DIST}/v{v}/{filename}");
-        let prefix = format!("node-v{v}-win-x64/");
         let ver2   = version.clone();
-        let result = fetch_zip(&url, &dest_dir, &prefix, Some(&hash), &progress, move |p, pct, msg| {
+        let result = fetch_archive(&url, &dest_dir, &prefix, Some(&hash), &progress, move |p, pct, msg| {
             set(p, &ver2, TaskState::Downloading, msg, pct);
         }).await;
         match result {
@@ -84,7 +100,18 @@ abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd  node-v22.19.0-
         assert_eq!(sha_from_shasums(SUMS, "win-x64.zip"), None, "must match the whole name");
     }
 
-    /// Real network: downloads a Node LTS zip (~30 MB) into a temp dir.
+    #[test]
+    fn archive_matches_the_platform_build() {
+        let (file, prefix) = archive_for("22.19.0");
+        if cfg!(windows) {
+            assert_eq!(file, "node-v22.19.0-win-x64.zip");
+        } else {
+            assert!(file.starts_with("node-v22.19.0-linux-") && file.ends_with(".tar.gz"), "{file}");
+        }
+        assert_eq!(format!("{prefix}x"), file.replace(".tar.gz", "/x").replace(".zip", "/x"));
+    }
+
+    /// Real network: downloads a Node LTS archive (~30 MB) into a temp dir.
     /// Run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore = "downloads ~30 MB from nodejs.org"]
@@ -103,8 +130,8 @@ abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd  node-v22.19.0-
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         };
         assert_eq!(done.state, TaskState::Done, "{}", done.message);
-        assert!(dest.join("node.exe").exists());
+        assert!(dest.join(if cfg!(windows) { "node.exe" } else { "bin/node" }).exists());
         assert!(super::super::is_install_complete(&dest));
-        assert!(!dest.join("_download.zip").exists());
+        assert!(!dest.join("_download.zip").exists() && !dest.join("_download.tar.gz").exists());
     }
 }
