@@ -104,7 +104,7 @@ pub fn stop(php_proc: &PhpProcesses, logger: &dyn LoggerPort, major: &str) -> Re
     // Remove first, so the supervisor never restarts a version being stopped.
     let removed = php_proc.children.lock().remove(major);
     if let Some(mut c) = removed {
-        let _ = c.child.kill(); let _ = c.child.wait();
+        process_guard::terminate(&mut c.child);
         logger.log(format!("PHP {} stopped", major));
     }
     Ok(())
@@ -114,7 +114,7 @@ pub fn stop(php_proc: &PhpProcesses, logger: &dyn LoggerPort, major: &str) -> Re
 pub fn stop_all(php_proc: &PhpProcesses, logger: &dyn LoggerPort) {
     let drained: Vec<_> = php_proc.children.lock().drain().collect();
     for (major, mut c) in drained {
-        let _ = c.child.kill(); let _ = c.child.wait();
+        process_guard::terminate(&mut c.child);
         logger.log(format!("PHP {} stopped", major));
     }
 }

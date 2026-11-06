@@ -55,6 +55,8 @@ windows-sys = { version = "0.59", features = [
 # PHP (static-php-cli builds) and Node ship as .tar.gz on Linux.
 tar = "0.4"
 flate2 = "1"
+# process_guard: PR_SET_PDEATHSIG and process-group signals for nginx / php-fpm.
+libc = "0.2"
 
 [dev-dependencies]
 axum-test = "17"

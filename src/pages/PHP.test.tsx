@@ -188,73 +188,40 @@ describe("Catalog display", () => {
 
 // ── Active PHP ────────────────────────────────────────────────────────────────
 
-describe("Active PHP", () => {
-  it("shows radio button for installed versions", async () => {
-    setupDefaults({
-      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" })],
-    });
-    renderPHP();
-    await waitFor(() => expect(screen.getByRole("radio")).toBeInTheDocument());
+describe("Default PHP", () => {
+  const twoInstalled = () => setupDefaults({
+    catalog: [
+      mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" }),
+      mockCatalogEntry({ major: "8.1", installed: true, installed_patch: "8.1.5" }),
+    ],
+    config: mockConfig({ default_php: "8.2" }),
   });
 
-  it("radio is checked for the default PHP version", async () => {
-    setupDefaults({
-      catalog: [
-        mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" }),
-        mockCatalogEntry({ major: "8.1", installed: true, installed_patch: "8.1.5" }),
-      ],
-      config: mockConfig({ default_php: "8.2" }),
-    });
+  it("marks only the default version, and offers Make default on the others", async () => {
+    twoInstalled();
     renderPHP();
-    await waitFor(() => {
-      const radios = screen.getAllByRole("radio");
-      expect(radios[0]).toBeChecked(); // 8.2 first
-      expect(radios[1]).not.toBeChecked();
-    });
+    await waitFor(() => expect(within(row("8.2")).getByText("Default")).toBeInTheDocument());
+    expect(within(row("8.2")).queryByRole("button", { name: /Make PHP 8.2 the default/ })).not.toBeInTheDocument();
+    expect(within(row("8.1")).queryByText("Default")).not.toBeInTheDocument();
+    expect(within(row("8.1")).getByRole("button", { name: "Make PHP 8.1 the default" })).toBeInTheDocument();
   });
 
-  it("calls config.update when a different version radio is selected", async () => {
-    setupDefaults({
-      catalog: [
-        mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" }),
-        mockCatalogEntry({ major: "8.1", installed: true, installed_patch: "8.1.5" }),
-      ],
-      config: mockConfig({ default_php: "8.2" }),
-    });
+  it("Make default saves the config and restarts the services", async () => {
+    twoInstalled();
     renderPHP();
-    await waitFor(() => screen.getAllByRole("radio"));
-    const radios = screen.getAllByRole("radio");
-    await userEvent.click(radios[1]); // select 8.1
+    await userEvent.click(await screen.findByRole("button", { name: "Make PHP 8.1 the default" }));
     await waitFor(() =>
-      expect(m.config.update).toHaveBeenCalledWith(
-        expect.objectContaining({ default_php: "8.1" })
-      )
+      expect(m.config.update).toHaveBeenCalledWith(expect.objectContaining({ default_php: "8.1" }))
     );
-  });
-
-  it("does not call config.update when current default radio is clicked", async () => {
-    setupDefaults({
-      catalog: [mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" })],
-      config: mockConfig({ default_php: "8.2" }),
-    });
-    renderPHP();
-    await waitFor(() => screen.getByRole("radio"));
-    await userEvent.click(screen.getByRole("radio"));
-    expect(m.config.update).not.toHaveBeenCalled();
-  });
-
-  it("calls services.start after changing active PHP", async () => {
-    setupDefaults({
-      catalog: [
-        mockCatalogEntry({ major: "8.2", installed: true, installed_patch: "8.2.10" }),
-        mockCatalogEntry({ major: "8.1", installed: true, installed_patch: "8.1.5" }),
-      ],
-      config: mockConfig({ default_php: "8.2" }),
-    });
-    renderPHP();
-    await waitFor(() => screen.getAllByRole("radio"));
-    await userEvent.click(screen.getAllByRole("radio")[1]);
     await waitFor(() => expect(m.services.start).toHaveBeenCalled());
+  });
+
+  it("versions that are not installed can't be made the default", async () => {
+    setupDefaults({ catalog: [mockCatalogEntry({ major: "8.4" })], config: mockConfig({ default_php: "8.4" }) });
+    renderPHP();
+    await screen.findByTestId("php-row-8.4");
+    expect(screen.queryByText("Default")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /the default/ })).not.toBeInTheDocument();
   });
 });
 

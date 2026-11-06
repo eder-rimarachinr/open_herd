@@ -131,6 +131,7 @@ GET      /api/v1/nginx/download/progress
 POST     /api/v1/nginx/start
 POST     /api/v1/nginx/stop
 POST     /api/v1/nginx/reload
+POST     /api/v1/nginx/allow-ports      # Linux: pkexec prompt for ports < 1024 / distro nginx service
 
 GET      /api/v1/services/status
 POST     /api/v1/services/start
@@ -194,11 +195,11 @@ Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A
 | PHP FastCGI | `php-cgi.exe` on TCP (port: `9000 + major*10 + minor`) | `php-fpm --nodaemonize` on the same TCP port (pool config written to `$TMPDIR/open-herd/php-fpm-<port>.conf`) |
 | PHP builds | windows.php.net zips (5.6 – 8.5) | static-php-cli tarballs, x86_64 (8.0 – 8.5) |
 | Node | nvm-windows `NVM_HOME` + junction | nvm `versions/node` + `default` alias |
-| nginx | Auto-downloaded from nginx.org to `~/.phpenv/nginx/` | Must be system-installed (`apt install nginx`) |
+| nginx | Auto-downloaded from nginx.org to `~/.phpenv/nginx/` | System nginx (`apt install nginx`), run as the user with `daemon off;` and temp dirs under `nginx_dir`; ports < 1024 need `cap_net_bind_service` (`PortAccessPort`: Nginx page button via `pkexec`, or the shown `sudo` commands) |
 | mkcert | Auto-downloaded from GitHub | Auto-downloaded from GitHub |
 | Hosts file | `C:\Windows\System32\drivers\etc\hosts` (CRLF) | `/etc/hosts` (LF) |
 
-Linux status: the app, PHP (download, php-fpm) and Node work (developed and tested in WSL2 Ubuntu 26.04). Sites / nginx / SSL / hosts on Linux are not verified yet (system nginx; ports 80/443 and `/etc/hosts` need root), and child processes are only tied to the app's lifetime on Windows. Gate platform code with `cfg(windows)` / `cfg(not(windows))`; tests that only make sense on one side get the same `cfg` (e.g. the 5.6 catalog test is Windows-only, its Linux twin checks 8.0 – 8.5).
+Linux status: the app, PHP (download, php-fpm) and Node work (developed and tested in WSL2 Ubuntu 26.04). Sites / nginx / SSL / hosts on Linux are not verified yet (system nginx; ports 80/443 and `/etc/hosts` need root), and php-fpm / nginx are tied to the app with `PR_SET_PDEATHSIG` + their own process group (`process_guard.rs`, stopped with SIGTERM to the group). Gate platform code with `cfg(windows)` / `cfg(not(windows))`; tests that only make sense on one side get the same `cfg` (e.g. the 5.6 catalog test is Windows-only, its Linux twin checks 8.0 – 8.5).
 
 ## Processes (Windows)
 

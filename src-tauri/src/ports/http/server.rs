@@ -120,6 +120,7 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/nginx/start",                   post(nginx_handlers::start_nginx))
         .route("/api/v1/nginx/stop",                    post(nginx_handlers::stop_nginx))
         .route("/api/v1/nginx/reload",                  post(nginx_handlers::reload_nginx))
+        .route("/api/v1/nginx/allow-ports",             post(nginx_handlers::allow_ports))
         .route("/api/v1/services/status",               get(nginx_handlers::services_status))
         .route("/api/v1/services/start",                post(nginx_handlers::start_services))
         .route("/api/v1/services/stop",                 post(nginx_handlers::stop_services))

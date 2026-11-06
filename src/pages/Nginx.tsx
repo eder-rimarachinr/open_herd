@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, RotateCcw, Download, Server, Check, AlertTriangle } from "lucide-react";
+import { Play, Square, RotateCcw, Download, Server, Check, AlertTriangle, KeyRound } from "lucide-react";
 import { api, NginxInfo } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import LogView from "../components/LogView";
@@ -104,7 +104,9 @@ export default function Nginx() {
           <p className={styles.heroPath}>
             {installed
               ? [info?.version && `nginx/${info.version}`, info?.binary_path].filter(Boolean).join(" · ")
-              : info ? "Nginx will be downloaded and installed automatically." : "Connecting to daemon…"}
+              : !info ? "Connecting to daemon…"
+              : info.os === "windows" || info.downloadable ? "Nginx will be downloaded and installed automatically."
+              : "No nginx found on this system."}
           </p>
         </div>
 
@@ -165,6 +167,31 @@ export default function Nginx() {
           </div>
         )}
       </section>
+
+      {installed && info?.port_access.needed && (
+        <section className={styles.portAccess} data-testid="nginx-port-access">
+          <KeyRound size={18} className={styles.alertIcon} />
+          <div className={styles.portAccessBody}>
+            <strong>Nginx needs a one-time permission to use ports {ports ? `${ports.http} / ${ports.https}` : "80 / 443"}</strong>
+            <span>
+              Linux only lets administrators open ports below 1024
+              {info.port_access.commands.some((c) => c.includes("systemctl")) && ", and your system's own nginx service is using port 80"}.
+              {info.port_access.can_prompt ? " Open Herd can do it after asking for your password:" : " Run this once in a terminal:"}
+            </span>
+            <pre className={styles.portAccessCmds}>{info.port_access.commands.join("\n")}</pre>
+          </div>
+          {info.port_access.can_prompt && (
+            <button
+              className="btn-primary"
+              disabled={busy !== null}
+              onClick={() => act("allow", () => api.nginx.allowPorts(), "Done: nginx can use ports 80 and 443 now")}
+            >
+              <KeyRound size={14} />
+              {busy === "allow" ? "Waiting for your password…" : "Allow (asks for your password)"}
+            </button>
+          )}
+        </section>
+      )}
 
       {error && (
         <div className={styles.alert} role="alert">
