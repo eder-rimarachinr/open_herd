@@ -151,7 +151,7 @@ The TypeScript types of the API live in `src/api/generated/` and are **generated
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages (`src/pages/`): Sites (complete), PHP (partial), Node (install LTS versions + switch the system-wide active one), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
+Pages (`src/pages/`): Sites (complete), PHP (partial; version list shared with Node via `VersionList.module.css`, end-of-life lines behind a toggle), Node (install LTS versions + switch the system-wide active one), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
 
 Verify backend/runtime changes in the desktop app (`npm run tauri dev`), not by serving the React UI in a browser: there is no daemon there. Startup posts `/daemon/quit` to any running instance, so a dev launch closes the user's open Open Herd.
 
@@ -179,6 +179,8 @@ Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A
 - **static**: `index.html`
 - **generic**: fallback (autoindex enabled in nginx)
 
+`detect` stays a pure per-folder check. `find_nested_project` / `resolve_site_root` (same file) handle wrapper folders: a Generic folder with exactly one framework project (Laravel, CI3/4, WordPress, SPA) one level down resolves to that subfolder on create, bulk add and scan. `PUT /sites/{id}` accepts `path` (validated like create, type re-detected, vhost rewritten before saving).
+
 ## Key cross-platform differences
 
 | Feature | Windows | Linux |
@@ -196,7 +198,11 @@ nginx and php-cgi are spawned through `infrastructure/process_guard.rs`: created
 
 ## Node versions (Windows)
 
-`infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_stable_releases`: maintained LTS lines + newer Current), zips are verified against `SHASUMS256.txt`.
+`infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_releases`: the newest release of every LTS line with a Windows zip, 4.x on, lines silent for 6 months flagged `end_of_life`, + a newer maintained Current), zips are verified against `SHASUMS256.txt`.
+
+## PHP versions
+
+`infrastructure/php/catalog.rs::PHP_LINES` is the single list of installable PHP lines (5.6 – 8.5): newest patch, exact build tag as spelled in the file name (`VC15` up to 7.3, `vc15`/`vs16`/`vs17` after), pinned SHA-256, support status and Visual C++ runtime. Both `/php/catalog` and the download read it; a new patch means updating its row (and hash). Downloads try `releases/` then `releases/archives/`; nothing unpinned is installed. After extraction `php -v` runs and a loader failure is reported as the missing VC++ runtime. PHP < 7.2 uses `extension=php_<name>.dll` in php.ini (`legacy_extension_names`; `ini_parser` keeps that spelling).
 
 ## Async tasks
 
