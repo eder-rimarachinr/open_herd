@@ -53,12 +53,18 @@ export default function Node() {
 
   async function handleActivate(version: string) {
     setBusy(version);
+    const done = () => toast(`Node ${version} is now active. Open a new terminal to use it.`, "success");
     try {
       setStatus(await api.node.activate(version));
       fetchReleases();
-      toast(`Node ${version} is now active. Open a new terminal to use it.`, "success");
+      done();
     } catch (e) {
-      toast(errMsg(e), "error");
+      // The switch may have happened even though the answer never arrived (a
+      // dropped connection, the app restarting): show what is really active.
+      const now = await api.node.status().catch(() => null);
+      if (now) setStatus(now);
+      if (now?.active === version) done();
+      else toast(errMsg(e), "error");
     } finally {
       setBusy(null);
     }

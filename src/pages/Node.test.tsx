@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Node from "./Node";
+import { ToastProvider } from "../context/ToastContext";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -20,7 +21,7 @@ vi.mock("../api/client", () => ({
 import { api } from "../api/client";
 const m = api as Record<string, any>;
 
-const renderNode = () => render(<MemoryRouter><Node /></MemoryRouter>);
+const renderNode = () => render(<MemoryRouter><ToastProvider><Node /></ToastProvider></MemoryRouter>);
 
 const status = (overrides = {}) => ({
   mode: "nvm-windows",
@@ -154,5 +155,24 @@ describe("Node page", () => {
     expect(within(row).getByRole("button", { name: "Install Node 10.24.1" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /end-of-life/ })).not.toBeInTheDocument();
   });
+  it("a dropped Activate request still shows the version that became active", async () => {
+    m.node.activate.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderNode();
+    await screen.findByRole("button", { name: "Activate Node 24.21.0" });
+    m.node.status.mockResolvedValue(status({ active: "24.21.0" }));
+    await userEvent.click(screen.getByRole("button", { name: "Activate Node 24.21.0" }));
+    await waitFor(() => expect(within(screen.getByTestId("node-active")).getByText("v24.21.0")).toBeInTheDocument());
+    expect(await screen.findByText(/Node 24.21.0 is now active/)).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
+  it("a failed Activate that changed nothing reports the error", async () => {
+    m.node.activate.mockRejectedValue(new Error("junction is a real folder"));
+    renderNode();
+    await userEvent.click(await screen.findByRole("button", { name: "Activate Node 24.21.0" }));
+    expect(await screen.findByText("junction is a real folder")).toBeInTheDocument();
+    expect(within(screen.getByTestId("node-active")).getByText("v22.19.0")).toBeInTheDocument();
+  });
 });
+
 
