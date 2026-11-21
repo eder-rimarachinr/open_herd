@@ -253,6 +253,7 @@ A personal backlog, roughly in priority order. Issues and ideas are welcome on [
 - [x] Linux: PHP 8.0 – 8.5 downloads (static php-fpm builds), Node versions (nvm aware), `.deb` / AppImage build script
 - [x] Composer page: install / update the `composer` command for the default PHP, missing-extension and PATH checks
 - [x] nvm-windows 2.x support on the Node page
+- [x] No more "run as administrator": a UAC prompt updates the hosts file when a site needs it
 
 ### Next
 

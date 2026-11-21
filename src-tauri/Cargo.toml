@@ -1,6 +1,6 @@
 [package]
 name = "open-herd"
-version = "0.4.0"
+version = "0.5.0"
 description = "Open Herd — Local PHP development environment manager"
 authors = ["Eder R"]
 license = "GPL-3.0-only"
