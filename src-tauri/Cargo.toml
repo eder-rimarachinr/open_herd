@@ -41,13 +41,16 @@ async-trait = "0.1"
 # Node: repoint the active-version link without admin rights, edit the user PATH.
 junction = "2"
 winreg = "0.56"
-# Job Object that kills nginx/php-cgi when the app exits (see infrastructure/process_guard.rs).
+# Job Object that kills nginx/php-cgi when the app exits (see infrastructure/process_guard.rs);
+# ShellExecuteExW "runas" for the elevated hosts-file helper (infrastructure/dns/elevated.rs).
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
+    "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

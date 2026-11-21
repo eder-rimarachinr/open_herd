@@ -178,7 +178,7 @@ All state lives under `~/.phpenv/` (installed mode) or `./data/` (portable mode 
 - `certs/*.pem` — mkcert-issued certificates
 - `logs/` — nginx and PHP logs
 
-Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A `config.json` / `sites.json` that fails to parse is renamed to `*.corrupt-<timestamp>` (never overwritten) and reported in `load_warnings`; `sites.json` records that fail domain validation stay on disk but are hidden from the API. The system hosts file is edited under a global lock, with `hosts.open-herd.bak` written first. An install dir containing `.install-incomplete` is a half-extracted download and is not treated as installed.
+Writes go through `infrastructure/fs.rs::atomic_write` (tmp + fsync + rename). A `config.json` / `sites.json` that fails to parse is renamed to `*.corrupt-<timestamp>` (never overwritten) and reported in `load_warnings`; `sites.json` records that fail domain validation stay on disk but are hidden from the API. The system hosts file is edited under a global lock, with `hosts.open-herd.bak` written first. Without the rights to write it (Windows, app not elevated) `HostsAdapter` re-runs the edit through `infrastructure/dns/elevated.rs`: Open Herd relaunches itself with the `runas` verb (UAC) as `open-herd.exe --write-hosts <temp file>`, which `lib.rs::run` handles before anything else starts (replace the hosts file, exit). That runs on its own thread so the request returns at once; the outcome goes to the daemon log. Scan / bulk add call `DnsPort::add_entries` once so there is one prompt. An install dir containing `.install-incomplete` is a half-extracted download and is not treated as installed.
 
 ## Project type detection
 

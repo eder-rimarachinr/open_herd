@@ -6,7 +6,7 @@ use crate::domain::{
     ports::{dns::DnsPort, web_server::WebServerPort},
     site::{entity::Site, repository::SiteRepository, value_objects::{DomainName, SitePath}},
 };
-use super::{project_type_detector, register_new_site};
+use super::{add_dns_entries, project_type_detector, register_new_site};
 
 pub struct BulkSiteItem {
     pub domain: String,
@@ -39,7 +39,7 @@ impl BulkAddSitesUseCase {
         let existing_domains: std::collections::HashSet<String> =
             existing.iter().map(|s| s.domain.to_string()).collect();
 
-        let mut any_added = false;
+        let mut added_domains: Vec<String> = vec![];
 
         for item in items {
             if item.domain.is_empty() || item.path.is_empty() { continue; }
@@ -68,14 +68,16 @@ impl BulkAddSitesUseCase {
                 }
             }
 
-            if !register_new_site(self.site_repo.as_ref(), self.web_server.as_ref(), self.dns.as_ref(), &site).await {
+            if !register_new_site(self.site_repo.as_ref(), self.web_server.as_ref(), &site).await {
                 continue;
             }
 
-            any_added = true;
+            added_domains.push(site.domain.to_string());
         }
 
-        if any_added {
+        add_dns_entries(self.dns.as_ref(), &added_domains).await;
+
+        if !added_domains.is_empty() {
             best_effort(self.web_server.reload().await, format_args!("nginx reload error"));
         }
 

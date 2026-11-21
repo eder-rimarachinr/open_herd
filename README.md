@@ -55,7 +55,7 @@ Notes:
 
 ## Getting started
 
-1. **Run Open Herd as administrator** (right-click → *Run as administrator*). It needs that to edit `C:\Windows\System32\drivers\etc\hosts`. Without it everything else works, but you must add `127.0.0.1  name.test` lines to `hosts` yourself.
+1. **Open Open Herd** normally. When a site needs a `.test` entry in `C:\Windows\System32\drivers\etc\hosts`, Windows asks once for administrator permission (UAC) for that change; a scan asks once for all its sites. Running the app as administrator skips the prompts.
 2. **PHP** page → install a version (or press *Rescan* to find the ones you already have). In **Settings**, choose the default PHP version for new sites.
 3. **Nginx** page → *Download Nginx* (first time only).
 4. **Sites** page → **+** to add a project folder, or add your projects directory under *Scanned Dirs* and press **Scan**.
@@ -93,7 +93,7 @@ If `config.json` or `sites.json` ever becomes unreadable, Open Herd renames it t
 | Problem | What to do |
 |---------|------------|
 | nginx won't start / port 80 or 443 in use | Another web server is using it (Laravel Herd, IIS, Apache/XAMPP…). Stop it, or change the HTTP/HTTPS ports in **Settings**. |
-| `name.test` doesn't resolve | Open Herd was not running as administrator when the site was added. Run it as administrator and press *Refresh config* on the site, or add the `hosts` line yourself. |
+| `name.test` doesn't resolve | The administrator prompt was declined (or timed out) when the site was added: the **Logs** page says so. Press *Refresh config* on the site to be asked again, or add the `hosts` line yourself. |
 | Site answers 502 Bad Gateway | The site's PHP version isn't running. Press **Start all**, or start that version on the **PHP** page. |
 | An old PHP (5.6–7.x) installs but won't start | Its Microsoft Visual C++ runtime is missing: the install message names it and links the download (2012 for 5.6, 2015-2022 for 7.x). Install it and press *Rescan*. |
 | Site shows a file listing instead of the app | The folder isn't the project root (type *Generic*). Select the site and use **Change** next to its path to pick the folder with `artisan`, `wp-config.php`… |

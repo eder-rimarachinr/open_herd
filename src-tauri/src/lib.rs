@@ -15,6 +15,13 @@ use ports::http::{config_handlers, server};
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `open-herd.exe --write-hosts <file>`: the elevated copy that only writes
+    // the hosts file (UAC prompt), then exits. Before anything else starts.
+    #[cfg(windows)]
+    if let Some(code) = infrastructure::dns::elevated::run_from_args() {
+        std::process::exit(code);
+    }
+
     let base_dir = resolve_base_dir();
 
     // Create base + logs dirs early so any subsequent panic can be captured.

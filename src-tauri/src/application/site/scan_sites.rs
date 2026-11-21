@@ -6,7 +6,7 @@ use crate::domain::{
     ports::{dns::DnsPort, web_server::WebServerPort},
     site::{entity::Site, repository::SiteRepository, value_objects::{DomainName, SitePath}},
 };
-use super::{project_type_detector, register_new_site};
+use super::{add_dns_entries, project_type_detector, register_new_site};
 
 pub struct ScanSitesCommand {
     /// Directorios a escanear — leídos de `config.scanned_dirs` por el handler.
@@ -96,14 +96,17 @@ impl ScanSitesUseCase {
                 }
 
                 // Crear vhost; si falla este sitio se salta pero continúa el scan
-                if !register_new_site(self.site_repo.as_ref(), self.web_server.as_ref(), self.dns.as_ref(), &site).await {
-                continue;
-            }
+                if !register_new_site(self.site_repo.as_ref(), self.web_server.as_ref(), &site).await {
+                    continue;
+                }
 
                 seen_domains.insert(domain_str);
                 added.push(site);
             }
         }
+
+        let domains: Vec<String> = added.iter().map(|s| s.domain.to_string()).collect();
+        add_dns_entries(self.dns.as_ref(), &domains).await;
 
         // Un solo reload al final para todos los sitios del scan
         if !added.is_empty() {
