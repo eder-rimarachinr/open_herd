@@ -10,6 +10,7 @@ use crate::infrastructure::php::catalog::php_line;
 #[cfg(not(windows))]
 use crate::infrastructure::php::catalog::{static_php_line, STATIC_PHP_BASE};
 
+pub mod composer;
 pub mod node;
 pub mod tracker;
 
@@ -24,6 +25,7 @@ pub struct DownloadState {
     pub php:   Mutex<std::collections::HashMap<String, DownloadProgress>>,
     /// Keyed by exact Node version (`22.19.0`).
     pub node:  Mutex<std::collections::HashMap<String, DownloadProgress>>,
+    pub composer: Mutex<Option<DownloadProgress>>,
 }
 
 impl DownloadState {
@@ -32,6 +34,7 @@ impl DownloadState {
             nginx: Mutex::new(None),
             php: Mutex::new(std::collections::HashMap::new()),
             node: Mutex::new(std::collections::HashMap::new()),
+            composer: Mutex::new(None),
         })
     }
 }

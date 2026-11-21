@@ -124,6 +124,11 @@ GET      /api/v1/node/install/{version}/progress
 POST     /api/v1/node/versions/{version}/activate
 DELETE   /api/v1/node/versions/{version}
 
+GET      /api/v1/composer
+POST     /api/v1/composer/install           # install, update or repair (no separate self-update)
+GET      /api/v1/composer/install/progress
+POST     /api/v1/composer/extensions        # enable openssl/mbstring/curl/zip in the default PHP's php.ini
+
 GET      /api/v1/nginx/status
 GET      /api/v1/nginx/info
 POST     /api/v1/nginx/download
@@ -158,7 +163,7 @@ The TypeScript types of the API live in `src/api/generated/` and are **generated
 
 Plain React with `react-router-dom`. No state management library. All API calls go through `src/api/client.ts` (15s default timeout, extended for SSL and downloads). TypeScript strict mode is enabled.
 
-Pages (`src/pages/`): Sites (complete), PHP (partial; version list shared with Node via `VersionList.module.css`, end-of-life lines behind a toggle), Node (install LTS versions + switch the system-wide active one), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
+Pages (`src/pages/`): Sites (complete), PHP (partial; version list shared with Node via `VersionList.module.css`, end-of-life lines behind a toggle), Node (install LTS versions + switch the system-wide active one), Composer (install/update/repair the `composer` command, missing extensions, PATH warnings), Nginx (partial), Settings (functional — ports/default PHP), SSL (local CA + HTTPS switch per site), Logs (daemon log + nginx error log, polled every 4 s). `components/Layout.tsx` shows a dismissible banner with `GET /status` → `warnings` (data that failed to load at startup).
 
 Verify backend/runtime changes in the desktop app (`npm run tauri dev`), not by serving the React UI in a browser: there is no daemon there. Startup posts `/daemon/quit` to any running instance, so a dev launch closes the user's open Open Herd.
 
@@ -207,9 +212,13 @@ nginx and php-cgi are spawned through `infrastructure/process_guard.rs`: created
 
 ## Node versions
 
-`infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_releases`: the newest release of every LTS line with a Windows zip, 4.x on, lines silent for 6 months flagged `end_of_life`, + a newer maintained Current), zips are verified against `SHASUMS256.txt`.
+`infrastructure/node/manager.rs` (`NodeManagerPort`, in `SystemAdapters`): when nvm-windows is installed (`NVM_HOME` / `NVM_SYMLINK`, read from the registry first) Open Herd installs into `NVM_HOME\v<ver>` and switches by repointing `NVM_SYMLINK` with a **junction** (no admin; `nvm use` keeps working). Without nvm it uses `<base_dir>/node/v<ver>` + a `current` junction added once to the user PATH (HKCU, never the machine PATH). A link path that is a real folder is never deleted (409). nvm-windows 2.x (Author Software; no env vars, settings in `HKCU\Software\Author Software\Preferences\nvm`) is detected first (`nvm.rs::detect_any`, mode `nvm-windows-2`): versions in its `InstallRoot\v<ver>` (it lists any such folder, so Open Herd's download goes there), active = `ActiveVersion`, switching runs `nvm.exe use <exact version>` and uninstall `nvm.exe uninstall` (folder deleted if nvm refuses) through the `NvmCli` trait; its `.nodejs` PATH entry points at launchers and is never repointed. `same_dir` ignores doubled separators (`nvm\\.nodejs` as nvm writes it). The release list comes live from `nodejs.org/dist/index.json` (`domain/node.rs::select_releases`: the newest release of every LTS line with a Windows zip, 4.x on, lines silent for 6 months flagged `end_of_life`, + a newer maintained Current), zips are verified against `SHASUMS256.txt`.
 
 Linux: `infrastructure/node/linux.rs::LinuxNodeManager`. With nvm (`$NVM_DIR` or `~/.nvm`, recognised by its `nvm.sh`) it installs into `$NVM_DIR/versions/node/v<ver>` and activates by writing `v<ver>` to `$NVM_DIR/alias/default` (resolved like nvm does: specs, `node`, `lts/*` → `alias/lts/<name>`). Without nvm: `<base_dir>/node/v<ver>` + a `current` symlink (atomic rename), and `node`/`npm`/`npx`/`corepack` symlinks in `~/.local/bin` (real files there are never replaced, only warned about). Releases count when `index.json` lists the `linux-x64` (or `linux-arm64`) build (`NodeReleaseInfo::has_build`); the `.tar.gz` is verified against the same `SHASUMS256.txt`.
+
+## Composer
+
+`application/composer/` + `infrastructure/composer/` (`ComposerManagerPort` and `ComposerReleasesPort`, both in `SystemAdapters`; integration tests use `tests/common::FakeComposerManager`). The install picks the newest release from the `stable` channel of `getcomposer.org/versions` whose `min-php` the **default PHP** (Settings) satisfies (`domain/composer.rs::select_release`: 2.2 LTS for PHP < 7.2.5). The download (`infrastructure/download/composer.rs`) checks the release's `composer.phar.sha256sum`, then renames over `<base_dir>/composer/composer.phar` (a failed update keeps the old one) and records the version in `composer/open-herd.json`. Then, while the task is `configuring`, the `PostInstall` hook writes the command: `<base_dir>/bin/composer.bat` (`"<php.exe>" "<phar>" %*`; `<base_dir>/bin` is appended once to the HKCU PATH) on Windows, or `<base_dir>/bin/composer` (an `sh` script, mode 755) linked from `~/.local/bin` on Linux (a real file there is never replaced). `PUT /config` with a new `default_php` rewrites the command (`SyncComposerCommandUseCase`, best effort). When the release is already installed, `POST /composer/install` only rewrites the command (Repair). Status runs `php -m` on the default PHP to report the missing `REQUIRED_EXTENSIONS`; `POST /composer/extensions` enables them through php.ini (only PHP versions Open Herd installed). Warnings: another `composer` earlier on the PATH (e.g. Composer-Setup on the machine PATH), `bin` removed from the PATH, a phar too new for the default PHP, a command still pointing at another PHP. Composer's own `self-update` works but leaves `open-herd.json` stale.
 
 ## PHP versions
 

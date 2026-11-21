@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::DownloadState;
-use crate::domain::{node::NodeVersion, ports::{download::{DownloadProgress, DownloadProgressPort}, task::TaskState}};
+use crate::domain::{composer::ComposerRelease, node::NodeVersion, ports::{download::{DownloadProgress, DownloadProgressPort, PostInstall}, task::TaskState}};
 
 /// Adaptador de progreso de descargas — envuelve el `DownloadState` legacy
 /// (mutex compartido, poblado desde hilos de fondo) detrás del puerto de dominio.
@@ -58,6 +58,20 @@ impl DownloadProgressPort for DownloadTracker {
 
     async fn node_progress(&self, version: &NodeVersion) -> Option<DownloadProgress> {
         self.state.node.lock().get(version.as_str()).cloned()
+    }
+
+    async fn start_composer_download(&self, release: &ComposerRelease, dest_dir: &Path, after: PostInstall) {
+        {
+            // Check and claim under one lock, like Node.
+            let mut current = self.state.composer.lock();
+            if current.as_ref().is_some_and(|p| p.state.is_active()) { return; }
+            *current = Some(DownloadProgress { state: TaskState::Pending, message: "Starting…".into(), percent: 0, error: None });
+        }
+        super::composer::download_composer(release, dest_dir, after, self.state.clone());
+    }
+
+    async fn composer_progress(&self) -> Option<DownloadProgress> {
+        self.state.composer.lock().clone()
     }
 }
 

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use std::path::Path;
+use std::{future::Future, path::Path, pin::Pin};
 
 use super::task::TaskState;
-use crate::domain::node::NodeVersion;
+use crate::domain::{composer::ComposerRelease, node::NodeVersion};
 
 /// Progreso de una descarga en curso (nginx o una versión de PHP).
 #[derive(Debug, Clone)]
@@ -32,4 +32,13 @@ pub trait DownloadProgressPort: Send + Sync {
     /// `v<versión>` final) si no hay una ya en curso. No bloquea.
     async fn start_node_download(&self, version: &NodeVersion, dest_dir: &Path);
     async fn node_progress(&self, version: &NodeVersion) -> Option<DownloadProgress>;
+    /// Starts downloading that `composer.phar` into `dest_dir` (verified
+    /// against getcomposer.org's checksum) unless one is already in flight,
+    /// then runs `after` while the state is `configuring`. No bloquea.
+    async fn start_composer_download(&self, release: &ComposerRelease, dest_dir: &Path, after: PostInstall);
+    async fn composer_progress(&self) -> Option<DownloadProgress>;
 }
+
+/// Work that finishes an install once its files are in place (e.g. writing
+/// the `composer` command). An `Err` message fails the task.
+pub type PostInstall = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send>;

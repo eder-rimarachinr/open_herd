@@ -183,7 +183,13 @@ pub struct PhpIniConfig {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-pub enum NodeMode { NvmWindows, Nvm, OpenHerd }
+pub enum NodeMode {
+    NvmWindows,
+    #[serde(rename = "nvm-windows-2")]
+    NvmWindows2,
+    Nvm,
+    OpenHerd,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
@@ -240,6 +246,7 @@ impl From<NodeEnvironment> for NodeStatus {
         Self {
             mode: match e.mode {
                 NodeManagerMode::NvmWindows => NodeMode::NvmWindows,
+                NodeManagerMode::NvmWindows2 => NodeMode::NvmWindows2,
                 NodeManagerMode::Nvm => NodeMode::Nvm,
                 NodeManagerMode::OpenHerd => NodeMode::OpenHerd,
             },
@@ -266,6 +273,68 @@ impl From<NodeReleaseView> for NodeReleaseEntry {
             active: v.active,
             update_available: v.update_available,
             end_of_life: v.end_of_life,
+        }
+    }
+}
+
+// ── Composer ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct ComposerStatus {
+    pub installed: bool,
+    /// `null` when the phar was not downloaded by Open Herd (version unknown).
+    pub version: Option<String>,
+    /// Newest release that runs on the default PHP; `null` when offline.
+    pub latest: Option<String>,
+    pub update_available: bool,
+    pub phar_path: String,
+    /// The `composer` command (`bin/composer.bat` / `bin/composer`).
+    pub command_path: String,
+    pub bin_dir: String,
+    /// Default PHP major from Settings.
+    pub default_php: String,
+    /// Full version of that PHP, `null` if it is not installed.
+    pub php_version: Option<String>,
+    /// PHP binary the command runs.
+    pub command_php: Option<String>,
+    pub missing_extensions: Vec<String>,
+    /// `POST /composer/extensions` can enable them (Open Herd manages that php.ini).
+    pub can_enable_extensions: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub struct ComposerInstallProgress {
+    #[cfg_attr(test, ts(as = "ts_bindings::TaskStateWire"))]
+    pub state: TaskState,
+    pub message: String,
+    pub percent: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub error: Option<String>,
+}
+
+use crate::application::composer::get_composer_status::ComposerStatusView;
+
+impl From<ComposerStatusView> for ComposerStatus {
+    fn from(v: ComposerStatusView) -> Self {
+        let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        Self {
+            installed: v.env.installed.is_some(),
+            version: v.env.installed.as_ref().and_then(|i| i.version.clone()),
+            latest: v.latest,
+            update_available: v.update_available,
+            phar_path: path(&v.env.phar_path),
+            command_path: path(&v.env.command_path),
+            bin_dir: path(&v.env.bin_dir),
+            default_php: v.default_php,
+            php_version: v.php.map(|p| p.version),
+            command_php: v.env.command_php.as_deref().map(path),
+            missing_extensions: v.missing_extensions,
+            can_enable_extensions: v.can_enable_extensions,
+            warnings: v.warnings,
         }
     }
 }

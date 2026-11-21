@@ -2,6 +2,12 @@ use std::{path::PathBuf, sync::{Arc, OnceLock}, time::{Duration, Instant}};
 
 use crate::{
     application::{
+        composer::{
+            enable_composer_extensions::EnableComposerExtensionsUseCase,
+            get_composer_status::GetComposerStatusUseCase,
+            install_composer::InstallComposerUseCase,
+            sync_composer_command::SyncComposerCommandUseCase,
+        },
         node::{
             activate_node::ActivateNodeUseCase,
             get_node_status::GetNodeStatusUseCase,
@@ -41,6 +47,7 @@ use crate::{
     },
     infrastructure::{config::ConfigStore, state::AppState},
     domain::ports::{
+        composer::{ComposerManagerPort, ComposerReleasesPort},
         dns::DnsPort,
         file_manager::FileManagerPort,
         download::DownloadProgressPort,
@@ -61,6 +68,7 @@ use crate::infrastructure::{
     file_manager::SystemFileManager,
     download::tracker::DownloadTracker,
     nginx::{adapter::NginxAdapter, port_access::NginxPortAccess},
+    composer::releases::HttpComposerReleases,
     node::releases::HttpNodeReleases,
     persistence::json_site_repository::JsonSiteRepository,
     logging::InMemoryLogger,
@@ -95,6 +103,8 @@ pub struct AppContainer {
     pub node_manager:  Arc<dyn NodeManagerPort>,
     pub node_releases: Arc<dyn NodeReleasesPort>,
     pub port_access:   Arc<dyn PortAccessPort>,
+    pub composer_manager:  Arc<dyn ComposerManagerPort>,
+    pub composer_releases: Arc<dyn ComposerReleasesPort>,
 
     // ── Casos de uso — Sites ─────────────────────────────────────────────────
     pub create_site_uc:         CreateSiteUseCase,
@@ -130,6 +140,12 @@ pub struct AppContainer {
     pub activate_node_uc:      ActivateNodeUseCase,
     pub uninstall_node_uc:     UninstallNodeUseCase,
 
+    // ── Casos de uso — Composer ──────────────────────────────────────────────
+    pub get_composer_status_uc:        GetComposerStatusUseCase,
+    pub install_composer_uc:           InstallComposerUseCase,
+    pub sync_composer_command_uc:      SyncComposerCommandUseCase,
+    pub enable_composer_extensions_uc: EnableComposerExtensionsUseCase,
+
     // ── Casos de uso — Services ──────────────────────────────────────────────
     pub start_services_uc: StartServicesUseCase,
     pub stop_services_uc:  StopServicesUseCase,
@@ -157,6 +173,10 @@ pub struct SystemAdapters {
     pub node_releases: Option<Arc<dyn NodeReleasesPort>>,
     /// nginx ports: file capabilities and system services (Linux, via pkexec).
     pub port_access: Option<Arc<dyn PortAccessPort>>,
+    /// Composer: writes the `composer` command, edits the user PATH / `~/.local/bin`, runs PHP.
+    pub composer_manager: Option<Arc<dyn ComposerManagerPort>>,
+    /// Composer: reads the release list from getcomposer.org (network).
+    pub composer_releases: Option<Arc<dyn ComposerReleasesPort>>,
 }
 
 #[cfg(windows)]
@@ -167,6 +187,16 @@ fn default_node_manager(base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
 #[cfg(not(windows))]
 fn default_node_manager(base_dir: PathBuf) -> Arc<dyn NodeManagerPort> {
     Arc::new(crate::infrastructure::node::linux::LinuxNodeManager::detect(base_dir))
+}
+
+#[cfg(windows)]
+fn default_composer_manager(base_dir: PathBuf) -> Arc<dyn ComposerManagerPort> {
+    Arc::new(crate::infrastructure::composer::windows::WindowsComposerManager::detect(base_dir))
+}
+
+#[cfg(not(windows))]
+fn default_composer_manager(base_dir: PathBuf) -> Arc<dyn ComposerManagerPort> {
+    Arc::new(crate::infrastructure::composer::linux::LinuxComposerManager::detect(base_dir))
 }
 
 impl AppContainer {
@@ -187,6 +217,8 @@ impl AppContainer {
         let node_manager: Arc<dyn NodeManagerPort> = system.node_manager.unwrap_or_else(|| default_node_manager(base_dir.clone()));
         let node_releases: Arc<dyn NodeReleasesPort> = system.node_releases.unwrap_or_else(|| Arc::new(HttpNodeReleases::new()));
         let port_access: Arc<dyn PortAccessPort> = system.port_access.unwrap_or_else(|| Arc::new(NginxPortAccess::new(state.clone())));
+        let composer_manager: Arc<dyn ComposerManagerPort> = system.composer_manager.unwrap_or_else(|| default_composer_manager(base_dir.clone()));
+        let composer_releases: Arc<dyn ComposerReleasesPort> = system.composer_releases.unwrap_or_else(|| Arc::new(HttpComposerReleases::new()));
         let ssl:          Arc<dyn SslPort>          = system.ssl.unwrap_or_else(|| Arc::new(MkcertAdapter::new(base_dir)));
         let file_manager: Arc<dyn FileManagerPort> = system.file_manager.unwrap_or_else(|| Arc::new(SystemFileManager));
         let php_process_port: Arc<dyn PhpProcessPort>  = Arc::new(PhpProcessAdapter::new(state.clone(), logger.clone()));
@@ -215,8 +247,20 @@ impl AppContainer {
         let php_ini: Arc<dyn PhpIniStore> = Arc::new(FsPhpIniStore::new(state.clone()));
         let get_php_ini_uc    = GetPhpIniUseCase::new(php_ini.clone());
         let update_php_ini_uc = UpdatePhpIniUseCase::new(
-            php_ini, php_process_port.clone(), php_detector.clone(), web_server.clone(),
+            php_ini.clone(), php_process_port.clone(), php_detector.clone(), web_server.clone(),
         );
+
+        // ── Use cases — Composer ─────────────────────────────────────────────
+        let get_composer_status_uc = GetComposerStatusUseCase::new(
+            composer_manager.clone(), composer_releases.clone(), php_detector.clone(), php_ini.clone(),
+        );
+        let install_composer_uc = InstallComposerUseCase::new(
+            composer_manager.clone(), composer_releases.clone(), php_detector.clone(), downloads.clone(),
+        );
+        let sync_composer_command_uc = SyncComposerCommandUseCase::new(composer_manager.clone(), php_detector.clone());
+        let enable_composer_extensions_uc = EnableComposerExtensionsUseCase::new(UpdatePhpIniUseCase::new(
+            php_ini, php_process_port.clone(), php_detector.clone(), web_server.clone(),
+        ));
 
         // ── Use cases — Nginx ────────────────────────────────────────────────
         let start_nginx_uc    = StartNginxUseCase::new(web_server.clone());
@@ -242,7 +286,8 @@ impl AppContainer {
             started_at: state.started_at,
             legacy: state,
             site_repo, web_server, dns, ssl, file_manager, php_process_port, php_detector, php_version_repo, downloads, ssl_tasks, logger,
-            node_manager, node_releases, port_access,
+            node_manager, node_releases, port_access, composer_manager, composer_releases,
+            get_composer_status_uc, install_composer_uc, sync_composer_command_uc, enable_composer_extensions_uc,
             get_node_status_uc, list_node_releases_uc, install_node_uc, activate_node_uc, uninstall_node_uc,
             create_site_uc, delete_site_uc, update_site_uc,
             enable_ssl_uc, disable_ssl_uc, scan_sites_uc,

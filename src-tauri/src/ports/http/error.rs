@@ -10,12 +10,14 @@ pub fn app_error(e: &ApplicationError) -> Response {
             DomainError::SiteNotFound(_) | DomainError::PhpIniNotFound(_)
             | DomainError::NodeVersionNotInstalled(_) => StatusCode::NOT_FOUND,
             DomainError::NodeVersionActive(_) | DomainError::NodeVersionBusy(_) => StatusCode::CONFLICT,
+            DomainError::ComposerNeedsPhp(_) | DomainError::NoComposerForPhp(_) => StatusCode::CONFLICT,
             DomainError::DomainAlreadyExists(_) => StatusCode::CONFLICT,
             DomainError::InvalidTld
             | DomainError::InvalidDomain(_)
             | DomainError::InvalidPath(_)
             | DomainError::InvalidPhpIniChange(_)
-            | DomainError::InvalidNodeVersion(_) => StatusCode::BAD_REQUEST,
+            | DomainError::InvalidNodeVersion(_)
+            | DomainError::InvalidComposerVersion(_) => StatusCode::BAD_REQUEST,
             DomainError::Persistence(_) => StatusCode::INTERNAL_SERVER_ERROR,
             DomainError::SslAlreadyActive(_) | DomainError::SslCannotEnable(_) => StatusCode::UNPROCESSABLE_ENTITY,
         },

@@ -8,6 +8,9 @@ use crate::domain::{errors::InfrastructureError, node::{NodeReleaseInfo, NodeVer
 pub enum NodeManagerMode {
     /// nvm-windows is installed: versions live in `NVM_HOME`, the link is `NVM_SYMLINK`.
     NvmWindows,
+    /// nvm-windows 2.x is installed: versions live in its `InstallRoot`, the
+    /// active one is its `ActiveVersion`, switched only through `nvm use`.
+    NvmWindows2,
     /// nvm (nvm-sh, Linux) is installed: versions live in `$NVM_DIR/versions/node`,
     /// the active one is nvm's `default` alias.
     Nvm,

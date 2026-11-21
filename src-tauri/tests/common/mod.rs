@@ -10,9 +10,11 @@ use tempfile::TempDir;
 
 use open_herd_lib::{
     domain::{
+        composer::ComposerRelease,
         errors::InfrastructureError,
         node::{NodeReleaseInfo, NodeVersion},
         ports::{
+            composer::{ComposerEnvironment, ComposerInstall, ComposerManagerPort, ComposerReleasesPort},
             dns::DnsPort, file_manager::FileManagerPort, ssl::SslPort, web_server::WebServerPort,
             node::{NodeEnvironment, NodeInstall, NodeManagerMode, NodeManagerPort, NodeReleasesPort},
             port_access::{PortAccess, PortAccessPort},
@@ -194,7 +196,17 @@ fn make_container_full(
     node_releases: Arc<dyn NodeReleasesPort>,
     port_access: Arc<dyn PortAccessPort>,
 ) -> Arc<AppContainer> {
-    AppContainer::with_adapters(make_state(tmp), SystemAdapters {
+    AppContainer::with_adapters(make_state(tmp), adapters(file_manager, web_server, node_manager, node_releases, port_access))
+}
+
+fn adapters(
+    file_manager: Arc<RecordingFileManager>,
+    web_server: Option<Arc<dyn WebServerPort>>,
+    node_manager: Arc<dyn NodeManagerPort>,
+    node_releases: Arc<dyn NodeReleasesPort>,
+    port_access: Arc<dyn PortAccessPort>,
+) -> SystemAdapters {
+    SystemAdapters {
         dns: Some(Arc::new(NoopDns)),
         ssl: Some(Arc::new(FakeSsl)),
         file_manager: Some(file_manager),
@@ -202,7 +214,64 @@ fn make_container_full(
         node_manager: Some(node_manager),
         node_releases: Some(node_releases),
         port_access: Some(port_access),
-    })
+        composer_manager: Some(FakeComposerManager::new(None)),
+        composer_releases: Some(Arc::new(FakeComposerReleases)),
+    }
+}
+
+/// Never writes `composer.bat`, edits the user PATH or runs PHP: an in-memory
+/// install and the PHP the command was last pointed at.
+pub struct FakeComposerManager {
+    pub version: Mutex<Option<String>>,
+    pub command_php: Mutex<Option<PathBuf>>,
+}
+
+impl FakeComposerManager {
+    pub fn new(version: Option<&str>) -> Arc<Self> {
+        Arc::new(Self { version: Mutex::new(version.map(str::to_string)), command_php: Mutex::new(None) })
+    }
+}
+
+#[async_trait]
+impl ComposerManagerPort for FakeComposerManager {
+    async fn environment(&self) -> Result<ComposerEnvironment, InfrastructureError> {
+        let version = self.version.lock().unwrap().clone();
+        Ok(ComposerEnvironment {
+            phar_path: PathBuf::from(r"C:\phpenv\composer\composer.phar"),
+            command_path: PathBuf::from(r"C:\phpenv\bin\composer.bat"),
+            bin_dir: PathBuf::from(r"C:\phpenv\bin"),
+            installed: version.map(|v| ComposerInstall { version: Some(v), min_php: Some(70205) }),
+            command_php: self.command_php.lock().unwrap().clone(),
+            warnings: vec![],
+        })
+    }
+    async fn write_command(&self, php: &Path) -> Result<(), InfrastructureError> {
+        *self.command_php.lock().unwrap() = Some(php.to_path_buf());
+        Ok(())
+    }
+    async fn php_modules(&self, _: &Path) -> Result<Vec<String>, InfrastructureError> {
+        Ok(vec!["openssl".into(), "mbstring".into(), "curl".into(), "zip".into()])
+    }
+}
+
+/// Never goes to getcomposer.org.
+pub struct FakeComposerReleases;
+
+#[async_trait]
+impl ComposerReleasesPort for FakeComposerReleases {
+    async fn releases(&self) -> Result<Vec<ComposerRelease>, InfrastructureError> {
+        Ok(vec![ComposerRelease::new("2.11.2", 70205, false).unwrap(), ComposerRelease::new("2.2.32", 50300, true).unwrap()])
+    }
+}
+
+/// Server whose Composer manager is the given double.
+pub fn make_server_with_composer(tmp: &TempDir, composer: Arc<FakeComposerManager>) -> TestServer {
+    let mut system = adapters(
+        Arc::new(RecordingFileManager::default()), None, FakeNodeManager::new(&[], None),
+        Arc::new(FakeNodeReleases { fail: false }), FakePortAccess::new(false, false),
+    );
+    system.composer_manager = Some(composer);
+    TestServer::new(build_router(AppContainer::with_adapters(make_state(tmp), system))).unwrap()
 }
 
 /// Server whose nginx port setup is the given double.

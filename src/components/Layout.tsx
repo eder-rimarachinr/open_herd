@@ -3,7 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   Globe, Cpu, Server, ShieldCheck, Terminal,
   Settings, Sun, Moon, Play, Square, Power,
-  Circle, AlertTriangle, X, Hexagon,
+  Circle, AlertTriangle, X, Hexagon, Package,
 } from "lucide-react";
 import { api, ServiceStatus } from "../api/client";
 import { phpPort } from "../api/ports";
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/",         label: "Sites",    Icon: Globe },
   { to: "/php",      label: "PHP",      Icon: Cpu },
   { to: "/node",     label: "Node",     Icon: Hexagon },
+  { to: "/composer", label: "Composer", Icon: Package },
   { to: "/nginx",    label: "Nginx",    Icon: Server },
   { to: "/ssl",      label: "SSL",      Icon: ShieldCheck },
   { to: "/logs",     label: "Logs",     Icon: Terminal },
