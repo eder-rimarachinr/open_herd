@@ -1,0 +1,43 @@
+name: Website
+
+# Publishes website/ (the landing page at openherd.eder-rimarachin.com) to
+# GitHub Pages. One-time setup: Settings → Pages → Source: "GitHub Actions",
+# custom domain openherd.eder-rimarachin.com (also in website/CNAME), and a
+# DNS CNAME record openherd → eder-rimarachinr.github.io.
+#
+# The page has no build step: it is plain HTML that reads the latest release
+# from the GitHub API, so a new release needs no redeploy.
+
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write    # deploy to Pages
+  id-token: write # verify the deployment origin
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: website
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
