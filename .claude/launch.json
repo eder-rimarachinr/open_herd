@@ -1,1 +1,1 @@
-{"version":"0.0.1","configurations":[{"name":"frontend","runtimeExecutable":"npm","runtimeArgs":["run","dev"],"port":1420}]}
+{"version":"0.0.1","configurations":[{"name":"frontend","runtimeExecutable":"npm","runtimeArgs":["run","dev"],"port":1420},{"name":"website","runtimeExecutable":"python","runtimeArgs":["-m","http.server","8090","--bind","127.0.0.1","--directory","website"],"port":8090}]}
