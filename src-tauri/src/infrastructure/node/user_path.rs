@@ -9,14 +9,29 @@ pub trait UserPathEditor: Send + Sync {
     /// Appends `dir` to the user PATH unless it is already there; `true` if it
     /// was added. Never touches the machine PATH.
     fn ensure_entry(&self, dir: &Path) -> Result<bool, InfrastructureError>;
-    /// Directories that contain a `node.exe`, in the order a new terminal
-    /// searches them: machine PATH entries, then user PATH entries.
-    fn node_dirs_on_path(&self) -> Vec<PathBuf>;
+    /// Every PATH directory (expanded), in the order a new terminal searches
+    /// them: machine PATH entries, then user PATH entries.
+    fn dirs_on_path(&self) -> Vec<PathBuf>;
+    /// [`Self::dirs_on_path`] entries that contain a `node.exe`.
+    fn node_dirs_on_path(&self) -> Vec<PathBuf> {
+        self.dirs_on_path().into_iter().filter(|d| d.join("node.exe").exists()).collect()
+    }
 }
 
-/// Case-insensitive, trailing-separator-insensitive comparison of PATH entries.
+/// Comparison of PATH entries that ignores case, `/` vs `\`, trailing
+/// separators and doubled separators inside (nvm-windows 2.x writes
+/// `...\nvm\\.nodejs`). A leading `\\` (UNC share) is kept.
 pub fn same_dir(a: &Path, b: &Path) -> bool {
-    let norm = |p: &Path| p.to_string_lossy().trim().trim_end_matches(['\\', '/']).to_lowercase();
+    fn norm(p: &Path) -> String {
+        let s = p.to_string_lossy().trim().replace('/', "\\").to_lowercase();
+        let (unc, rest) = match s.strip_prefix("\\\\") { Some(r) => ("\\\\", r), None => ("", s.as_str()) };
+        let mut out = String::from(unc);
+        for c in rest.chars() {
+            if c == '\\' && out.ends_with('\\') && out.len() > unc.len() { continue; }
+            out.push(c);
+        }
+        out.trim_end_matches('\\').to_string()
+    }
     norm(a) == norm(b)
 }
 
@@ -78,7 +93,7 @@ mod windows_impl {
             Ok(true)
         }
 
-        fn node_dirs_on_path(&self) -> Vec<PathBuf> {
+        fn dirs_on_path(&self) -> Vec<PathBuf> {
             let read = |root: RegKey, key: &str| root.open_subkey(key)
                 .and_then(|k| k.get_value::<String, _>("Path")).unwrap_or_default();
             let machine = read(RegKey::predef(HKEY_LOCAL_MACHINE), MACHINE_ENV);
@@ -86,7 +101,6 @@ mod windows_impl {
             machine.split(';').chain(user.split(';'))
                 .filter(|e| !e.trim().is_empty())
                 .map(|e| PathBuf::from(super::super::nvm::expand_env(e.trim())))
-                .filter(|d| d.join("node.exe").exists())
                 .collect()
         }
     }
@@ -105,5 +119,15 @@ mod tests {
         assert_eq!(with_entry(r"C:\a;C:\b;", dir).as_deref(), Some(r"C:\a;C:\b;C:\Users\me\.phpenv\node\current"));
         assert_eq!(with_entry("", dir).as_deref(), Some(r"C:\Users\me\.phpenv\node\current"));
         assert_eq!(with_entry(r"C:\a;c:\users\ME\.phpenv\node\current\", dir), None);
+    }
+
+    #[test]
+    fn same_dir_ignores_doubled_separators() {
+        let link = Path::new(r"C:\Users\me\AppData\Local\Author Software\nvm\.nodejs");
+        assert!(same_dir(Path::new(r"C:\Users\me\AppData\Local\Author Software\nvm\\.nodejs"), link));
+        assert!(same_dir(Path::new("C:/Users/me/AppData/Local/Author Software/nvm/.nodejs/"), link));
+        assert!(!same_dir(Path::new(r"C:\Users\me\AppData\Local\Author Software\nvm"), link));
+        assert!(same_dir(Path::new(r"\\server\share\bin"), Path::new(r"\\SERVER\share\bin\")));
+        assert!(!same_dir(Path::new(r"\\server\share"), Path::new(r"\server\share")));
     }
 }

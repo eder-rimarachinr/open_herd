@@ -39,6 +39,15 @@ pub enum DomainError {
     /// Hay una descarga en curso para esa versión (409).
     #[error("Node {0} se está descargando")]
     NodeVersionBusy(String),
+    /// Versión de Composer mal formada en la lista de getcomposer.org.
+    #[error("Versión de Composer no válida: {0}")]
+    InvalidComposerVersion(String),
+    /// Composer necesita la versión de PHP por defecto y no está instalada (409).
+    #[error("PHP {0} (la versión por defecto) no está instalado: instálalo en la página PHP o elige otra versión por defecto en Settings")]
+    ComposerNeedsPhp(String),
+    /// Ninguna versión de Composer funciona con esa versión de PHP (409).
+    #[error("Ninguna versión de Composer funciona con PHP {0}")]
+    NoComposerForPhp(String),
 }
 
 /// Errores originados en la capa de infraestructura (IO, procesos, red).

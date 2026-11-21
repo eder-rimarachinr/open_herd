@@ -1,4 +1,5 @@
 pub mod blocking;
+pub mod composer;
 pub mod config;
 pub mod container;
 pub mod dns;

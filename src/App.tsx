@@ -4,6 +4,7 @@ import Layout   from "./components/Layout";
 import Sites    from "./pages/Sites";
 import PHP      from "./pages/PHP";
 import Node     from "./pages/Node";
+import Composer from "./pages/Composer";
 import SSL      from "./pages/SSL";
 import Nginx    from "./pages/Nginx";
 import Logs     from "./pages/Logs";
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/"         element={<Sites />} />
           <Route path="/php"      element={<PHP />} />
           <Route path="/node"     element={<Node />} />
+          <Route path="/composer" element={<Composer />} />
           <Route path="/nginx"    element={<Nginx />} />
           <Route path="/ssl"      element={<SSL />} />
           <Route path="/logs"     element={<Logs />} />

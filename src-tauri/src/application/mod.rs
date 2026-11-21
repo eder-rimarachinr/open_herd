@@ -1,3 +1,4 @@
+pub mod composer;
 pub mod nginx;
 pub mod node;
 pub mod php;

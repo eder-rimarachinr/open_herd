@@ -14,6 +14,7 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const MODE_LABEL: Record<NodeStatus["mode"], string> = {
   "nvm-windows": "Managed through nvm-windows",
+  "nvm-windows-2": "Managed through nvm-windows 2 (nvm use)",
   "nvm":         "Managed through nvm (default alias)",
   "open-herd":   "Managed by Open Herd",
 };

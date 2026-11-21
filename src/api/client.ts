@@ -75,9 +75,12 @@ import type { NodeInstalled } from "./generated/NodeInstalled";
 import type { NodeMode } from "./generated/NodeMode";
 import type { NodeReleaseEntry } from "./generated/NodeReleaseEntry";
 import type { NodeStatus } from "./generated/NodeStatus";
+import type { ComposerInstallProgress } from "./generated/ComposerInstallProgress";
+import type { ComposerStatus } from "./generated/ComposerStatus";
 export type {
   AppConfig, AsyncTask, CatalogEntry, DaemonStatus, InstallProgress, NginxInfo, NginxPortAccess, NginxRunning, NginxStatus, PHPVersion, PhpExtension, PhpIniConfig, PhpSetting, PhpVersionStatus, ProjectType, ServiceStatus, Site, SiteInfo, TaskState,
   NodeInstallProgress, NodeInstalled, NodeMode, NodeReleaseEntry, NodeStatus,
+  ComposerInstallProgress, ComposerStatus,
 };
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -149,6 +152,16 @@ export const api = {
     activate: (version: string) => request<NodeStatus>(`/node/versions/${version}/activate`, { method: "POST" }),
     uninstall: (version: string) =>
       request<{ ok: boolean }>(`/node/versions/${version}`, { method: "DELETE", timeoutMs: TIMEOUT_LONG }),
+  },
+
+  composer: {
+    // Runs `php -m` and may fetch getcomposer.org's release list on a cold cache.
+    status: () => request<ComposerStatus>("/composer", { timeoutMs: TIMEOUT_LONG }),
+    /** Install, update or repair the `composer` command. */
+    install: () => request<{ ok: boolean; state: TaskState }>("/composer/install", { method: "POST", timeoutMs: TIMEOUT_LONG }),
+    installProgress: () => request<ComposerInstallProgress>("/composer/install/progress"),
+    /** Enables openssl, mbstring, curl and zip in the default PHP's php.ini. */
+    enableExtensions: () => request<ComposerStatus>("/composer/extensions", { method: "POST", timeoutMs: TIMEOUT_LONG }),
   },
 
   config: {

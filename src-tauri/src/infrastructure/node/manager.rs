@@ -5,11 +5,17 @@
 //! `<base_dir>\node\current`, added once to the user PATH. Switching repoints
 //! the link with a junction, which needs no admin rights (unlike the symlink
 //! nvm-windows creates); `nvm use` still works on top of it.
+//!
+//! With nvm-windows 2.x: versions live in its `InstallRoot\v<ver>` (it lists
+//! any such folder, so downloads go there as with 1.x), the active one is its
+//! `ActiveVersion`, and switching / uninstalling go through `nvm.exe`: its
+//! `.nodejs` PATH entry runs launchers, not a version folder, and must not be
+//! repointed.
 
 use async_trait::async_trait;
 use std::{path::{Path, PathBuf}, sync::Arc};
 
-use super::{nvm::NvmLocation, user_path::{same_dir, UserPathEditor}};
+use super::{nvm::{Nvm2Location, NvmInstall}, user_path::{same_dir, UserPathEditor}};
 use crate::{
     domain::{
         errors::InfrastructureError,
@@ -19,13 +25,55 @@ use crate::{
     infrastructure::{blocking, download::is_install_complete},
 };
 
-type NvmLookup = Arc<dyn Fn() -> Option<NvmLocation> + Send + Sync>;
+type NvmLookup = Arc<dyn Fn() -> Option<NvmInstall> + Send + Sync>;
+
+/// Runs `nvm.exe` (nvm-windows 2.x). A trait so tests never change the real
+/// default version. Blocking.
+pub trait NvmCli: Send + Sync {
+    fn run(&self, nvm_exe: &Path, args: &[&str]) -> Result<(), InfrastructureError>;
+}
+
+/// The real `nvm.exe`: no console window, no stdin (it must never wait for an
+/// answer). nvm 2.x prints its errors on stdout.
+pub struct SystemNvmCli;
+
+impl NvmCli for SystemNvmCli {
+    fn run(&self, nvm_exe: &Path, args: &[&str]) -> Result<(), InfrastructureError> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new(nvm_exe)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| InfrastructureError::ProcessFailed(format!("{}: {e}", nvm_exe.display())))?;
+        if out.status.success() { return Ok(()); }
+        let text = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        Err(InfrastructureError::ProcessFailed(format!("nvm {} failed: {}", args.join(" "), clean_output(&text))))
+    }
+}
+
+/// nvm's output as one line: blank lines dropped, ANSI colour codes removed.
+fn clean_output(text: &str) -> String {
+    let mut plain = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // Skip `ESC [ ... <letter>`.
+            for c in chars.by_ref() { if c.is_ascii_alphabetic() { break; } }
+            continue;
+        }
+        plain.push(c);
+    }
+    plain.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+}
 
 pub struct WindowsNodeManager {
     base_dir: PathBuf,
     /// Re-run on every call, so installing nvm while the app runs is picked up.
     nvm: NvmLookup,
     path: Arc<dyn UserPathEditor>,
+    cli: Arc<dyn NvmCli>,
 }
 
 #[derive(Clone)]
@@ -36,28 +84,39 @@ struct Layout {
     /// nvm mode only: the standalone `current` link a pre-nvm Open Herd put on
     /// the user PATH, which would shadow `NVM_SYMLINK` if still there.
     legacy_link: Option<PathBuf>,
+    /// nvm-windows 2.x only.
+    nvm2: Option<Nvm2Location>,
 }
 
 impl WindowsNodeManager {
     /// The real machine: nvm-windows detection and the HKCU PATH.
     #[cfg(windows)]
     pub fn detect(base_dir: PathBuf) -> Self {
-        Self::with_layout(base_dir, Arc::new(super::nvm::detect), Arc::new(super::user_path::RegistryUserPath))
+        Self::with_layout(base_dir, Arc::new(super::nvm::detect_any), Arc::new(super::user_path::RegistryUserPath))
     }
 
     pub fn with_layout(base_dir: PathBuf, nvm: NvmLookup, path: Arc<dyn UserPathEditor>) -> Self {
-        Self { base_dir, nvm, path }
+        Self { base_dir, nvm, path, cli: Arc::new(SystemNvmCli) }
+    }
+
+    /// Replaces the `nvm.exe` runner (tests).
+    pub fn with_cli(mut self, cli: Arc<dyn NvmCli>) -> Self {
+        self.cli = cli;
+        self
     }
 
     fn layout(&self) -> Layout {
+        let legacy_link = Some(self.base_dir.join("node").join("current"));
         match (self.nvm)() {
-            Some(n) => Layout {
-                mode: NodeManagerMode::NvmWindows, store_dir: n.home, link_path: n.symlink,
-                legacy_link: Some(self.base_dir.join("node").join("current")),
+            Some(NvmInstall::Classic(n)) => Layout {
+                mode: NodeManagerMode::NvmWindows, store_dir: n.home, link_path: n.symlink, legacy_link, nvm2: None,
+            },
+            Some(NvmInstall::V2(n)) => Layout {
+                mode: NodeManagerMode::NvmWindows2, store_dir: n.install_root.clone(), link_path: n.link(), legacy_link, nvm2: Some(n),
             },
             None => {
                 let store_dir = self.base_dir.join("node");
-                Layout { mode: NodeManagerMode::OpenHerd, link_path: store_dir.join("current"), store_dir, legacy_link: None }
+                Layout { mode: NodeManagerMode::OpenHerd, link_path: store_dir.join("current"), store_dir, legacy_link: None, nvm2: None }
             }
         }
     }
@@ -118,15 +177,22 @@ fn environment_blocking(l: &Layout, path: &dyn UserPathEditor) -> NodeEnvironmen
         store_dir: l.store_dir.clone(),
         link_path: l.link_path.clone(),
         installed: list_installed(&l.store_dir),
-        active: read_active(&l.link_path),
+        active: match &l.nvm2 {
+            Some(n) => n.active.as_deref().and_then(|v| NodeVersion::parse(v).ok()),
+            None => read_active(&l.link_path),
+        },
         warnings,
     }
 }
 
-fn activate_blocking(l: &Layout, version: &NodeVersion, path: &dyn UserPathEditor) -> Result<(), InfrastructureError> {
+fn activate_blocking(l: &Layout, version: &NodeVersion, path: &dyn UserPathEditor, cli: &dyn NvmCli) -> Result<(), InfrastructureError> {
     let target = l.store_dir.join(version.dir_name());
     if !target.join("node.exe").is_file() || !is_install_complete(&target) {
         return Err(InfrastructureError::NotFound(format!("Node {version} no está instalado en {}", l.store_dir.display())));
+    }
+    if let Some(n) = &l.nvm2 {
+        // An exact version: `nvm use 22` would pick whatever 22.x it likes.
+        return cli.run(&n.exe(), &["use", version.as_str()]);
     }
     let link = &l.link_path;
     if link.exists() && !is_link(link) {
@@ -170,10 +236,19 @@ fn swap_link(link: &Path, target: &Path) -> Result<(), InfrastructureError> {
     Ok(())
 }
 
-fn uninstall_blocking(l: &Layout, version: &NodeVersion) -> Result<(), InfrastructureError> {
+fn uninstall_blocking(l: &Layout, version: &NodeVersion, cli: &dyn NvmCli) -> Result<(), InfrastructureError> {
     let dir = l.store_dir.join(version.dir_name());
     if !dir.is_dir() || is_link(&dir) {
         return Err(InfrastructureError::NotFound(format!("Node {version} no está instalado")));
+    }
+    if let Some(n) = &l.nvm2 {
+        // nvm 2.x also removes the entry it added to Windows' installed apps.
+        // A version Open Herd downloaded has none, and nvm may refuse it:
+        // then the folder is deleted below like in the other modes.
+        if let Err(e) = cli.run(&n.exe(), &["uninstall", version.as_str()]) {
+            tracing::debug!("nvm uninstall {version}: {e}; deleting the folder instead");
+        }
+        if !dir.exists() { return Ok(()); }
     }
     std::fs::remove_dir_all(&dir)?;
     Ok(())
@@ -187,13 +262,13 @@ impl NodeManagerPort for WindowsNodeManager {
     }
 
     async fn activate(&self, version: &NodeVersion) -> Result<(), InfrastructureError> {
-        let (l, path, v) = (self.layout(), self.path.clone(), version.clone());
-        blocking::run(move || activate_blocking(&l, &v, path.as_ref())).await
+        let (l, path, cli, v) = (self.layout(), self.path.clone(), self.cli.clone(), version.clone());
+        blocking::run(move || activate_blocking(&l, &v, path.as_ref(), cli.as_ref())).await
     }
 
     async fn uninstall(&self, version: &NodeVersion) -> Result<(), InfrastructureError> {
-        let (l, v) = (self.layout(), version.clone());
-        blocking::run(move || uninstall_blocking(&l, &v)).await
+        let (l, cli, v) = (self.layout(), self.cli.clone(), version.clone());
+        blocking::run(move || uninstall_blocking(&l, &v, cli.as_ref())).await
     }
 }
 
@@ -201,6 +276,7 @@ impl NodeManagerPort for WindowsNodeManager {
 #[cfg(windows)]
 mod tests {
     use super::*;
+    use super::super::nvm::NvmLocation;
     use parking_lot::Mutex;
     use tempfile::TempDir;
 
@@ -212,6 +288,7 @@ mod tests {
             self.added.lock().push(dir.to_path_buf());
             Ok(true)
         }
+        fn dirs_on_path(&self) -> Vec<PathBuf> { self.path_dirs.clone() }
         fn node_dirs_on_path(&self) -> Vec<PathBuf> { self.path_dirs.clone() }
     }
 
@@ -236,7 +313,7 @@ mod tests {
 
     fn nvm_manager(f: &Fixture) -> WindowsNodeManager {
         let loc = NvmLocation { home: f.nvm_home.clone(), symlink: f.link.clone() };
-        WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(loc.clone())), f.path.clone())
+        WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(NvmInstall::Classic(loc.clone()))), f.path.clone())
     }
 
     fn standalone_manager(f: &Fixture) -> WindowsNodeManager {
@@ -355,7 +432,7 @@ mod tests {
         let stale = f.base.join("node").join("current");
         let path = Arc::new(RecordingPath { path_dirs: vec![stale.clone(), f.link.clone()], ..Default::default() });
         let loc = NvmLocation { home: f.nvm_home.clone(), symlink: f.link.clone() };
-        let m = WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(loc.clone())), path);
+        let m = WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(NvmInstall::Classic(loc.clone()))), path);
         let warnings = m.environment().await.unwrap().warnings;
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains(&stale.display().to_string()), "{}", warnings[0]);
@@ -369,5 +446,102 @@ mod tests {
         assert_eq!(shadowing_dirs(&[msi.clone(), PathBuf::from(r"c:\NVM4W\nodejs\")], &link), vec![msi.clone()]);
         assert!(shadowing_dirs(&[link.clone(), msi.clone()], &link).is_empty());
         assert_eq!(shadowing_dirs(std::slice::from_ref(&msi), Path::new(r"C:\u\.phpenv\node\current")), vec![msi]);
+    }
+
+    // ── nvm-windows 2.x ───────────────────────────────────────────────────────
+
+    /// Records `nvm.exe` calls; `uninstall` deletes the folder like nvm does
+    /// unless `refuse` is set.
+    #[derive(Default)]
+    struct RecordingCli { calls: Mutex<Vec<String>>, refuse: bool, store: Mutex<Option<PathBuf>> }
+    impl NvmCli for RecordingCli {
+        fn run(&self, _exe: &Path, args: &[&str]) -> Result<(), InfrastructureError> {
+            self.calls.lock().push(args.join(" "));
+            if self.refuse { return Err(InfrastructureError::ProcessFailed("nvm uninstall failed: not managed by nvm".into())); }
+            if let (["uninstall", v], Some(store)) = (args, self.store.lock().as_ref()) {
+                std::fs::remove_dir_all(store.join(format!("v{v}"))).unwrap();
+            }
+            Ok(())
+        }
+    }
+
+    struct V2 { _tmp: TempDir, base: PathBuf, nvm_dir: PathBuf, installs: PathBuf, path: Arc<RecordingPath>, cli: Arc<RecordingCli> }
+
+    fn v2_fixture(refuse: bool, path_dirs: Vec<PathBuf>) -> V2 {
+        let tmp = TempDir::new().unwrap();
+        let nvm_dir = tmp.path().join("Author Software").join("nvm");
+        let installs = nvm_dir.join("installs");
+        std::fs::create_dir_all(&installs).unwrap();
+        V2 {
+            base: tmp.path().join("phpenv"), nvm_dir, installs: installs.clone(),
+            path: Arc::new(RecordingPath { path_dirs, ..Default::default() }),
+            cli: Arc::new(RecordingCli { refuse, store: Mutex::new(Some(installs)), ..Default::default() }),
+            _tmp: tmp,
+        }
+    }
+
+    fn v2_manager(f: &V2, active: Option<&str>) -> WindowsNodeManager {
+        let loc = Nvm2Location { dir: f.nvm_dir.clone(), install_root: f.installs.clone(), active: active.map(str::to_string) };
+        WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(NvmInstall::V2(loc.clone()))), f.path.clone())
+            .with_cli(f.cli.clone())
+    }
+
+    #[tokio::test]
+    async fn nvm2_lists_install_root_and_reads_the_active_version() {
+        let f = v2_fixture(false, vec![]);
+        fake_install(&f.installs, "24.21.0");
+        fake_install(&f.installs, "24.19.0");
+        let env = v2_manager(&f, Some("24.21.0")).environment().await.unwrap();
+        assert_eq!(env.mode, NodeManagerMode::NvmWindows2);
+        assert_eq!(env.store_dir, f.installs);
+        assert_eq!(env.link_path, f.nvm_dir.join(".nodejs"));
+        assert_eq!(env.active, Some(v("24.21.0")));
+        let listed: Vec<_> = env.installed.iter().map(|i| i.version.as_str().to_string()).collect();
+        assert_eq!(listed, ["24.21.0", "24.19.0"]);
+    }
+
+    #[tokio::test]
+    async fn nvm2_activates_with_nvm_use_and_never_touches_the_link_or_path() {
+        let f = v2_fixture(false, vec![]);
+        fake_install(&f.installs, "24.19.0");
+        let m = v2_manager(&f, Some("24.21.0"));
+        m.activate(&v("24.19.0")).await.unwrap();
+        assert_eq!(*f.cli.calls.lock(), ["use 24.19.0"]);
+        assert!(!f.nvm_dir.join(".nodejs").exists(), "no junction created");
+        assert!(f.path.added.lock().is_empty());
+        let err = m.activate(&v("18.0.0")).await.unwrap_err();
+        assert!(matches!(err, InfrastructureError::NotFound(_)), "{err}");
+        assert_eq!(f.cli.calls.lock().len(), 1, "nvm not called for a missing version");
+    }
+
+    #[tokio::test]
+    async fn nvm2_uninstalls_through_nvm_or_deletes_the_folder_when_it_refuses() {
+        let f = v2_fixture(false, vec![]);
+        fake_install(&f.installs, "24.19.0");
+        v2_manager(&f, Some("24.21.0")).uninstall(&v("24.19.0")).await.unwrap();
+        assert_eq!(*f.cli.calls.lock(), ["uninstall 24.19.0"]);
+        assert!(!f.installs.join("v24.19.0").exists());
+
+        let f = v2_fixture(true, vec![]);
+        fake_install(&f.installs, "22.0.0");
+        v2_manager(&f, None).uninstall(&v("22.0.0")).await.unwrap();
+        assert!(!f.installs.join("v22.0.0").exists(), "folder removed after nvm refused");
+    }
+
+    #[tokio::test]
+    async fn nvm2_link_as_written_on_the_path_is_not_another_node() {
+        let tmp_link = |f: &V2| PathBuf::from(format!(r"{}\\.nodejs", f.nvm_dir.display()));
+        let f = v2_fixture(false, vec![]);
+        // The double returns these as the `node.exe` folders, in PATH order.
+        let path = Arc::new(RecordingPath { path_dirs: vec![tmp_link(&f)], ..Default::default() });
+        let loc = Nvm2Location { dir: f.nvm_dir.clone(), install_root: f.installs.clone(), active: None };
+        let m = WindowsNodeManager::with_layout(f.base.clone(), Arc::new(move || Some(NvmInstall::V2(loc.clone()))), path);
+        assert!(m.environment().await.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn nvm_output_is_cleaned_to_one_line() {
+        assert_eq!(clean_output("\u{1b}[31mv9.11.2 is not installed\u{1b}[0m\n\nEnable auto-install with: x\n"),
+            "v9.11.2 is not installed Enable auto-install with: x");
     }
 }

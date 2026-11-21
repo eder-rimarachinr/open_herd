@@ -49,7 +49,21 @@ pub async fn update_config(
     if let Err(response) = apply_listen_ports(&container, &previous, &updated).await {
         return response;
     }
+    if previous.default_php != updated.default_php {
+        sync_composer_command(&container, &updated.default_php).await;
+    }
     Json(updated).into_response()
+}
+
+/// The `composer` command runs the default PHP: point it at the new one.
+/// Best effort — the setting is already saved, and the Composer section
+/// explains (and can repair) a command left on the old PHP.
+async fn sync_composer_command(container: &AppContainer, default_php: &str) {
+    match container.sync_composer_command_uc.execute(default_php).await {
+        Ok(true) => container.logger.log(format!("composer command now runs PHP {default_php}")),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("Could not point the composer command at PHP {default_php}: {e}"),
+    }
 }
 
 /// Ports are the only settings nginx reads at start (everything else is read

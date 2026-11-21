@@ -1,3 +1,4 @@
+pub mod composer_handlers;
 pub mod config_handlers;
 pub mod error;
 pub mod extract;

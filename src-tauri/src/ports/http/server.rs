@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 use crate::infrastructure::container::AppContainer;
-use crate::ports::http::{config_handlers, nginx_handlers, node_handlers, php_handlers, site_handlers};
+use crate::ports::http::{composer_handlers, config_handlers, nginx_handlers, node_handlers, php_handlers, site_handlers};
 
 /// Extract the hostname from a `Host` or `authority` value, dropping the port.
 /// Handles bracketed IPv6 (`[::1]:7878`).
@@ -113,6 +113,10 @@ pub fn build_router(container: Arc<AppContainer>) -> Router {
         .route("/api/v1/node/install/{version}/progress", get(node_handlers::install_node_progress))
         .route("/api/v1/node/versions/{version}/activate", post(node_handlers::activate_node))
         .route("/api/v1/node/versions/{version}",        delete(node_handlers::uninstall_node))
+        .route("/api/v1/composer",                       get(composer_handlers::composer_status))
+        .route("/api/v1/composer/install",               post(composer_handlers::install_composer))
+        .route("/api/v1/composer/install/progress",      get(composer_handlers::install_composer_progress))
+        .route("/api/v1/composer/extensions",            post(composer_handlers::enable_composer_extensions))
         .route("/api/v1/nginx/status",                  get(nginx_handlers::nginx_status))
         .route("/api/v1/nginx/info",                    get(nginx_handlers::nginx_info))
         .route("/api/v1/nginx/download",                post(nginx_handlers::download_nginx))

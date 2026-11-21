@@ -75,6 +75,8 @@ impl DownloadProgressPort for FakeDownloads {
         self.node.lock().as_ref().filter(|(ver, _)| ver == version.as_str())
             .map(|(_, state)| DownloadProgress { state: *state, message: String::new(), percent: 10, error: None })
     }
+    async fn start_composer_download(&self, _: &crate::domain::composer::ComposerRelease, _: &Path, _: crate::domain::ports::download::PostInstall) {}
+    async fn composer_progress(&self) -> Option<DownloadProgress> { None }
 }
 
 struct FakeReleases(Vec<NodeReleaseInfo>);

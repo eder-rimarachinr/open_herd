@@ -192,7 +192,7 @@ export default function Settings() {
               ...(nodeStatus ? [{
                 label: "Node",
                 value: nodeStatus.store_dir,
-                note: nodeStatus.mode === "nvm-windows" ? "nvm-windows" : undefined,
+                note: nodeStatus.mode === "nvm-windows" || nodeStatus.mode === "nvm-windows-2" ? "nvm-windows" : undefined,
               }] : []),
               { label: "Certs", value: config.certs_dir },
               { label: "Logs",  value: config.logs_dir },

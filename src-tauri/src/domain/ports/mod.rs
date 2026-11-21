@@ -1,3 +1,4 @@
+pub mod composer;
 pub mod dns;
 pub mod file_manager;
 pub mod download;
