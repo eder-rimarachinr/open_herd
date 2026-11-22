@@ -277,3 +277,5 @@ Open Herd is free software: you can redistribute it and/or modify it under the t
 It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [GNU General Public License](LICENSE) for more details.
 
 In short: you may use, study, change and share Open Herd, including commercially, but if you distribute it or a modified version, you must do so under the GPL-3.0 and make the source code available.
+
+The executable also contains open-source libraries (Rust crates and JavaScript packages) under their own licenses, all compatible with the GPL-3.0. Their notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which also ships with the installers and the portable zip. nginx, PHP, mkcert, Node.js and Composer are not bundled: Open Herd downloads them from their official sources when you ask, and their own licenses apply.

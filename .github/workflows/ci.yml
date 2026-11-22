@@ -54,6 +54,42 @@ jobs:
             exit 1
           fi
 
+  # ── Licenses: GPL-3.0 compatibility + THIRD_PARTY_NOTICES.md ─────────────────
+  licenses:
+    name: Licenses (cargo-deny + notices)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@1.96.0 # same pinned toolchain as the rust job
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.22.0,cargo-about@0.9.3
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      # Every crate compiled into the app must have a GPL-3.0-compatible
+      # license (policy in src-tauri/deny.toml).
+      - name: cargo deny check licenses
+        working-directory: src-tauri
+        run: cargo deny check licenses
+
+      # A dependency was added, removed or bumped without regenerating the notices.
+      # The generator runs cargo-about --frozen (offline), so fetch crates first.
+      - name: THIRD_PARTY_NOTICES.md is up to date
+        run: |
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+          node scripts/third-party-notices.mjs --check
+
   # ── TypeScript: lint + test ──────────────────────────────────────────────────
   frontend:
     name: Frontend (eslint + vitest)

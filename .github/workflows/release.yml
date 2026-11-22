@@ -91,4 +91,9 @@ jobs:
           } else {
             # --notes-from-tag: the annotated tag message becomes the release notes.
             gh release create $env:TAG @files --draft --verify-tag --title "Open Herd $env:TAG" --notes-from-tag
+            # GPL-3.0: point binary downloads at the matching source and notices.
+            $notes = (gh release view $env:TAG --json body --jq .body) -join "`n"
+            $repo = "https://github.com/$env:GITHUB_REPOSITORY"
+            $footer = "`n`n---`nLicensed under GPL-3.0. Source code for this release: $repo/tree/$env:TAG (or the Source code archives below). Third-party licenses: [THIRD_PARTY_NOTICES.md]($repo/blob/$env:TAG/THIRD_PARTY_NOTICES.md), also included in the installers."
+            gh release edit $env:TAG --notes "$notes$footer"
           }

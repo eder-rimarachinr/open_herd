@@ -1,0 +1,33 @@
+# cargo-deny policy: `cargo deny check licenses` (CI job "Licenses").
+#
+# Open Herd is GPL-3.0-only, so every crate compiled into it must carry a
+# license that GPL-3.0 can absorb. A crate with any other license fails CI. Do
+# not just add its license here: check first that it is GPL-3.0 compatible
+# (https://www.gnu.org/licenses/license-list.html).
+
+[graph]
+# The platforms we ship. Crates used only on other targets (macOS, iOS,
+# Android…) are never compiled into a release.
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+exclude-dev = true
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "GPL-3.0-only",            # Open Herd itself
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",                 # GPL-compatible (section 3.3)
+    "bzip2-1.0.6",             # libbz2-rs-sys (via zip); BSD-style, permissive
+]

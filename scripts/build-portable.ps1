@@ -161,6 +161,11 @@ New-Item -ItemType Directory -Path (Join-Path $portableStage "data") | Out-Null
 
 Copy-Item $builtExe (Join-Path $portableStage "open-herd.exe")
 
+# GPL-3.0 y avisos de las dependencias incluidas en el exe (los instaladores
+# los llevan como resources de tauri.conf.json)
+Copy-Item (Join-Path $root "LICENSE") (Join-Path $portableStage "LICENSE.txt")
+Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $portableStage "THIRD_PARTY_NOTICES.md")
+
 # data/config.json vacio -> activa modo portable (datos en ./data/ en vez de ~/.phpenv)
 Set-Content -Path (Join-Path $portableStage "data\config.json") -Value "{}" -Encoding utf8
 
@@ -171,6 +176,9 @@ $readmeContent += "Ejecuta open-herd.exe desde esta carpeta.`r`n"
 $readmeContent += "Los datos se guardan en la carpeta data/ junto al exe.`r`n"
 $readmeContent += "`r`n"
 $readmeContent += "Para instalar como app normal usa el instalador open-herd-v$version-setup.exe.`r`n"
+$readmeContent += "`r`n"
+$readmeContent += "Licencia: GPL-3.0 (LICENSE.txt). Codigo fuente: https://github.com/eder-rimarachinr/open_herd`r`n"
+$readmeContent += "Licencias de terceros: THIRD_PARTY_NOTICES.md`r`n"
 Set-Content -Path (Join-Path $portableStage "README.txt") -Value $readmeContent -Encoding utf8
 
 # Comprimir

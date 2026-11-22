@@ -57,6 +57,8 @@ Integration tests build the container with `tests/common::make_container`, which
 
 `cargo clippy --all-targets` must stay warning-free. It enforces `unwrap_used`, `expect_used`, and cognitive-complexity (see `[lints.clippy]` in `src-tauri/Cargo.toml`; `clippy.toml` allows unwrap/expect in tests) — avoid `.unwrap()`/`.expect()` in new backend code, especially in `application/` and `domain/`.
 
+Licenses (CI job "Licenses"): `cargo deny check licenses` (from `src-tauri`, policy in `deny.toml`: only GPL-3.0-compatible licenses) and `node scripts/third-party-notices.mjs --check`. After adding, removing or bumping a Rust or npm dependency, run `node scripts/third-party-notices.mjs` (needs `cargo install --locked cargo-about cargo-deny` and `npm ci`) and commit `THIRD_PARTY_NOTICES.md`. It ships in the installers (`bundle.resources`) and the portable zip; the NSIS installer shows `LICENSE`.
+
 Frontend, from the repo root:
 ```bash
 npm test        # vitest run
