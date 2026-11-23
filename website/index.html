@@ -3,17 +3,104 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Open Herd — The local PHP stack for Windows</title>
+  <!-- Primary -->
+  <title>Open Herd — Free local PHP environment for Windows</title>
   <meta name="description" content="Serve your PHP projects at https://project.test with nginx, PHP 5.6 – 8.5, Node.js, Composer and trusted SSL certificates, managed from one small desktop app. Free and open source.">
+  <meta name="author" content="Eder Rimarachin">
+  <meta name="keywords" content="local PHP development environment Windows, PHP local server Windows, XAMPP alternative, Laragon alternative, Laravel Herd alternative Windows, nginx PHP Windows, multiple PHP versions Windows, PHP 8.5 Windows, local HTTPS mkcert, .test domains, Laravel local development, WordPress local development, CodeIgniter local server, Composer Windows, Node.js version manager Windows, Open Herd">
+  <link rel="canonical" href="https://openherd.eder-rimarachin.com/">
   <meta name="theme-color" content="#0e1215">
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="canonical" href="https://openherd.eder-rimarachin.com/">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+
+  <!-- Open Graph. og-image.png (1200x630) comes from the local, git-ignored videos/thumbnail.mjs -->
+
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Open Herd — The local PHP stack for Windows">
-  <meta property="og:description" content="nginx, PHP 5.6 – 8.5, Node.js, Composer and HTTPS for your .test sites, from one desktop app. Free and open source.">
   <meta property="og:url" content="https://openherd.eder-rimarachin.com/">
-  <meta property="og:image" content="https://openherd.eder-rimarachin.com/logo.png">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:title" content="Open Herd — Free local PHP environment for Windows">
+  <meta property="og:description" content="nginx, PHP 5.6 – 8.5, Node.js, Composer and HTTPS for your .test sites, from one desktop app. Free and open source.">
+  <meta property="og:image" content="https://openherd.eder-rimarachin.com/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Open Herd: PHP on Windows in 1 click. The Sites window with four local .test sites running and https://myproject.test with a padlock.">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:site_name" content="Open Herd">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@JoaquinZeta">
+  <meta name="twitter:creator" content="@JoaquinZeta">
+  <meta name="twitter:url" content="https://openherd.eder-rimarachin.com/">
+  <meta name="twitter:title" content="Open Herd — Free local PHP environment for Windows">
+  <meta name="twitter:description" content="nginx, PHP 5.6 – 8.5, Node.js, Composer and HTTPS for your .test sites, from one desktop app. Free and open source.">
+  <meta name="twitter:image" content="https://openherd.eder-rimarachin.com/og-image.png">
+  <meta name="twitter:image:alt" content="Open Herd: PHP on Windows in 1 click.">
+
+  <!-- Indexing -->
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <meta name="googlebot" content="index, follow">
+
+  <!-- Structured data: the app (softwareVersion / downloadUrl: bump on release) and the site -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://openherd.eder-rimarachin.com/#app",
+        "name": "Open Herd",
+        "description": "Local PHP development environment manager for Windows: nginx, PHP 5.6 – 8.5 per site, .test domains, trusted local HTTPS with mkcert, Node.js and Composer, from one desktop app.",
+        "url": "https://openherd.eder-rimarachin.com/",
+        "image": "https://openherd.eder-rimarachin.com/og-image.png",
+        "screenshot": "https://openherd.eder-rimarachin.com/og-image.png",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Local development environment",
+        "operatingSystem": "Windows 10, Windows 11",
+        "softwareVersion": "0.5.0",
+        "downloadUrl": "https://github.com/eder-rimarachinr/open_herd/releases/latest",
+        "installUrl": "https://github.com/eder-rimarachinr/open_herd/releases/latest",
+        "releaseNotes": "https://github.com/eder-rimarachinr/open_herd/releases",
+        "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Sites at name.test from any project folder",
+          "Laravel, WordPress, CodeIgniter, SPA and static site detection",
+          "PHP 5.6 to 8.5, one version per site, SHA-256 verified downloads",
+          "Trusted local HTTPS certificates with mkcert",
+          "Automatic hosts file entries without running as administrator",
+          "Node.js LTS versions, compatible with nvm-windows",
+          "Composer on the default PHP",
+          "Portable mode"
+        ],
+        "sameAs": ["https://github.com/eder-rimarachinr/open_herd"],
+        "author": { "@id": "https://eder-rimarachin.com/#person" }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://openherd.eder-rimarachin.com/#website",
+        "name": "Open Herd",
+        "url": "https://openherd.eder-rimarachin.com/",
+        "inLanguage": "en",
+        "about": { "@id": "https://openherd.eder-rimarachin.com/#app" },
+        "publisher": { "@id": "https://eder-rimarachin.com/#person" }
+      },
+      {
+        "@type": "Person",
+        "@id": "https://eder-rimarachin.com/#person",
+        "name": "Eder Rimarachin",
+        "url": "https://eder-rimarachin.com",
+        "sameAs": [
+          "https://github.com/eder-rimarachinr/",
+          "https://www.linkedin.com/in/eder-rimarachinr/",
+          "https://x.com/JoaquinZeta"
+        ]
+      }
+    ]
+  }
+  </script>
   <script>
     // Theme before first paint: saved choice, else dark.
     try { var t = localStorage.getItem("oh-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}

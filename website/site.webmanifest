@@ -1,0 +1,16 @@
+{
+  "name": "Open Herd — Local PHP environment for Windows",
+  "short_name": "Open Herd",
+  "description": "nginx, PHP 5.6 – 8.5, Node.js, Composer and HTTPS for your .test sites, from one desktop app.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#0e1215",
+  "theme_color": "#0e1215",
+  "lang": "en",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

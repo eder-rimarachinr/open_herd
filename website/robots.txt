@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://openherd.eder-rimarachin.com/sitemap.xml
