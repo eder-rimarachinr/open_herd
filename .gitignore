@@ -34,3 +34,6 @@ Thumbs.db
 # Claude Code: per-user settings (shared ones live in .claude/settings.json)
 .claude/settings.local.json
 .superpowers/
+
+# Motion graphics: sources, renders and temp frames (never pushed)
+videos/
