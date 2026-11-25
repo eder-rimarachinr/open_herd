@@ -25,7 +25,29 @@ function invalidate(...keys: string[]) {
   keys.forEach(k => _cache.delete(k));
 }
 
+// The webview opens while the daemon is still binding 127.0.0.1:7878, so the
+// first reads of a page can be refused ("Failed to fetch"). Reads are retried
+// for a few seconds; writes never are (they may have reached the daemon).
+const STARTUP_RETRY_DELAYS = [250, 500, 750, 1000, 1500, 2000, 2000]; // ms, ~8 s total
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET") return requestOnce<T>(path, init);
+  for (const delay of STARTUP_RETRY_DELAYS) {
+    try {
+      return await requestOnce<T>(path, init);
+    } catch (err) {
+      // fetch rejects with a TypeError only when no response arrived at all.
+      if (!(err instanceof TypeError)) throw err;
+      await sleep(delay);
+    }
+  }
+  return requestOnce<T>(path, init);
+}
+
+async function requestOnce<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, ...fetchInit } = init ?? {};
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs ?? TIMEOUT_DEFAULT);
